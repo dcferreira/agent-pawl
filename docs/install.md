@@ -1,111 +1,89 @@
 # Install
 
-`wf` is one static Go binary plus a Claude Code plugin. The plugin is what makes runs work inside a
-session: it ships the `/wf` skill the model follows, and the two hooks that stop a run being
-abandoned halfway.
+**This build has no plugin, no `install.sh`, and no release binaries.** DESIGN.md §9 describes a
+Claude Code plugin (a `/wf` skill plus two static hooks, self-installing a pinned release binary)
+as the intended distribution story. None of that exists yet. What exists is a Go module you build
+yourself, and a skill file you copy into place by hand — see [dogfood.md](dogfood.md).
 
-## Install the plugin
+## Build and install the binary
 
-```
-/plugin install wf@anthropic-experimental
-```
-
-Then start a run, or force the fetch now:
+You need Go (this build was developed and tested against Go 1.27) and a clone of this repo.
 
 ```
-› wf version
-wf 0.4.2 (plugin pin 0.4.2)  binary: ~/.claude/wf/bin/wf
+make install
 ```
 
-The first `/wf` use runs `bin/install.sh`, which downloads the pinned `wf` release into
-`~/.claude/wf/bin/`. It prints one line when it does:
+This is exactly `go install ./cmd/wf` (see the `Makefile`). It builds `cmd/wf` and drops `wf` at
+`$(go env GOPATH)/bin/wf` — make sure that directory is on your `PATH`. Equivalent, if you don't
+want to clone the repo yourself and it's published somewhere your `go install` can reach:
 
 ```
-wf: fetched 0.4.2 → ~/.claude/wf/bin/wf
+go install github.com/dcferreira/agentic-workflow-fsm/cmd/wf@latest
 ```
 
-If a `wf` is already on your `PATH` and its version matches the plugin's pin, that one is used and
-nothing is downloaded.
+There is no `go install ./cmd/wf@latest`-with-version story: nothing here is tagged or released,
+so `@latest` means "whatever is on the default branch," not a pinned build.
 
-## What gets installed where
-
-| Path | What |
-|---|---|
-| `~/.claude/plugins/wf/` | the plugin: `/wf` skill, `hooks/hooks.json`, `bin/install.sh` |
-| `~/.claude/wf/bin/wf` | the engine binary, at the pinned version |
-| `~/.claude/wf/live/` | symlinks to live runs; how the hooks find a run in ~2 ms |
-| `~/.local/state/wf/` | run directories: journal, status, lock. One per run |
-| `~/.claude/workflows/` | your user-level workflows (you create this) |
-
-The hooks are bound once, at install:
+If you'd rather not touch `$GOPATH/bin`, `make build` puts the binary at `./bin/wf` in the repo
+instead:
 
 ```
-PreToolUse (matcher: Bash) → wf-hook pre
-Stop                       → wf-hook stop
+make build
+./bin/wf version
 ```
-
-Both are a ten-line shell fast path. With no live run they exit 0 after one directory check, so
-they cost about 2 ms on every Bash call and nothing else. `wf` never installs, rewrites or removes
-them at run time.
 
 ## Verify
 
 ```
-› wf version
-wf 0.4.2 (plugin pin 0.4.2)  binary: ~/.claude/wf/bin/wf
-› wf list
-No workflows found (looked in ./.claude/workflows/ and ~/.claude/workflows/).
+wf version
 ```
 
-The real check is the banner on the first line of any run:
+prints `wf dev` — every build from source prints `dev`, because nothing in this build sets the
+`-ldflags "-X main.Version=..."` that `cmd/wf/main.go` supports; there is no version-numbering or
+release process yet, so `wf dev` is what installing correctly looks like, not a symptom of a bad
+build.
 
 ```
-› wf run tidy
-  hooks: PreToolUse ✔  Stop ✔   guards: 0 advisory (pattern-matched)  invariants: 0
+wf
 ```
 
-Two ✔ means both hooks answered the self-test. `wf run` refuses to start if either is missing —
-see [troubleshooting.md](troubleshooting.md#hooks-not-live).
+with no arguments prints the command list — `run`, `validate`, `status`, `abandon`, `list`,
+`submit`, `version`. That is the complete command surface of this build. In particular:
 
-## Alternatives to the plugin
+- **`wf poll` and `wf hook` do not exist.** There is no `wait`/`human` step kind to poll for
+  (see below), and there are no hooks to invoke.
+- **`wf run` never refuses to start for lack of enforcement.** It prints
+  `enforcement: off (milestone 1)` in its banner and proceeds — see
+  [dogfood.md](dogfood.md) for what that means in practice.
 
-```
-brew install wf
-go install github.com/…/wf@v0.4.2
-```
-
-Both put `wf` on your `PATH`, and the plugin will use it if the version matches its pin. Neither
-installs the skill or the hooks. Without the skill the model does not know the handshake; without
-the hooks `wf run` refuses to start. If you cannot install plugins, the `/wf` skill's frontmatter
-carries a `hooks:` block that wires the same two hooks when the skill is loaded — copy the skill
-into `~/.claude/skills/wf/`.
-
-## Updating
+## What `make check` runs
 
 ```
-/plugin update wf
+make check
 ```
 
-The plugin moves its pin; the next run fetches the matching binary. A binary whose version differs
-from the pin is refused, loudly, with both numbers:
-
-```
-wf: binary 0.4.2 does not match plugin pin 0.5.0. Run `/wf` to fetch the pinned build,
-    or `brew upgrade wf`.
-```
-
-This is deliberate: the skill text, the hook payload format and the binary change together.
+runs `go fmt ./...`, `go vet ./...`, then `go test ./...`. This is the same check a change to this
+repo is expected to pass; running it after `make install` is a reasonable sanity check that your
+Go toolchain and checkout are in order, though it is not required just to use the binary.
 
 ## Uninstall
 
 ```
-/plugin uninstall wf
-rm -rf ~/.claude/wf ~/.local/state/wf
+rm $(go env GOPATH)/bin/wf
 ```
 
-Nothing else is left behind. Run directories under `~/.local/state/wf/` are plain files — delete
-one and that run is gone. Your workflow YAML lives in your repo and is untouched.
+There is no other installed state to remove: no plugin directory, no `~/.claude/wf/`, no global
+`~/.local/state/wf/`. Where run state actually lives is `internal/journal`'s run directory — see
+`docs/running.md` and `wf status`'s `root:` line for the mechanism that exists today.
+
+## Step kinds and validator scope in this build
+
+Only two step kinds are implemented: `deterministic` and `agentic`. A workflow that declares
+`kind: wait`, `kind: human`, or `kind: parallel` is rejected by both `wf validate` and `wf run`
+with a "not implemented in this build" (or, for `parallel`, "reserved for Milestone 3") message —
+it does not silently no-op. The same is true of top-level `guards:`, `invariants:`, and a step's
+`retry:` field: declaring any of them is a validation error, not a quietly-ignored field.
 
 ---
 
-Next: [quickstart.md](quickstart.md).
+Next: [dogfood.md](dogfood.md) — actually running a workflow end to end.
