@@ -1,0 +1,9 @@
+workflow: f9pc
+start: a
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    postcondition: [a]
+    next: done
+terminal: {done: {status: ok}}

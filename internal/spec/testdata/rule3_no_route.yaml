@@ -1,0 +1,7 @@
+workflow: rule3
+start: a
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+terminal: {done: {status: ok}}

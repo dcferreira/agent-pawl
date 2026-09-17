@@ -1,0 +1,10 @@
+workflow: r3human
+start: h
+steps:
+  - id: h
+    kind: human
+    question: "Continue?"
+    options: [yes, no]
+    timeout: 1h
+    next: done
+terminal: {done: {status: ok}}

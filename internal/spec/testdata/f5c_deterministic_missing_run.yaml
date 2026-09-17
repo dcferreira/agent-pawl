@@ -1,0 +1,7 @@
+workflow: f5cRun
+start: a
+steps:
+  - id: a
+    kind: deterministic
+    next: done
+terminal: {done: {status: ok}}

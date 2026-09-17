@@ -1,0 +1,12 @@
+workflow: r8invariants
+start: a
+invariants:
+  - id: mr-still-open
+    check: scripts/mr-open.sh
+    message: "The MR was closed out from under the run."
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    next: done
+terminal: {done: {status: ok}}

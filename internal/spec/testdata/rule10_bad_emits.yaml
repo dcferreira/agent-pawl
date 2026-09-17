@@ -1,0 +1,9 @@
+workflow: rule10
+start: a
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    emits: xml
+    next: done
+terminal: {done: {status: ok}}

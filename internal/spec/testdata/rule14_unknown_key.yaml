@@ -1,0 +1,9 @@
+workflow: rule14b
+start: a
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    postcondition: {command: "true", bogus: 1}
+    next: done
+terminal: {done: {status: ok}}

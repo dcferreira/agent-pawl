@@ -1,0 +1,11 @@
+workflow: rule11b
+start: a
+state:
+  count: {type: integer, default: 0}
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    writes: {count: {type: string}}
+    next: done
+terminal: {done: {status: ok}}

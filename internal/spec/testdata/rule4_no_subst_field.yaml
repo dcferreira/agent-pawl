@@ -1,0 +1,8 @@
+workflow: rule4b
+start: a
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    next: "${bad}"
+terminal: {done: {status: ok}}

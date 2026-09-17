@@ -1,0 +1,14 @@
+workflow: rule9
+start: a
+state:
+  out: {type: string, default: ""}
+steps:
+  - id: a
+    kind: agentic
+    description: Do the thing.
+    postcondition: "true"
+    writes: {out: {type: string}}
+    outcomes:
+      success: done
+      failure: done
+terminal: {done: {status: ok}}

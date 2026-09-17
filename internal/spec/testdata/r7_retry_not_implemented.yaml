@@ -1,0 +1,9 @@
+workflow: r7retry
+start: a
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    retry: {max_attempts: 3, backoff: 30s}
+    next: done
+terminal: {done: {status: ok}}

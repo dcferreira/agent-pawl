@@ -1,0 +1,12 @@
+workflow: r8guards
+start: a
+guards:
+  - id: never-rewrite-changelog
+    match: "(sed|awk) .*CHANGELOG.md"
+    only_in: []
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    next: done
+terminal: {done: {status: ok}}

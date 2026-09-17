@@ -1,0 +1,8 @@
+workflow: f2bad
+start: nope
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    next: done
+terminal: {done: {status: ok}}

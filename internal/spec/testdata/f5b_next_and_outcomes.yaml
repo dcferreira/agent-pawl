@@ -1,0 +1,10 @@
+workflow: f5bBoth
+start: a
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    next: done
+    outcomes:
+      ready: done
+terminal: {done: {status: ok}}

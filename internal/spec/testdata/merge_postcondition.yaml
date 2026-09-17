@@ -1,0 +1,17 @@
+workflow: mergepc
+start: a
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    postcondition: &basepc
+      command: "true"
+    next: b
+  - id: b
+    kind: deterministic
+    run: echo bye
+    postcondition:
+      <<: *basepc
+      soft: true
+    next: done
+terminal: {done: {status: ok}}

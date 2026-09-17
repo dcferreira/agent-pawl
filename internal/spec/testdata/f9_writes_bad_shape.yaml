@@ -1,0 +1,9 @@
+workflow: f9writes
+start: a
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    writes: foo
+    next: done
+terminal: {done: {status: ok}}

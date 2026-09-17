@@ -1,0 +1,11 @@
+workflow: rule5
+start: a
+args:
+  target: {type: string, default: ""}
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    writes: [target]
+    next: done
+terminal: {done: {status: ok}}

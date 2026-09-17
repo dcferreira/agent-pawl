@@ -1,0 +1,9 @@
+workflow: f7missing
+start: a
+steps:
+  - id: a
+    kind: agentic
+    description: Do the thing.
+    postcondition: "true"
+    next: done
+terminal: {done: {status: ok}}

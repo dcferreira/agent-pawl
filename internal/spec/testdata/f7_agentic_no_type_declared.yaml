@@ -1,0 +1,12 @@
+workflow: f7notype
+start: a
+state:
+  out: {type: string, default: ""}
+steps:
+  - id: a
+    kind: agentic
+    description: Do the thing.
+    postcondition: "true"
+    writes: {out: {}}
+    next: done
+terminal: {done: {status: ok}}

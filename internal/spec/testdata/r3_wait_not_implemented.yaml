@@ -1,0 +1,9 @@
+workflow: r3wait
+start: w
+steps:
+  - id: w
+    kind: wait
+    poll: echo CLEAN
+    timeout: 1h
+    next: done
+terminal: {done: {status: ok}}

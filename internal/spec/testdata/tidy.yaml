@@ -1,0 +1,13 @@
+workflow: tidy
+start: format
+steps:
+  - id: format
+    kind: deterministic
+    run: ruff format .
+    postcondition: ruff format --check .
+    next: test
+  - id: test
+    kind: deterministic
+    run: pytest -q
+    next: done
+terminal: {done: {status: ok}}

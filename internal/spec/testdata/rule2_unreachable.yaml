@@ -1,0 +1,12 @@
+workflow: rule2
+start: a
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    next: done
+  - id: orphan
+    kind: deterministic
+    run: echo bye
+    next: done
+terminal: {done: {status: ok}}

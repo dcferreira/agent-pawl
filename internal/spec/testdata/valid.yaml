@@ -1,0 +1,24 @@
+workflow: valid-example
+start: build
+max_steps: 50
+args:
+  target: {type: string, default: "all"}
+state:
+  findings: {type: json, default: []}
+steps:
+  - id: build
+    kind: deterministic
+    run: scripts/build.sh "${target}"
+    postcondition: "true"
+    soft: true
+    next: fix
+  - id: fix
+    kind: agentic
+    description: |
+      Fix any build issues for ${target}.
+    writes: {findings: {type: json}}
+    postcondition: {all_set: [findings]}
+    attempts: 2
+    next: done
+terminal:
+  done: {status: ok, message: "Build finished for ${target}."}

@@ -1,0 +1,10 @@
+workflow: rule3b
+start: w
+steps:
+  - id: w
+    kind: wait
+    poll: echo CLEAN
+    timeout: 1h
+    outcomes:
+      CLEAN: done
+terminal: {done: {status: ok}}

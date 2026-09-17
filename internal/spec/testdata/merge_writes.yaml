@@ -1,0 +1,18 @@
+workflow: mergewrites
+start: a
+state:
+  count: {type: integer, default: 0}
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    writes: &basewrites
+      count: {type: integer}
+    next: b
+  - id: b
+    kind: deterministic
+    run: echo bye
+    writes:
+      <<: *basewrites
+    next: done
+terminal: {done: {status: ok}}

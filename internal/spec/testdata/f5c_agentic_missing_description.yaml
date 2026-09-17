@@ -1,0 +1,11 @@
+workflow: f5cDesc
+start: a
+state:
+  out: {type: string, default: ""}
+steps:
+  - id: a
+    kind: agentic
+    postcondition: "true"
+    writes: {out: {type: string}}
+    next: done
+terminal: {done: {status: ok}}

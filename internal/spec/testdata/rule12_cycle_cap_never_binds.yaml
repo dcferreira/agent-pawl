@@ -1,0 +1,15 @@
+workflow: rule12b
+start: a
+max_steps: 5
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    max_visits: 20
+    next: b
+  - id: b
+    kind: deterministic
+    run: echo bye
+    max_visits: 20
+    next: a
+terminal: {done: {status: ok}}

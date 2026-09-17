@@ -1,0 +1,13 @@
+workflow: rule9b
+start: a
+state:
+  out: {type: string, default: ""}
+steps:
+  - id: a
+    kind: agentic
+    description: Do the thing.
+    subagent_args: [not, a, map]
+    postcondition: "true"
+    writes: {out: {type: string}}
+    next: done
+terminal: {done: {status: ok}}
