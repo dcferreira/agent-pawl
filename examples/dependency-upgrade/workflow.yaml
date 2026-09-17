@@ -1,0 +1,259 @@
+workflow: dependency-upgrade
+description: >
+  Upgrade a Python (uv) project's dependencies to the latest allowed versions,
+  keep a green test suite the whole way, and land the result as a reviewed,
+  merged PR — with a fix loop for regressions and human gates when automation
+  runs out of road.
+start: snapshot_baseline
+max_steps: 200                        # backstop on total steps executed in one run
+
+# Project shape assumed: a uv-managed Python project (pyproject.toml + uv.lock),
+# GitHub-hosted, using `gh` for PR/CI interaction. (Node/pnpm would be
+# structurally identical: swap `uv lock --upgrade` for `pnpm update --latest`,
+# `uv.lock` for `pnpm-lock.yaml`, `uv run pytest` for `pnpm test`.)
+
+# The engine never touches the working tree. fix_tests's retried attempts
+# run on the tree exactly as the previous attempt left it.
+
+state:
+  baseline_lockfile_hash: {type: string}
+  baseline_status:        {type: string}          # "green" | "red"
+  upgrade_diff:           {type: json, default: {}}
+  changed_packages:       {type: json, default: []}   # [{name, from, to}, ...]
+  failing_signature:      {type: string, default: ""} # stable hash of sorted failing test ids
+  fix_summary:            {type: string}
+  fix_action:             {type: string}           # "code_fix" | "pin"
+  fix_decision:           {type: string}
+  pinned_package:         {type: json, default: null}
+  branch:                 {type: string}
+  pr_number:              {type: string}
+  merge_decision:         {type: string}
+
+invariants:
+  - id: lockfile-manifest-consistent
+    check: "uv lock --check"
+    message: >
+      uv.lock is out of sync with pyproject.toml — dependency state has
+      drifted from what the manifest declares. This must never happen mid-run:
+      every step that touches dependencies (bump_deps, pin_dependency) is
+      expected to leave the lockfile regenerated and consistent before it
+      returns control.
+
+guards:
+  - id: publish-only-in-commit-step
+    match: "git push .*|gh pr create .*"
+    only_in: [commit_and_pr]
+  - id: merge-only-in-merge-step
+    match: "gh pr merge .*"
+    only_in: [merge_pr]
+
+steps:
+  # 1 — deterministic: snapshot the lockfile and establish a green baseline.
+  # A red baseline is a precondition violation, not a "failure to be fixed",
+  # so it is a *named outcome* the script reports on exit 0 — an infra error
+  # running the baseline at all (script crash, no test runner found) is a
+  # genuine `failure` and still routes via the default catch to `blocked`.
+  - id: snapshot_baseline
+    kind: deterministic
+    run: scripts/snapshot-baseline.sh
+    writes: [baseline_lockfile_hash, baseline_status]
+    postcondition: {all_set: [baseline_status]}
+    outcomes:
+      green: bump_deps
+      red:   baseline_red
+
+  # 2 — deterministic: bump dependencies and capture the diff into state.
+  # Talks to the package index, so it is the workflow's clearest candidate
+  # for `retry:` (flaky network / registry rate limits). "Nothing to
+  # upgrade" is its own named outcome, so a no-op upgrade routes straight to
+  # `up_to_date` instead of paying for a full, pointless test run.
+  - id: bump_deps
+    kind: deterministic
+    run: scripts/bump-deps.sh
+    writes: [upgrade_diff, changed_packages]
+    postcondition: "uv lock --check"
+    retry: {max_attempts: 3, backoff: 10s}
+    outcomes:
+      upgraded:   run_tests_after_bump
+      no_changes: up_to_date
+
+  # 3 — deterministic: run tests against the bumped lockfile. `success`/
+  # `failure` are reserved outcomes driven by exit code; the last stdout
+  # line still carries `failing_signature` as a `writes:` payload on failure.
+  - id: run_tests_after_bump
+    kind: deterministic
+    run: scripts/run-tests.sh
+    writes: [failing_signature]
+    postcondition: "uv run pytest -q"   # a real re-check, not a placeholder,
+                                         # because this one is genuinely machine-checkable
+    outcomes:
+      success: commit_and_pr
+      failure: fix_tests
+
+  # 4 — agentic fix loop. `failing_signature` is computed the same way by
+  # `run-tests.sh` and `poll-ci.sh` so "same underlying failure" means the
+  # same thing at both call sites; the step's own retry counter (below) is
+  # keyed automatically off its postcondition failure text, not off this
+  # value directly.
+  - id: fix_tests
+    kind: agentic
+    description: |
+      The packages below were just upgraded by `uv lock --upgrade`, and the test suite failed
+      as a result. Get the tests passing again without weakening what they check. The failing
+      signature `${failing_signature}` identifies the same underlying failure across retries —
+      if you see it again after a previous attempt, that attempt didn't fix the root cause; look
+      for what it missed rather than repeating it. The engine never resets the working tree
+      between attempts, so build on a previous attempt's partial fix where it was on the right
+      track, and undo it yourself where it was not.
+      Read the failing test output and the pyproject.toml/uv.lock diff (in context) and identify
+      which upgraded package(s) are implicated. Prefer fixing the calling code over reverting the
+      upgrade; if you believe pinning back is the right call, still try `uv add <package>==<ver>`
+      yourself and say so in fix_summary with fix_action "pin". Do not touch git or workflow run
+      state — only edit source/dependency files, and run tests yourself before returning. Keep
+      the fix minimal and scoped to what the upgrade broke.
+    context:
+      - "!uv run pytest -q 2>&1 | tail -n 150"
+      - "!git diff HEAD -- pyproject.toml uv.lock"
+      - CHANGELOG.md
+      - "!echo Failing-test signature for this attempt: ${failing_signature}"
+    subagent_args:
+      tools:
+        - Read
+        - Grep
+        - Glob
+        - Edit
+        - "Bash(uv run pytest:*)"
+        - "Bash(uv add:*)"
+        - "Bash(uv remove:*)"
+      model: sonnet
+    writes:
+      fix_summary: {type: string}
+      fix_action:  {type: string}
+    postcondition: scripts/verify-tests.sh
+    soft: true                          # the postcondition genuinely re-runs the suite:
+                                         # it proves the tests pass, not that the fix is
+                                         # the *right* one — a weaker but real check
+    attempts: 4
+    # A retried attempt runs on the tree exactly as the previous attempt
+    # left it, with the failure text appended to the prompt — the engine
+    # fixes forward across a crash rather than restoring a clean tree.
+    catch:
+      - on: failure
+        next: human_fix_decision
+    next: commit_and_pr
+
+  # Exhaustion gate: a person decides whether to pin the offending dependency
+  # and keep going, or abandon the upgrade entirely. Reached either by
+  # fix_tests's own attempt exhaustion (same failure, 4 tries) or by the
+  # wait_for_ci loop's overall visit cap (5 round-trips total, possibly
+  # different failures each time) — two distinct, independently tracked caps.
+  - id: human_fix_decision
+    kind: human
+    question: >
+      Automated fix attempts exhausted for failing-test signature
+      "${failing_signature}" after upgrading: ${changed_packages}. Pin the
+      affected dependency to its previous version and continue, or abandon
+      this upgrade?
+    options: [pin_and_continue, abandon]
+    timeout: 24h                       # required on `human` exactly as on `wait`
+    writes: [fix_decision]
+    outcomes:
+      pin_and_continue: pin_dependency
+      abandon:          blocked
+      chosen:           blocked        # free-text "Other" answer — not one of the two options
+      timeout:          blocked
+
+  # Fix path: pin the dependency implicated by the diff, re-verify, then
+  # rejoin the main path at commit_and_pr.
+  - id: pin_dependency
+    kind: deterministic
+    run: scripts/pin-dependency.sh
+    writes: [pinned_package]
+    postcondition: scripts/verify-tests.sh
+    catch:
+      - on: failure
+        next: blocked
+    next: commit_and_pr
+
+  # 5 — deterministic, guarded: commit on a branch, push, open the PR. The
+  # push/PR-create commands are only permitted to run from this step
+  # (guards: publish-only-in-commit-step) — this is the one place in the run
+  # that is allowed to make the change visible outside the local worktree.
+  # A push, once made, simply survives a later crash — there is nothing to
+  # roll it back against.
+  - id: commit_and_pr
+    kind: deterministic
+    run: scripts/commit-and-open-pr.sh
+    writes: [branch, pr_number]
+    postcondition:
+      command: gh pr view "${pr_number}" --json state -q .state | grep -qx OPEN
+    retry: {max_attempts: 3, backoff: 5s}
+    catch:
+      - on: failure
+        next: blocked
+    next: wait_for_ci
+
+  # 6 — wait: poll CI until success/failure/timeout. CI failure loops back to
+  # the fix step. `max_visits:` caps the number of times this step is
+  # re-entered across the whole wait→fix→commit→wait cycle, independent of
+  # fix_tests's own per-failure `attempts:` — a run that keeps hitting new
+  # regressions round after round still stops and asks a human eventually.
+  - id: wait_for_ci
+    kind: wait
+    poll: scripts/poll-ci.sh
+    timeout: 2h
+    emits: json                        # token + {failing_signature: ...} payload on FAILURE
+    writes: [failing_signature]
+    max_visits: 5
+    outcomes:
+      SUCCESS:   approve_merge
+      FAILURE:   fix_tests
+      exhausted: human_fix_decision    # too many round trips — stop churning, ask a person
+      timeout:   blocked
+
+  # 7a — human gate: approve merge. Custom option is named `deny` rather
+  # than `reject`, so it can't be confused with a reserved outcome token.
+  # `rejected` is not itself reserved — the only outcome a free-text "Other"
+  # answer against a static option list produces is `chosen` (§B.5), routed
+  # below same as `deny`.
+  - id: approve_merge
+    kind: human
+    question: "CI is green for PR ${pr_number}. Approve merge into the default branch?"
+    options: [approve, deny]
+    timeout: 24h
+    writes: [merge_decision]
+    outcomes:
+      approve: merge_pr
+      deny:    blocked
+      chosen:  blocked        # free-text "Other" answer
+      timeout: blocked
+
+  # 7b — deterministic, guarded: merge. This is the only step allowed to run
+  # `gh pr merge` (guards: merge-only-in-merge-step).
+  - id: merge_pr
+    kind: deterministic
+    run: scripts/merge-pr.sh
+    postcondition:
+      command: gh pr view "${pr_number}" --json state -q .state | grep -qx MERGED
+    retry: {max_attempts: 3, backoff: 5s}
+    catch:
+      - on: failure
+        next: blocked
+    next: done
+
+terminal:
+  done:
+    status: ok
+    message: "Dependency upgrade merged. PR ${pr_number}, packages: ${changed_packages}."
+  up_to_date:
+    status: ok
+    message: "No dependency upgrades were available. Lockfile left unchanged."
+  baseline_red:
+    status: blocked
+    message: >
+      Baseline test suite was already red before any dependency changes were
+      made — this is a pre-existing problem, not a regression from the
+      upgrade. No changes were made to dependencies. Fix the baseline first.
+  blocked:
+    status: blocked
+    message: "Dependency upgrade paused for review: ${blocked_reason}"

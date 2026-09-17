@@ -1,0 +1,401 @@
+workflow: manage-mr
+description: >
+  Take a change through GitLab's MR lifecycle: push, open a draft MR, run a
+  pre-submit AI review + fix loop, wait on CI/comments, address them, collect
+  and get human approval on reviewers, then assign + un-draft. See NOTES.md
+  for what this example exercises.
+start: entry
+max_steps: 200                        # backstop on total steps executed in one run
+
+# The engine never touches the working tree. An agentic attempt that
+# half-edits the tree and then fails runs its next attempt on the tree
+# exactly as it was left, with the failure text appended to the prompt — no
+# restore, no snapshot.
+
+args:                                 # wf run manage-mr mr_url_arg=https://…
+  mr_url_arg: {type: string, default: ""}   # read-only; entry/resume_mr only read it
+
+state:
+  vcs:             {type: string}
+  branch:          {type: string}
+  target_branch:   {type: string}
+  mr_url:          {type: string}
+  mr_iid:          {type: string}
+  project_path:    {type: string}
+  title:           {type: string}
+  description_file: {type: string}
+  findings:        {type: json,    default: []}
+  round:           {type: integer, default: 0}
+  threads_raw:     {type: json,    default: []}
+  draft_replies:   {type: json,    default: []}
+  reviewer_summary:     {type: string, default: ""} # short prose for the question text
+  reviewer_usernames:   {type: json, default: []}    # candidate list, offered as options_from
+  reviewers_approved:   {type: json, default: []}
+  comment_count:   {type: integer, default: 0}
+  changelog_updated: {type: boolean, default: false}
+  conflict_detail: {type: string, default: ""}    # resolve_conflict's own detail; `blocked_reason`
+                                                   # itself is an engine pseudo-key, never declared
+                                                   # or written here (see format-spec.md §B.2)
+
+# Every round-trip through WAIT re-enters through `trigger_coderabbit`: the
+# CI-fix cycle and the comment-address cycle both loop back here.
+# The wall-clock `timeout:` on wait_for_mr bounds one sojourn there, but
+# nothing bounds the *number* of round trips on its own — a workflow that
+# keeps finding new comments every round could churn forever. `max_visits:`
+# on `trigger_coderabbit` is what stops that; the workflow-level `max_steps:`
+# above is the outer backstop.
+
+# Pattern-matched deny list over the one action in this workflow that must
+# never happen outside its designated step: un-drafting or assigning
+# reviewers anywhere but `assign_reviewer`. Guards like these are advisory —
+# they catch the canonical spelling, not every way to reach the same effect
+# via indirection — so the invariant below is the real backstop.
+guards:
+  - id: reviewer-flag
+    match: "glab mr update .*(--reviewers?)([=[:space:]]|$)"
+    only_in: [assign_reviewer]
+  - id: ready-flag
+    match: "glab mr update .*--ready([=[:space:]]|$)"
+    only_in: [assign_reviewer]
+  - id: raw-draft-off
+    match: "draft[[:space:]'\"]*[=:][[:space:]'\"]*false"
+    only_in: [assign_reviewer]
+  - id: reviewer-ids-field
+    match: "reviewer_ids"
+    only_in: [assign_reviewer]
+
+invariants:
+  - id: draft-until-assigned
+    check: scripts/check-draft-invariant.sh "${project_path}" "${mr_iid}" "${reviewers_approved}"
+    message: >
+      The MR was un-drafted or given reviewers before a reviewer-decision
+      step approved any. A non-canonical route (title-rewrite un-draft,
+      shell-indirected reviewer assignment) slipped past the guards'
+      canonical-spelling deny list. Only `choose_reviewers` may write
+      `reviewers_approved` — no other step's `run:`/goal may emit that key —
+      so this invariant is purely the title-rewrite/indirection backstop.
+  - id: never-on-trunk
+    check: "[ \"${branch}\" != \"${target_branch}\" ] && [ \"${branch}\" != main ] && [ \"${branch}\" != master ]"
+    message: "The feature bookmark/branch is never the trunk."
+
+steps:
+  # ── ENTRY ──────────────────────────────────────────────────────────────
+  - id: entry
+    kind: deterministic
+    run: scripts/entry.sh "${mr_url_arg}"   # pure routing; exit 0 = success, no postcondition needed
+    outcomes:
+      fresh:  preflight
+      resume: resume_mr
+
+  - id: resume_mr                     # deterministic, read-only re-hydration
+    kind: deterministic
+    run: scripts/resume-init.sh init "${mr_url_arg}"
+    emits: pairs
+    writes: [mr_url, mr_iid, project_path, target_branch, branch, vcs]
+    postcondition: {all_set: [mr_iid, project_path]}
+    next: trigger_coderabbit          # rehydrated straight into the WAIT gate
+
+  # ── FRESH SPINE ────────────────────────────────────────────────────────
+  - id: preflight
+    kind: deterministic
+    run: scripts/preflight.sh
+    emits: pairs
+    writes: [vcs]
+    postcondition: {all_set: [vcs]}
+    outcomes:                         # preflight's own crash-recovery check
+      fresh:         changelog        # no open MR found on current branch
+      existing_open: resume_mr        # found one — route into resume/WAIT
+
+  - id: changelog
+    kind: agentic
+    description: |
+      You are given this repo's changelog tooling status as JSON in context: has_changelog,
+      type (towncrier|changelog_md|none), updated, fragments_dir. Branch by type: for towncrier
+      with updated false, add a new fragment file under fragments_dir matching existing
+      fragments' naming/content conventions (or towncrier's default
+      <issue-or-slug>.<type>.md); for towncrier with updated true, an entry already exists on
+      this branch — fix it in place only if malformed or inconsistent; for changelog_md with
+      updated false, detect CHANGELOG.md's format (Keep-a-Changelog or a looser bullet list) and
+      insert a concise, user-facing entry under the most recent unreleased section (creating one
+      if absent) from the branch's diff and commits, matching existing wording style; for type
+      none or has_changelog false, do nothing. Make the judgement call yourself if the format is
+      ambiguous — do not ask for confirmation.
+    context: ["!bash scripts/check-changelog.sh"]
+    subagent_args: {tools: [Read, Write, Edit, "Bash(bash scripts/check-changelog.sh)"], model: sonnet}
+    writes: {changelog_updated: {type: boolean}}
+    postcondition: "[ \"${changelog_updated}\" = true ]"
+    soft: true                        # "or that none is needed" is a judgement call
+    attempts: 2
+    next: branch_sync
+
+  - id: branch_sync
+    kind: deterministic
+    run: scripts/branch-sync.sh
+    emits: pairs
+    writes: [branch, target_branch]
+    postcondition: "[ -n \"${branch}\" ] && [ \"${branch}\" != \"${target_branch}\" ]"
+    outcomes:
+      clean:    describe
+      conflict: resolve_conflict
+
+  - id: resolve_conflict              # deterministic — this workflow never auto-resolves
+    kind: deterministic
+    run: scripts/print-conflict.sh "${target_branch}"
+    emits: pairs
+    writes: [conflict_detail]
+    postcondition: {all_set: [conflict_detail]}
+    next: blocked
+
+  - id: describe
+    kind: agentic
+    description: |
+      Write the MR title and description from the diff and commit messages in context.
+      Read-only — never run a state-changing VCS command (no jj new/edit, no git checkout).
+      Title: conventional-commit style, under 72 characters, no "Draft:" prefix (added later by
+      the push step). Description: use the template below, omitting optional sections only if
+      they truly do not apply; be concise, explain the why (not just what the diff shows), and
+      tailor emphasis to the change type (bug fix: root cause; feature: user impact; refactor:
+      why it's safe).
+        ## What does this MR do?
+        ## Why are we making this change?
+        ## Verification
+        ## Screenshots (optional)
+        ## Breaking changes (optional)
+      Write the description to a temp file yourself (a single `cat > file <<'EOF' ... EOF`).
+    context: ["!git diff \"${target_branch}\"...HEAD", "!git log \"${target_branch}\"..HEAD --format=%B"]
+    subagent_args: {tools: [Read, "Bash(git diff:*)", "Bash(git log:*)", "Bash(jj diff:*)", "Bash(jj log:*)"], model: sonnet}
+    writes:
+      title: {type: string, max_length: 72}
+      description_file: {type: string}
+    postcondition: "[ -n \"${title}\" ] && [ ${#title} -le 72 ] && [ -s \"${description_file}\" ]"
+    attempts: 3
+    next: push_and_create
+
+  - id: push_and_create
+    kind: deterministic
+    run: scripts/push-create.sh "${vcs}" "${branch}" "${target_branch}" "${title}" "${description_file}"
+    writes: [mr_url, mr_iid, project_path]   # push-create.sh already prints
+                                              # JSON — emits: json (the
+                                              # default) needs no override.
+    postcondition:
+      command: glab mr view "${mr_iid}" -R "${project_path}" --output json | jq -e '.state=="opened" and .draft'
+    retry: {max_attempts: 3, backoff: 5s}
+    next: ai_review
+
+  - id: ai_review                     # agentic, cold, read-only judgement only
+    kind: agentic
+    description: |
+      Adversarially review this MR's diff against the base branch. You are cold (you did not
+      write this change) and read-only (analysis only, never edit files). If the codex CLI is
+      installed and a real git tree is reachable, run `codex review --base <base>` and capture
+      its structured findings — but form your own independent view of the diff first, before
+      reading codex's output. Merge both lists, deduplicating on same file+line+category
+      regardless of wording; category must come from this fixed taxonomy, never free text,
+      because the fix loop's retry key depends on it: bug | missing-test | other | performance |
+      security | standards-violation | type-annotation. Check the MR's pipeline status via
+      `glab mr view <iid> --output json | jq '.head_pipeline.status'`; treat only "failed" as
+      failing.
+    context: ["!git symbolic-ref --short refs/remotes/origin/HEAD"]
+    subagent_args: {tools: ["Bash(codex review:*)", "Bash(git worktree:*)", "Bash(command git:*)", "Bash(glab mr view:*)", Read], model: opus}
+    writes:
+      findings: {type: json}
+      pipeline_failed: {type: boolean}
+    postcondition: "jq -e 'type==\"array\"' <<<\"${findings}\" >/dev/null"
+    attempts: 1
+    next: ai_review_route
+
+  - id: ai_review_route               # deterministic: the actual branch
+    # decision ("blocking findings or a red pipeline?") is plain jq over the
+    # agentic step's typed `writes:`, kept deterministic rather than left to
+    # an agentic step's own judgement — an `agentic` step can't select its
+    # own named outcome, so this routing step is the pattern.
+    kind: deterministic
+    run: scripts/ai-review-route.sh "${findings}" "${pipeline_failed}"   # pure routing
+    outcomes:
+      blocking: fix_issues
+      clean:    trigger_coderabbit
+
+  # ── FIX_ISSUES ───────────────────────────────────────────────────────
+  # A single agentic step now does what used to be a gate/act/commit triad
+  # of three steps: a deterministic gate filtered findings against a
+  # hand-rolled per-item counter, an agentic step fixed them, and a
+  # deterministic commit step pushed. The per-item counter is gone; this
+  # step's own `attempts:` (same failure, this entry) and `max_visits:`
+  # (total times this step is entered across the whole run) are the only
+  # retry budgets now. See NOTES.md for what that costs.
+  - id: fix_issues
+    kind: agentic
+    description: |
+      You are given findings: a JSON array of items to attempt this round, each either an
+      AI-review finding (file, line, category, description, fix) or a pipeline-failure marker.
+      This step's own attempt and visit budget is tracked by the workflow engine — do not
+      re-derive a worklist or track your own retry counts. For each item: make the fix, run
+      scripts/verify.sh for your own feedback loop and iterate until it passes or further local
+      iteration clearly won't help. Never commit, push, or run any state-changing VCS command —
+      that is the next step's job. Never touch reviewer threads or post any reply — that is a
+      different step's job. Report each item's verify_status honestly (your own local result;
+      the workflow re-checks CI and the review findings after you return).
+    subagent_args: {tools: [Read, Edit, Write, "Bash(scripts/verify.sh)"]}
+    writes: {findings: {type: json}}
+    postcondition: "jq -e 'all(.[]; has(\"verify_status\"))' <<<\"${findings}\" >/dev/null"
+    soft: true                         # this is the agent's own claim; it checks
+                                        # shape, not that the fix is correct
+    attempts: 3
+    max_visits: 20                     # total entries into this step across the whole run
+    next: fix_issues_push
+
+  - id: fix_issues_push
+    kind: deterministic
+    run: scripts/fix-push.sh "${vcs}" "${branch}" "${findings}" "${round}"
+    emits: pairs
+    writes: [round]
+    postcondition: {all_set: [round]}   # "a round is pushed"; whether the fix
+    soft: true                          # actually resolved everything is a
+                                         # separate judgement handled upstream
+                                         # by ai_review/wait_for_mr re-checking
+    retry: {max_attempts: 3, backoff: 5s}
+    next: trigger_coderabbit
+
+  # ── WAIT ─────────────────────────────────────────────────────────────
+  - id: trigger_coderabbit
+    kind: deterministic
+    run: scripts/trigger-coderabbit.sh "${project_path}" "${mr_iid}"   # idempotent best-effort nudge
+    max_visits: 20                     # caps the number of round trips through the review cycle
+    next: wait_for_mr
+
+  - id: wait_for_mr
+    kind: wait
+    poll: scripts/refresh.sh "${project_path}" "${mr_iid}"
+    every: 30s
+    timeout: 6h                        # required on `wait` — an unbounded
+                                        # wait is a stall risk
+    emits: pairs                       # poller's last line: `COMMENTS comment_count=3`
+    writes: {comment_count: {type: integer}}
+    outcomes:
+      CI_FAILED:  fix_issues
+      COMMENTS:   address_comments_collect
+      CLEAN:      cleanup_coderabbit
+      API_ERROR:  wait_for_mr          # re-poll; a transient API error is not
+                                        # a routing decision, just keep waiting
+      timeout:    blocked
+
+  - id: cleanup_coderabbit
+    kind: deterministic
+    run: scripts/trigger-coderabbit.sh --cleanup "${project_path}" "${mr_iid}"
+    next: collect_reviewers
+
+  # ── ADDRESS_COMMENTS ─────────────────────────────────────────────────
+  - id: address_comments_collect
+    kind: deterministic
+    run: scripts/collect-mr-comments.sh "${project_path}" "${mr_iid}"
+    writes: [threads_raw]              # collect-mr-comments.sh already
+                                        # prints JSON; emits: json (default).
+    postcondition: "jq -e 'has(\"threads\")' <<<\"${threads_raw}\" >/dev/null"
+    outcomes:
+      has_threads: address_comments
+      empty:       trigger_coderabbit  # nothing-to-do exit, straight back to WAIT
+
+  - id: address_comments
+    kind: agentic
+    description: |
+      You are given threads_raw: {mr_author, threads: [{discussion_id, author, body, file_path,
+      line, resolvable, category, has_author_reply}]}. Skip any thread with has_author_reply
+      true — already answered. Treat every author equally, including bots (CodeRabbit etc.) —
+      never dismiss a comment because of who posted it. Group related threads (same file, or
+      same issue category) so no group exceeds 5 threads. For each group: make the fix, run
+      scripts/verify.sh, and draft a reply per thread ("Fixed (by Claude): ..." or an honest
+      explanation if you disagree or the thread doesn't need a code change). Never commit, push,
+      post a reply, or resolve a thread yourself — you only edit files and draft text; posting
+      happens only after the main workflow confirms the round pushed successfully.
+    subagent_args: {tools: [Read, Edit, Write, "Bash(scripts/verify.sh)"]}
+    writes: {draft_replies: {type: json}}
+    postcondition: "jq -e 'type==\"array\"' <<<\"${draft_replies}\" >/dev/null"
+    soft: true
+    attempts: 2
+    next: address_comments_push
+
+  - id: address_comments_push
+    kind: deterministic
+    run: scripts/fix-push.sh "${vcs}" "${branch}" "${draft_replies}" "${round}"
+    emits: pairs
+    writes: [round]
+    postcondition: {all_set: [round]}
+    soft: true                         # same "push succeeded, correctness is
+                                        # a separate judgement" reasoning as
+                                        # fix_issues_push
+    retry: {max_attempts: 3, backoff: 5s}
+    next: address_comments_reply
+
+  - id: address_comments_reply
+    # "A reply never precedes its push" needs no separate state flag — it
+    # falls out for free because this step is only reachable after
+    # address_comments_push's postcondition passed. Sequencing the graph
+    # does the enforcement that a hand-written flag would otherwise have to
+    # do.
+    kind: deterministic
+    run: scripts/post-replies.sh "${project_path}" "${mr_iid}" "${draft_replies}"   # idempotent
+                                        # posting; no independent re-check
+    next: trigger_coderabbit
+
+  # ── COLLECT_REVIEWERS / CHOOSE_REVIEWERS / ASSIGN_REVIEWER ──────────────
+  - id: collect_reviewers
+    kind: agentic
+    description: |
+      Suggest reviewers by blame footprint for this MR, given vcs, project_path, mr_iid.
+      Read-only — you have no Edit/Write tools. Run scripts/collect-blame-authors.sh to get
+      per-file blame authors and line counts for this MR's diff, resolve each blame author to a
+      GitLab project member via glab api, exclude the MR's own author, and rank by a combination
+      of files touched and lines owned. An empty result (no blame author matched a member, or
+      the only match was the author) is a valid, honest report — do not fail or invent a name.
+      Return a flat, ranked list of usernames — best-first, since it is offered to the human
+      verbatim via options_from: — plus a one-line reviewer_summary giving the rationale (e.g.
+      "alice: 3 files/210 lines; bob: 1 file/40 lines"), substituted into the question text. Keep
+      the bulky blame/member data out of your final answer.
+    subagent_args: {tools: [Read, "Bash(scripts/collect-blame-authors.sh)", "Bash(glab api:*)"], model: haiku}
+    writes:
+      reviewer_usernames: {type: json}     # candidate usernames, offered via options_from
+      reviewer_summary:   {type: string}   # one-line rationale, for the question text
+    postcondition: "jq -e 'type==\"array\"' <<<\"${reviewer_usernames}\" >/dev/null"
+    soft: true                             # ranking quality is a judgement call
+    next: choose_reviewers
+
+  # A single `human` step replaces the old three-way approve/alternate/decline
+  # detour: it maps directly onto AskUserQuestion, offering collect_reviewers'
+  # own candidate list via `options_from:` with `multi: true`, so the person
+  # can pick any subset of the suggested usernames directly — no separate
+  # "alternate pick" agentic step needed, since AskUserQuestion's always-present
+  # free-text "Other" already covers naming someone not on the list (or typing
+  # "skip" to decline reviewer assignment for now). Because `options_from:` is
+  # used, the outcome is always the reserved `chosen`; the actual selection
+  # (a JSON list, possibly containing free-text names or the literal "skip")
+  # lands in `reviewers_approved` and is branched on by `route_reviewers` below.
+  - id: choose_reviewers
+    kind: human
+    question: "Pipeline is green, no unresolved comments. ${reviewer_summary} Who should review?"
+    options_from: reviewer_usernames
+    multi: true
+    timeout: 24h                       # required on `human` steps
+    writes: {reviewers_approved: {type: json}}
+    outcomes:
+      chosen:  route_reviewers
+      timeout: blocked
+
+  - id: route_reviewers                # deterministic: "nothing picked" vs "skip" vs a real list
+    kind: deterministic
+    run: scripts/route-reviewers.sh "${reviewers_approved}"   # pure routing; nothing to machine-check
+    outcomes:
+      skip:      done_draft            # empty list, or the person typed "skip" as Other
+      assign:    assign_reviewer
+
+  - id: assign_reviewer                # the guarded, irreversible action
+    kind: deterministic
+    run: scripts/assign-reviewer.sh "${project_path}" "${mr_iid}" "${reviewers_approved}"
+    postcondition:
+      command: glab mr view "${mr_iid}" -R "${project_path}" --output json | jq -e '(.draft|not) and (.reviewers|length>0)'
+    retry: {max_attempts: 3, backoff: 5s}
+    next: done
+
+terminal:
+  done:       {status: ok,      message: "MR ${mr_url} assigned and out of draft."}
+  done_draft: {status: ok,      message: "MR ${mr_url} left in draft: reviewer assignment skipped."}
+  blocked:    {status: blocked, message: "Paused for review: ${blocked_reason} ${conflict_detail}"}

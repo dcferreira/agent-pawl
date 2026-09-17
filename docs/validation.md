@@ -1,0 +1,99 @@
+# `wf validate`
+
+```
+wf validate <name|path> [--strict]
+```
+
+Static only: no commands run, no network, no model. It parses the file, walks the graph, and checks
+the rules below. Exit 0 clean, 2 on error. Run before every run, and in CI with `--strict`.
+
+```
+› wf validate manage-mr
+.claude/workflows/manage-mr.yaml: ok — 23 steps, 3 terminals, 2 cycles.
+soft postconditions: 6 of 23 (26%):
+  entry, changelog, fix_issues, fix_issues_push, trigger_coderabbit, route_reviewers
+```
+
+Every error names the file and line, the step, the rule and the fix.
+
+## The checks
+
+**1 — dangling edge.** `next:`/`outcomes:` target not a step or terminal.
+
+**2 — unreachable step.** Not reachable from `start:`. Route to it, or delete it.
+
+**3 — dead end.** No outgoing edge and not a terminal. Add `next:` or `outcomes:`.
+
+**3b — incomplete `outcomes:`** (no fall-through, ever). Every outcome the step can produce must be
+routed, except `failure` (via `catch:`, default `failure → blocked`) and `exhausted` (unrouted →
+`blocked`) — those already have an engine-wide default.
+
+**4 — unknown or misplaced `${key}`.** Not declared in `state:`/`args:` and not a pseudo-key
+(`run_id`, `step`, `attempt`, `visits`, `last_error`, `blocked_reason`); or used where substitution
+doesn't apply (`next:`, `id:`, `kind:`, etc.).
+
+**5 — writing an argument.** `writes:` names an `args:` key. `args:` are read-only.
+
+**6 — missing postcondition.** Required only on `agentic`. Optional on `deterministic` (exit 0 is
+success unless you declare one — add one to check the command's effect, e.g. a push actually
+landed), `wait` and `human`. If an `agentic` step's real check is out of reach, write the weakest
+real check and mark it `soft: true` — `postcondition: "true"` + `soft: true` is the floor.
+
+**7 — missing or unrouted timeout.** `wait` steps need `timeout:`; its `timeout` outcome must be
+routed.
+
+**8 — `human` step shape.** One message per fault: needs exactly one of `options:`/`options_from:`;
+every option must be routed or have a fall-through; `multi:` only valid on `human`; a `chosen:`
+route needs exactly one `writes:` key; `options_from:` requires `writes:`.
+
+**9 — named outcomes on an agentic step.** Produces only `success`/`failure`. Route from a following
+`deterministic` step that reads its `writes:` and prints a token.
+
+**9b — bad `subagent_args:` shape.** `subagent_args:` must be a map.
+
+**10 — bad `emits:`.** Must be `json` or `pairs`.
+
+**11 — `writes:` conflicts with `state:`.** Wrong declared type, or writing an undeclared key.
+
+**12 — caps that cannot bind.** `max_visits:` must be a positive integer; if every step's
+`max_visits:` in a cycle exceeds `max_steps:`, no per-step cap can ever bind.
+
+**13 — `attempts:` below 1.**
+
+**14 — bad postcondition map.** Use `command`, `all_set` or `equals`, e.g.
+`postcondition: {all_set: [branch, title]}`.
+
+**15 — guard names a missing step.** `only_in:` must name a real step (`only_in: []` — empty —
+means denied everywhere).
+
+**16 — missing or non-executable file.** A referenced script doesn't exist (relative to
+`.claude/workflows/`), or isn't `chmod +x`.
+
+**17 — reserved kind.** `kind: parallel` is reserved, not yet implemented.
+
+## Warnings
+
+Two, printed as `warning:` and exit 0 — unless `--strict`, which makes them errors.
+
+```
+warning: `blocked_reason` is written by `resolve_conflict` and never read.
+warning: `${round}` is read by `fix_issues_push` on a path where nothing writes it first
+  (preflight → changelog → fix_issues_push). Give it a default: in state:.
+```
+
+Both are usually real bugs, with exceptions — a key read only in a terminal message, or whose writer
+is on a branch the validator can't prove taken.
+
+## The soft census
+
+Printed on every validate, error or not:
+
+```
+soft postconditions: 6 of 23 (26%):
+  entry, changelog, fix_issues, fix_issues_push, trigger_coderabbit, route_reviewers
+```
+
+This is the workflow's trust surface — the same number appears at the end of every run. No threshold,
+no failure; if the percentage climbs, ask which checks could re-observe reality instead.
+
+Related: [troubleshooting.md](troubleshooting.md).

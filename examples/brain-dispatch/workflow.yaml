@@ -1,0 +1,160 @@
+workflow: brain-dispatch
+description: >
+  Turn a Today action into a primed, detached worker session: gather context,
+  classify code vs non-code, preflight the host, write the worker note,
+  launch the session, verify it actually started, then flip the Today
+  action. Adapted from ~/projects/brain/skills/brain-dispatch/SKILL.md.
+start: identify_action
+max_steps: 200                        # backstop on total steps executed in one run
+
+state:                                        # every key the run may carry
+  action_text:    {type: string}              # the Today action text (host/harness flags stripped)
+  host:           {type: string}
+  harness:        {type: string}
+  shortcut_story: {type: string, default: ""} # sc-<id> if linked and owned by me, else ""
+  task_type:      {type: string}              # code | non-code
+  slug:           {type: string}
+  brief:          {type: json}                # {intent, week_goal, pointers[], project_dir_guess}
+  project_dir_guess: {type: string}
+  dir_exists:     {type: string}              # yes|no
+  vcs:            {type: string}              # jj|git|none
+  free_gb:        {type: integer}             # real integer type
+  harness_bin:    {type: string}              # present|missing
+  guardrail:      {type: string}              # active|inactive|n/a
+  project_dir:    {type: string}              # confirmed project dir, post-preflight
+  synced:         {type: string}              # yes|no, from wait-for-brief.sh
+  verified:       {type: string}              # yes|no, from launch-worker.sh
+  session:        {type: string}              # tmux/harness session name
+  rc_conn:        {type: string}              # Remote Control: yes|no|n/a
+  attach:         {type: string}              # attach command reported by launch-worker.sh
+  flipped:        {type: boolean}             # today-action checkbox flip done
+
+guards:                                       # deny-always form: denied everywhere, no step may shell-rewrite this file
+  - id: never-rewrite-top-of-mind
+    match: "(sed|awk|cp|mv) .*top-of-mind\\.md|>\\s*.*top-of-mind\\.md"
+    only_in: []
+
+steps:
+  - id: identify_action                       # ── agentic: match + parse, thin judgement only
+    kind: agentic
+    description: |
+      Find the Today action the raw dispatch argument refers to, in the top-of-mind content
+      below. Prefer an exact substring match; if still ambiguous, pick the single best match
+      and say so plainly in your returned text rather than guessing silently.
+      Strip any `--host <name>` and `--harness omp|claude` flags out of the action text before
+      matching (missing --host -> local; missing --harness -> leave blank, a later
+      deterministic step refuses an invalid pair). Look for a Shortcut story ref of the form
+      `sc-<id>` in the action text; copy it verbatim into shortcut_story, or return "" if
+      absent. Do not resolve the story against Shortcut, do not touch top-of-mind.md, and do
+      nothing else — later steps handle context-gathering, preflight and the file edit.
+    context:
+      - "!cat ~/Obsidian/vault/00-home/top-of-mind.md"
+    subagent_args: {tools: [Read], model: sonnet}
+    writes:
+      action_text:    {type: string}
+      host:           {type: string}
+      harness:        {type: string}
+      shortcut_story: {type: string}
+    postcondition: "[ -n \"${action_text}\" ] && [ -n \"${host}\" ] && [ -n \"${harness}\" ]"
+    attempts: 2
+    next: gather_and_classify
+
+  - id: gather_and_classify                   # ── agentic: cheap breadcrumbs, not a dossier
+    kind: agentic
+    description: |
+      The Today action is: "${action_text}". Gather breadcrumbs, not a dossier — whoever runs
+      this worker will ground-truth everything itself, so over-gathering just bakes in stale
+      claims someone else has to re-verify. Spend the minimum: pull note paths (not bodies) out
+      of the qmd search results already in context, only searching further if that pass clearly
+      missed; note any directly relevant meetings/ note path; note the This week goal (from
+      top-of-mind, already in context) this action serves; and your best-guess project/repo
+      directory hint (unverified — the next step preflights it for real).
+      Assemble a thin brief: one-line intent, the served week-goal, and a short list of pointers
+      (note paths, MR/ticket URLs, IDs), each tagged [verified: ...] (only what you actually
+      checked) or [lead] (everything else — this will be most items). Classify the task as code
+      (touches a repo, needs a workspace) or non-code (a follow-up, draft, design, analysis).
+      Derive a short kebab-case slug from the action, e.g. flaky-ui-suite.
+    context:
+      - "!cat ~/Obsidian/vault/00-home/top-of-mind.md"
+      - "!qmd search \"${action_text}\" -n 5 --md"
+    subagent_args: {tools: [Read, "Bash(qmd:*)"], model: sonnet}
+    writes:
+      task_type:         {type: string}
+      slug:               {type: string}
+      brief:              {type: json}
+      project_dir_guess:  {type: string}
+    postcondition: "[ -n \"${slug}\" ] && { [ \"${task_type}\" = code ] || [ \"${task_type}\" = non-code ]; }"
+    attempts: 2
+    next: preflight
+
+  - id: preflight                             # ── deterministic: two-line token wrapper around the real script
+    kind: deterministic
+    run: bash ~/projects/brain/skills/brain-dispatch/scripts/preflight-wrapped.sh --host "${host}" --harness "${harness}" --project-dir "${project_dir_guess}"
+    emits: pairs                              # the real script's legacy `k=v k=v` stdout is a named, documented mode
+    writes: [dir_exists, vcs, free_gb, harness_bin, guardrail, project_dir]
+    postcondition: {all_set: [dir_exists, harness_bin]}
+    outcomes:
+      BAD_ARGS:    blocked        # preflight-wrapped.sh prints this in place of the old rc-2
+      MISSING_DIR: blocked        # ...and this in place of the old rc-1
+      OK:          write_worker_note
+    catch:
+      - on: failure
+        next: blocked
+
+  - id: write_worker_note                     # ── deterministic: templates workers/<slug>.md from state
+    kind: deterministic
+    run: bash scripts/write-worker-note.sh
+    postcondition: "test -f ~/Obsidian/vault/workers/${slug}.md && grep -q 'status: primed' ~/Obsidian/vault/workers/${slug}.md"
+    attempts: 2
+    catch:
+      - on: failure
+        next: blocked
+    next: wait_for_brief
+
+  - id: wait_for_brief                        # ── deterministic: real script, unmodified
+    kind: deterministic
+    run: bash ~/projects/brain/skills/brain-dispatch/scripts/wait-for-brief.sh --host "${host}" --slug "${slug}"
+    emits: pairs
+    writes: [synced]
+    postcondition: {equals: {synced: "yes"}}
+    catch:
+      - on: failure
+        next: blocked
+    next: launch_and_verify
+
+  - id: launch_and_verify                     # ── the step that must not be skipped
+    kind: deterministic
+    run: bash ~/projects/brain/skills/brain-dispatch/scripts/launch-worker.sh --host "${host}" --harness "${harness}" --slug "${slug}" --project-dir "${project_dir}"
+    emits: pairs
+    writes: [verified, session, rc_conn, attach]
+    postcondition: {equals: {verified: "yes"}}
+    catch:
+      - on: failure
+        next: blocked
+    next: set_note_working
+
+  - id: set_note_working                      # ── deterministic: flips status: working, fixes attach: line
+    kind: deterministic
+    run: bash scripts/set-note-working.sh
+    postcondition: "grep -q 'status: working' ~/Obsidian/vault/workers/${slug}.md"
+    attempts: 2
+    catch:
+      - on: failure
+        next: blocked
+    next: flip_today_action
+
+  - id: flip_today_action                     # ── deterministic: flips the checkbox via python3, not sed/awk (guard stays live)
+    kind: deterministic
+    run: bash scripts/flip-today-action.sh
+    emits: pairs
+    writes: {flipped: {type: boolean}}
+    postcondition: {equals: {flipped: true}}
+    attempts: 2
+    catch:
+      - on: failure
+        next: blocked
+    next: done
+
+terminal:
+  done:    {status: ok,      message: "Dispatched ${slug} on ${host} (${harness}) — attach with ${attach}."}
+  blocked: {status: blocked, message: "brain-dispatch could not launch a worker for \"${action_text}\" — see the failing step's output."}
