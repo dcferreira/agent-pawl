@@ -363,7 +363,7 @@ func (e *Engine) afterTransition(dir string, log *journal.Log, runID, fromStep, 
 	}
 	message := rs.BlockedReason
 	if msgTmpl != "" {
-		vals := buildValues(e.Workflow, rs, runID, target, 0, 0)
+		vals := buildValues(e.Workflow, rs, runID, target, 0, rs.Visits[fromStep])
 		if rendered, rerr := render.RenderProse(msgTmpl, vals); rerr == nil {
 			message = rendered
 		}
