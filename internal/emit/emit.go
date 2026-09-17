@@ -86,11 +86,11 @@ func Parse(stdout string, exitCode int, step *spec.Step, decls map[string]spec.S
 	if named {
 		if token == "" {
 			return Result{}, fmt.Errorf("%w: step %q declares outcomes %s but its stdout carried no TOKEN on the last non-empty line",
-				ErrParse, step.ID, sortedOutcomeNames(step))
+				ErrParse, step.ID, sortedRoutableNames(step))
 		}
-		if _, ok := step.Outcomes[token]; !ok {
-			return Result{}, fmt.Errorf("%w: step %q: outcome token %q is not routed by any outcomes: entry; declared outcomes are %s",
-				ErrParse, step.ID, token, sortedOutcomeNames(step))
+		if !isRoutableToken(step, token) {
+			return Result{}, fmt.Errorf("%w: step %q: outcome token %q is not routed by any outcomes: or catch: entry; routable outcomes are %s",
+				ErrParse, step.ID, token, sortedRoutableNames(step))
 		}
 		outcome = token
 	}
@@ -114,9 +114,34 @@ func hasAuthorNamedOutcomes(step *spec.Step) bool {
 	return false
 }
 
-func sortedOutcomeNames(step *spec.Step) string {
-	names := make([]string, 0, len(step.Outcomes))
+// routableTokens is the set of outcome names a stdout TOKEN may legitimately
+// name: every outcomes: key, plus every catch[].on value. Finding I4 (round
+// 2): design/format-spec.md §D defines catch: as an ordered list routing any
+// outcome, not just the reserved failure/exhausted — so a token named only
+// by a catch: entry (no matching outcomes: key at all) must not be rejected
+// here as unintelligible before the engine ever gets a chance to route it.
+func routableTokens(step *spec.Step) map[string]bool {
+	set := make(map[string]bool, len(step.Outcomes)+len(step.Catch))
 	for k := range step.Outcomes {
+		set[k] = true
+	}
+	for _, c := range step.Catch {
+		set[c.On] = true
+	}
+	return set
+}
+
+func isRoutableToken(step *spec.Step, token string) bool {
+	return routableTokens(step)[token]
+}
+
+// sortedRoutableNames formats the combined routable set (outcomes: keys ∪
+// catch[].on values) for error messages, so they name every token the
+// stdout grammar will actually accept.
+func sortedRoutableNames(step *spec.Step) string {
+	set := routableTokens(step)
+	names := make([]string, 0, len(set))
+	for k := range set {
 		names = append(names, k)
 	}
 	sort.Strings(names)

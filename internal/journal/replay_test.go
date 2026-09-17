@@ -12,7 +12,8 @@ import (
 // key "h1" (a second, different key would start a fresh budget — untested
 // here since this fixture never hits one), ending done. Both transitions are
 // non-catch edges, so each step's attempt budget is cleared the moment it
-// leaves.
+// leaves. The retry's own STEP_ENTER carries Retry: true (C1): it re-runs
+// "test" within the same visit, so it must not count as a second visit.
 func completedRunFixture() []Event {
 	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	at := func(n int) time.Time { return t0.Add(time.Duration(n) * time.Second) }
@@ -27,7 +28,7 @@ func completedRunFixture() []Event {
 		{Kind: KindTransition, RunID: "r1", Seq: next(), Time: at(4), Step: "build", Attempt: 1, Target: "test", Outcome: "success", ViaCatch: false},
 		{Kind: KindStepEnter, RunID: "r1", Seq: next(), Time: at(5), Step: "test", Attempt: 1},
 		{Kind: KindPostcondition, RunID: "r1", Seq: next(), Time: at(6), Step: "test", Attempt: 1, OK: false, Text: "1 failure", AttemptKey: "h1"},
-		{Kind: KindStepEnter, RunID: "r1", Seq: next(), Time: at(7), Step: "test", Attempt: 2, AttemptKey: "h1"},
+		{Kind: KindStepEnter, RunID: "r1", Seq: next(), Time: at(7), Step: "test", Attempt: 2, AttemptKey: "h1", Retry: true},
 		{Kind: KindWrites, RunID: "r1", Seq: next(), Time: at(8), Step: "test", Attempt: 2, Writes: map[string]any{"tests_passed": true}},
 		{Kind: KindPostcondition, RunID: "r1", Seq: next(), Time: at(9), Step: "test", Attempt: 2, OK: true},
 		{Kind: KindTransition, RunID: "r1", Seq: next(), Time: at(10), Step: "test", Attempt: 2, Target: "done", Outcome: "success", ViaCatch: false},
@@ -100,7 +101,7 @@ func blockedAtHigherAttemptFixture() []Event {
 		{Kind: KindRunStart, RunID: "r4", Seq: next(), Time: at(0)},
 		{Kind: KindStepEnter, RunID: "r4", Seq: next(), Time: at(1), Step: "deploy", Attempt: 1},
 		{Kind: KindPostcondition, RunID: "r4", Seq: next(), Time: at(2), Step: "deploy", Attempt: 1, OK: false, Text: "first failure", AttemptKey: "hA"},
-		{Kind: KindStepEnter, RunID: "r4", Seq: next(), Time: at(3), Step: "deploy", Attempt: 2, AttemptKey: "hA"},
+		{Kind: KindStepEnter, RunID: "r4", Seq: next(), Time: at(3), Step: "deploy", Attempt: 2, AttemptKey: "hA", Retry: true},
 		{Kind: KindWrites, RunID: "r4", Seq: next(), Time: at(4), Step: "deploy", Attempt: 2, Writes: map[string]any{"url": "https://x"}},
 		{Kind: KindPostcondition, RunID: "r4", Seq: next(), Time: at(5), Step: "deploy", Attempt: 2, OK: true},
 		{Kind: KindRunEnd, RunID: "r4", Seq: next(), Time: at(6), Status: "blocked", Step: "deploy", Reason: "vcs-mutated-outside-guard"},
@@ -182,6 +183,47 @@ func interleavedStepPostconditionFixture() []Event {
 	}
 }
 
+// retryDoesNotInflateVisitsFixture is finding C1's regression fixture: a
+// step retried twice within its first visit (three STEP_ENTERs, the last two
+// carrying Retry: true) exhausts its attempts: budget and leaves via catch
+// to "recover", which routes straight back for a second visit — a fresh
+// arrival by an edge (Retry: false) — where it is retried once more before
+// passing. Five STEP_ENTERs for "loop" in total, but only two visits: a
+// pre-C1 Replay (which counted every STEP_ENTER as a visit regardless of
+// Retry) would report Visits["loop"] = 5, which is both wrong in the
+// "too many visits arrived later" direction and — because the engine checks
+// max_visits: only once per visit, at the top of a retry loop — a step
+// could burn through max_visits: worth of *attempts* before the cap ever
+// saw a second visit arrive, i.e. simultaneously over- and under-enforced.
+func retryDoesNotInflateVisitsFixture() []Event {
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	at := func(n int) time.Time { return t0.Add(time.Duration(n) * time.Second) }
+	seq := 0
+	next := func() int { seq++; return seq - 1 }
+
+	return []Event{
+		{Kind: KindRunStart, RunID: "r8", Seq: next(), Time: at(0)},
+		// Visit 1: three tries under the same key, all failing, then
+		// exhausted via catch.
+		{Kind: KindStepEnter, RunID: "r8", Seq: next(), Time: at(1), Step: "loop", Attempt: 1},
+		{Kind: KindPostcondition, RunID: "r8", Seq: next(), Time: at(2), Step: "loop", Attempt: 1, OK: false, Text: "still bad", AttemptKey: "hK"},
+		{Kind: KindStepEnter, RunID: "r8", Seq: next(), Time: at(3), Step: "loop", Attempt: 2, AttemptKey: "hK", Retry: true},
+		{Kind: KindPostcondition, RunID: "r8", Seq: next(), Time: at(4), Step: "loop", Attempt: 2, OK: false, Text: "still bad", AttemptKey: "hK"},
+		{Kind: KindStepEnter, RunID: "r8", Seq: next(), Time: at(5), Step: "loop", Attempt: 3, AttemptKey: "hK", Retry: true},
+		{Kind: KindPostcondition, RunID: "r8", Seq: next(), Time: at(6), Step: "loop", Attempt: 3, OK: false, Text: "still bad", AttemptKey: "hK"},
+		{Kind: KindTransition, RunID: "r8", Seq: next(), Time: at(7), Step: "loop", Attempt: 3, Target: "recover", Outcome: "failure", ViaCatch: true},
+		{Kind: KindStepEnter, RunID: "r8", Seq: next(), Time: at(8), Step: "recover", Attempt: 1},
+		{Kind: KindTransition, RunID: "r8", Seq: next(), Time: at(9), Step: "recover", Attempt: 1, Target: "loop", Outcome: "success", ViaCatch: false},
+		// Visit 2: a fresh arrival (Retry: false), retried once, then passes.
+		{Kind: KindStepEnter, RunID: "r8", Seq: next(), Time: at(10), Step: "loop", Attempt: 1},
+		{Kind: KindPostcondition, RunID: "r8", Seq: next(), Time: at(11), Step: "loop", Attempt: 1, OK: false, Text: "still bad", AttemptKey: "hK"},
+		{Kind: KindStepEnter, RunID: "r8", Seq: next(), Time: at(12), Step: "loop", Attempt: 4, AttemptKey: "hK", Retry: true},
+		{Kind: KindPostcondition, RunID: "r8", Seq: next(), Time: at(13), Step: "loop", Attempt: 4, OK: true},
+		{Kind: KindTransition, RunID: "r8", Seq: next(), Time: at(14), Step: "loop", Attempt: 4, Target: "done", Outcome: "success", ViaCatch: false},
+		{Kind: KindRunEnd, RunID: "r8", Seq: next(), Time: at(15), Status: "ok"},
+	}
+}
+
 func ref(step, key string) AttemptRef { return AttemptRef{Step: step, Key: key} }
 
 // wantCompletedRunStates is the C1 fix's headline artefact: a hand-computed
@@ -206,15 +248,15 @@ func wantCompletedRunStates() map[int]*RunState {
 			Attempts: map[AttemptRef]int{ref("test", ""): 1}, Cursor: Cursor{Step: "test", Attempt: 1}},
 		7: {Args: map[string]any{"branch": "feat/x"}, State: map[string]any{"artifact": "a.bin"}, Visits: map[string]int{"build": 1, "test": 1},
 			Attempts: map[AttemptRef]int{ref("test", ""): 1}, Cursor: Cursor{Step: "test", Attempt: 1}, LastError: "1 failure"},
-		8: {Args: map[string]any{"branch": "feat/x"}, State: map[string]any{"artifact": "a.bin"}, Visits: map[string]int{"build": 1, "test": 2},
+		8: {Args: map[string]any{"branch": "feat/x"}, State: map[string]any{"artifact": "a.bin"}, Visits: map[string]int{"build": 1, "test": 1},
 			Attempts: map[AttemptRef]int{ref("test", ""): 1, ref("test", "h1"): 2}, Cursor: Cursor{Step: "test", Attempt: 2, AttemptKey: "h1"}, LastError: "1 failure"},
-		9: {Args: map[string]any{"branch": "feat/x"}, State: map[string]any{"artifact": "a.bin", "tests_passed": true}, Visits: map[string]int{"build": 1, "test": 2},
+		9: {Args: map[string]any{"branch": "feat/x"}, State: map[string]any{"artifact": "a.bin", "tests_passed": true}, Visits: map[string]int{"build": 1, "test": 1},
 			Attempts: map[AttemptRef]int{ref("test", ""): 1, ref("test", "h1"): 2}, Cursor: Cursor{Step: "test", Attempt: 2, AttemptKey: "h1"}, LastError: "1 failure"},
-		10: {Args: map[string]any{"branch": "feat/x"}, State: map[string]any{"artifact": "a.bin", "tests_passed": true}, Visits: map[string]int{"build": 1, "test": 2},
+		10: {Args: map[string]any{"branch": "feat/x"}, State: map[string]any{"artifact": "a.bin", "tests_passed": true}, Visits: map[string]int{"build": 1, "test": 1},
 			Attempts: map[AttemptRef]int{ref("test", ""): 1, ref("test", "h1"): 2}, Cursor: Cursor{Step: "test", Attempt: 2, AttemptKey: "h1"}, LastError: ""},
-		11: {Args: map[string]any{"branch": "feat/x"}, State: map[string]any{"artifact": "a.bin", "tests_passed": true}, Visits: map[string]int{"build": 1, "test": 2},
+		11: {Args: map[string]any{"branch": "feat/x"}, State: map[string]any{"artifact": "a.bin", "tests_passed": true}, Visits: map[string]int{"build": 1, "test": 1},
 			Attempts: map[AttemptRef]int{ref("test", ""): 1}, Cursor: Cursor{Step: "done", Attempt: 1}, LastError: ""},
-		12: {Args: map[string]any{"branch": "feat/x"}, State: map[string]any{"artifact": "a.bin", "tests_passed": true}, Visits: map[string]int{"build": 1, "test": 2},
+		12: {Args: map[string]any{"branch": "feat/x"}, State: map[string]any{"artifact": "a.bin", "tests_passed": true}, Visits: map[string]int{"build": 1, "test": 1},
 			Attempts: map[AttemptRef]int{ref("test", ""): 1}, Cursor: Cursor{Step: "done", Attempt: 1}, LastError: "",
 			Ended: true, EndStatus: "ok"},
 	}
@@ -297,7 +339,12 @@ func naiveReplay(events []Event) (*RunState, error) {
 		case KindStepEnter, KindResume:
 			rs.Attempts[AttemptRef{e.Step, e.AttemptKey}] = e.Attempt
 			if e.Kind == KindStepEnter {
-				rs.Visits[e.Step]++
+				// C1: a retry re-runs the step it is already on, not a
+				// fresh arrival by an edge, so it is not a "visit"
+				// (design/format-spec.md §B.4).
+				if !e.Retry {
+					rs.Visits[e.Step]++
+				}
 			} else if rs.Ended && rs.EndStatus == "blocked" {
 				rs.Ended, rs.EndStatus = false, ""
 			}
@@ -548,6 +595,24 @@ func TestReplay_PostconditionKeyedByOwnStepNotLastEntered(t *testing.T) {
 	}
 }
 
+// TestReplay_RetryDoesNotCountAsVisit is finding C1's direct expected-state
+// assertion: retryDoesNotInflateVisitsFixture has five STEP_ENTERs for
+// "loop" across two visits (three tries in the first, two in the second),
+// but Visits["loop"] must be 2 — one per visit, not one per try — and
+// Visits["recover"] must be 1. This is checked directly against the exact
+// expected map, not just self-consistently against naiveReplay, per the
+// round-1 controller's condition that new journal behaviour needs both.
+func TestReplay_RetryDoesNotCountAsVisit(t *testing.T) {
+	rs, err := Replay(retryDoesNotInflateVisitsFixture())
+	if err != nil {
+		t.Fatalf("Replay: %v", err)
+	}
+	want := map[string]int{"loop": 2, "recover": 1}
+	if !reflect.DeepEqual(rs.Visits, want) {
+		t.Errorf("Visits = %v, want %v (five STEP_ENTERs for loop, but only two are fresh visits)", rs.Visits, want)
+	}
+}
+
 func TestReplay_CrashResume_MidStepNeverTransitioned(t *testing.T) {
 	full := completedRunFixture()
 	prefix := full[:8] // up to and including StepEnter test/2
@@ -694,10 +759,12 @@ func TestReplay_ResumeProperty(t *testing.T) {
 		"catch-edge-after-pass":     catchEdgeAfterPassFixture(),
 		"no-postcondition":          noPostconditionFixture(),
 		"interleaved-postcondition": interleavedStepPostconditionFixture(),
+		"retry-does-not-inflate":    retryDoesNotInflateVisitsFixture(),
 	}
 	names := []string{
 		"completed", "blocked", "catch-edge", "blocked-at-attempt-2",
 		"catch-edge-after-pass", "no-postcondition", "interleaved-postcondition",
+		"retry-does-not-inflate",
 	}
 	for _, name := range names {
 		full := fixtures[name]

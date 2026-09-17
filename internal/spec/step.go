@@ -26,7 +26,7 @@ type Step struct {
 
 	// agentic
 	Description  string
-	Context      []string
+	Context      []ContextEntry
 	SubagentArgs any
 
 	// wait
@@ -84,9 +84,9 @@ type stepShadow struct {
 	Run   string `yaml:"run"`
 	Emits string `yaml:"emits"`
 
-	Description  string   `yaml:"description"`
-	Context      []string `yaml:"context"`
-	SubagentArgs any      `yaml:"subagent_args"`
+	Description  string         `yaml:"description"`
+	Context      []ContextEntry `yaml:"context"`
+	SubagentArgs any            `yaml:"subagent_args"`
 
 	Poll  string `yaml:"poll"`
 	Every string `yaml:"every"`

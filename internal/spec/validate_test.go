@@ -225,6 +225,13 @@ func TestValidate_GoldenMessages(t *testing.T) {
 			},
 		},
 		{
+			name: "N1: step id is not identifier-like",
+			file: "n1_bad_step_id.yaml",
+			want: []string{
+				`testdata/n1_bad_step_id.yaml: step "../../escaped": id "../../escaped" is not a valid step id; use only letters, digits, "_" and "-", starting with a letter or digit — rename the step`,
+			},
+		},
+		{
 			name: "F5b: next: and outcomes: both present",
 			file: "f5b_next_and_outcomes.yaml",
 			want: []string{

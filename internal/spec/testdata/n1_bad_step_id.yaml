@@ -1,0 +1,8 @@
+workflow: n1BadStepID
+start: "../../escaped"
+steps:
+  - id: "../../escaped"
+    kind: deterministic
+    run: echo hi
+    next: done
+terminal: {done: {status: ok}}

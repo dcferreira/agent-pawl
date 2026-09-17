@@ -356,6 +356,39 @@ func TestParse_NoTokenWhenOutcomesDeclared_IsError(t *testing.T) {
 	}
 }
 
+// TestParse_TokenRoutedOnlyByCatch_IsAccepted is finding I4's round-2
+// end-to-end fix: a TOKEN named only by a catch: entry (no matching
+// outcomes: key at all) must be accepted, not rejected as unintelligible —
+// design/format-spec.md §D defines catch: as an ordered list routing any
+// outcome, not just the two reserved ones, so the routable set Parse checks
+// a TOKEN against must be outcomes: keys ∪ catch[].on values.
+func TestParse_TokenRoutedOnlyByCatch_IsAccepted(t *testing.T) {
+	step := namedStep("s", map[string]string{"good": "done"}, nil, "json")
+	step.Catch = []spec.CatchRule{{On: "bad", Next: "blocked"}}
+
+	result, err := emit.Parse("bad", 0, step, nil)
+	if err != nil {
+		t.Fatalf("Parse: unexpected error: %v", err)
+	}
+	if result.Outcome != "bad" {
+		t.Errorf("Outcome = %q, want %q", result.Outcome, "bad")
+	}
+}
+
+// TestParse_TokenInNeitherOutcomesNorCatch_IsError pins that the "keep the
+// unroutable-token-is-ErrParse behaviour for tokens in neither set" half of
+// finding I4's ruling still holds: a token that isn't in outcomes: or
+// catch: is still unintelligible stdout.
+func TestParse_TokenInNeitherOutcomesNorCatch_IsError(t *testing.T) {
+	step := namedStep("s", map[string]string{"good": "done"}, nil, "json")
+	step.Catch = []spec.CatchRule{{On: "bad", Next: "blocked"}}
+
+	_, err := emit.Parse("worse", 0, step, nil)
+	if !errors.Is(err, emit.ErrParse) {
+		t.Errorf("Parse(%q): error = %v, want it to wrap ErrParse", "worse", err)
+	}
+}
+
 func TestEscapeC0(t *testing.T) {
 	cases := []struct {
 		in, want string

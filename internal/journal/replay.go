@@ -41,9 +41,13 @@ type RunState struct {
 	// implementation in Replay for why that collapse would (almost) be
 	// unobservable anyway, and why it is still implemented in full.
 	Attempts map[AttemptRef]int
-	// Visits is, per step id, the number of STEP_ENTER events it has had —
-	// unscoped by attempt key, since max_visits caps total entries to the
-	// step regardless of which failure keyed each attempt.
+	// Visits is, per step id, the number of non-Retry STEP_ENTER events it
+	// has had — unscoped by attempt key, since max_visits caps total edge
+	// entries to the step regardless of which failure keyed each attempt. A
+	// STEP_ENTER with Retry set (an attempt-retry within the same visit,
+	// re-running the step it is already on) does not count: max_visits:
+	// caps how many times a step is *entered*, not how many times its body
+	// runs (design/format-spec.md §B.4) — see Event.Retry.
 	Visits map[string]int
 
 	// LastError is the pseudo-key populated from the text of the most
@@ -168,7 +172,9 @@ func Replay(events []Event) (*RunState, error) {
 			rs.Attempts[AttemptRef{e.Step, e.AttemptKey}] = e.Attempt
 			lastKeyByStep[e.Step] = e.AttemptKey
 			lastPostconditionOKByStep[e.Step] = true
-			rs.Visits[e.Step]++
+			if !e.Retry {
+				rs.Visits[e.Step]++
+			}
 		case KindWrites:
 			for k, v := range e.Writes {
 				rs.State[k] = v

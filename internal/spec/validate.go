@@ -2,6 +2,7 @@ package spec
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -50,6 +51,7 @@ func Validate(w *Workflow) (*Report, error) {
 	checkRetry(w, &errs)
 	checkKindSupport(w, &errs)
 	checkDuplicateStepIDs(w, &errs)
+	checkStepIDFormat(w, &errs)
 	checkNextOutcomesExclusive(w, &errs)
 	checkKindRequiredFields(w, &errs)
 	checkAgenticWrites(w, &errs)
@@ -262,6 +264,31 @@ func checkDuplicateStepIDs(w *Workflow, errs *[]string) {
 				"id %q is declared more than once; step ids must be unique — rename one of them", s.ID)))
 		}
 		seen[s.ID] = true
+	}
+}
+
+// stepIDPattern is an identifier-like format for step id: no §H rule number
+// covers this (no field in §D is documented as free-form-yet-unsafe), but
+// a step id ends up as a filename component in the engine's per-attempt log
+// files (internal/engine's writeStepOutput), so an id containing a path
+// separator or a "." segment must be rejected here rather than discovered
+// only when it escapes a directory (finding N1). Letters, digits,
+// underscore and hyphen, starting with a letter or digit — no ".", "/", or
+// leading/trailing "-".
+var stepIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
+
+// checkStepIDFormat implements finding N1's validator half: it rejects a
+// step id that isn't identifier-like, so an id like "../../escaped" is
+// refused at author time rather than reaching the engine, which sanitises
+// defensively but should never see one from a workflow that passed
+// Validate.
+func checkStepIDFormat(w *Workflow, errs *[]string) {
+	for _, s := range w.Steps {
+		if s.ID == "" || stepIDPattern.MatchString(s.ID) {
+			continue
+		}
+		*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
+			"id %q is not a valid step id; use only letters, digits, \"_\" and \"-\", starting with a letter or digit — rename the step", s.ID)))
 	}
 }
 
@@ -480,7 +507,7 @@ func checkRule4(w *Workflow, errs *[]string) {
 		scanTemplate("question", s.Question, add)
 		scanTemplate("attempt_key", s.AttemptKey, add)
 		for i, c := range s.Context {
-			scanTemplate(fmt.Sprintf("context[%d]", i), c, add)
+			scanTemplate(fmt.Sprintf("context[%d]", i), c.Value, add)
 		}
 		if s.Postcondition != nil {
 			scanTemplate("postcondition.command", s.Postcondition.Command, add)

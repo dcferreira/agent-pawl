@@ -50,6 +50,21 @@ type Event struct {
 	// workflow definition.
 	AttemptKey string `json:"attempt_key,omitempty"`
 
+	// Retry marks a STEP_ENTER that re-runs a step already entered for the
+	// current visit (a postcondition-failure retry within the attempts:
+	// budget), as opposed to a fresh arrival by an edge. Replay only counts
+	// a non-Retry STEP_ENTER as a visit for max_visits:/max_steps: purposes
+	// (design/format-spec.md §B.4): without this, every attempt-retry was
+	// also miscounted as a fresh visit, which both over-counts max_visits:
+	// across later visits and leaves it unenforced within one (a step could
+	// retry past attempts: before max_visits: ever saw it happen).
+	//
+	// Additive and backward-compatible: an event recorded before this field
+	// existed decodes with Retry false (its JSON zero value), so every
+	// STEP_ENTER in an old journal still counts as a visit exactly as it
+	// did before this field was added.
+	Retry bool `json:"retry,omitempty"`
+
 	// RUN_START
 	Args         map[string]any `json:"args,omitempty"`
 	Digest       string         `json:"digest,omitempty"`

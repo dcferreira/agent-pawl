@@ -93,7 +93,7 @@ type digestStep struct {
 	Run           string
 	Emits         string
 	Description   string
-	Context       []string
+	Context       []spec.ContextEntry
 	SubagentArgs  any
 	Poll          string
 	Every         string
