@@ -42,7 +42,7 @@ func TestStateBase_EnvOverride(t *testing.T) {
 func TestRunDir_Layout(t *testing.T) {
 	t.Setenv(EnvStateDir, "/state")
 	got := RunDir("/home/user/proj", "ship", "r1")
-	want := filepath.Join("/state", "-home-user-proj", "ship", "r1")
+	want := filepath.Join("/state", Slug("/home/user/proj"), "ship", "r1")
 	if got != want {
 		t.Errorf("RunDir = %q, want %q", got, want)
 	}

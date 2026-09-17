@@ -409,14 +409,15 @@ func (e *Engine) dispatchInstruction(dir string, rs *journal.RunState, step *spe
 }
 
 // gatherContext resolves one context: entry (A1): a "!cmd"-tagged entry has
-// ${key} substituted as a shell command line (exactly as run: does) and is
-// then executed, its captured stdout becoming Value; a plain entry has
-// ${key} substituted as prose and is read as a file, relative to the
+// ${key} substituted as a shell command line (exactly as run: does,
+// including DESIGN.md §9's script-path resolution — resolveScriptPathTemplate)
+// and is then executed, its captured stdout becoming Value; a plain entry
+// has ${key} substituted as prose and is read as a file, relative to the
 // workflow file's own directory (design/format-spec.md §I: "scripts/
 // resolve relative to the workflow file").
 func (e *Engine) gatherContext(c spec.ContextEntry, vals render.Values) (ContextItem, error) {
 	if c.IsCmd {
-		cmd, err := render.RenderShell(c.Value, vals)
+		cmd, err := resolveScriptPathTemplate(c.Value, vals, filepath.Dir(e.Workflow.Path))
 		if err != nil {
 			return ContextItem{}, fmt.Errorf("%w: rendering !cmd entry: %v", errContextUnavailable, err)
 		}

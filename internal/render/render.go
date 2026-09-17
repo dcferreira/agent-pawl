@@ -65,6 +65,15 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
+// ShellQuote is shellQuote, exported so other packages that need to place an
+// already-known-good string into a rendered command line (e.g. the engine
+// rewriting a script path's first token after substitution) use the same
+// single-quoting rule RenderShell uses for every ${key} value, rather than
+// inventing a second one.
+func ShellQuote(s string) string {
+	return shellQuote(s)
+}
+
 func declaredKeys(vals Values) string {
 	keys := make([]string, 0, len(vals))
 	for k := range vals {
@@ -134,6 +143,20 @@ func RenderProse(tmpl string, vals Values) (string, error) {
 	})
 }
 
+// RenderRaw substitutes each ${key} in tmpl with its compact form (the same
+// formatting RenderShell uses per value) but with no shell-quoting applied.
+// It exists for a caller that needs the literal value a substitution would
+// contribute — e.g. deciding whether a run: command's first token is a
+// filesystem path — as a plain string to test/join, before any quoting
+// decision is made. A caller that goes on to place the result into a shell
+// command line must quote it itself (ShellQuote); RenderRaw's whole point is
+// to produce content that is not yet shell-safe, only decided the value.
+func RenderRaw(tmpl string, vals Values) (string, error) {
+	return render(tmpl, vals, func(v Value) (string, error) {
+		return v.compact()
+	})
+}
+
 // Keys returns the set of keys tmpl reads via "${key}", in order of first
 // appearance. "$${" consumes no key. An unterminated "${" stops the scan at
 // that point; RenderShell and RenderProse are what report it as an error.
@@ -163,6 +186,53 @@ func Keys(tmpl string) []string {
 		i++
 	}
 	return keys
+}
+
+// FirstTokenTemplate splits tmpl into its first whitespace-delimited token
+// and the remainder (starting at the delimiting whitespace, unchanged and
+// un-rendered; empty if tmpl has no further content). Leading whitespace in
+// tmpl is skipped before the token starts. A "${key}" occurrence is treated
+// atomically using the same "$${"/"${...}" grammar Keys and the render
+// family use, so it can never be mistaken for whitespace — there being none
+// inside a well-formed key, and an unterminated "${" simply consuming the
+// rest of tmpl into the token, leaving RenderShell/RenderRaw to report it.
+//
+// This operates on tmpl — the author's template text, before any ${key}
+// substitution — never on already-rendered output. A caller deciding
+// whether a first token is a path (DESIGN.md §9) must make that decision
+// here, pre-render: parsing rendered text back apart after the fact means
+// parsing a string a substituted value can reshape, including breaking out
+// of whatever quoting was applied to it.
+func FirstTokenTemplate(tmpl string) (token, rest string) {
+	i := 0
+	for i < len(tmpl) && isTemplateSpace(tmpl[i]) {
+		i++
+	}
+	start := i
+	for i < len(tmpl) {
+		if strings.HasPrefix(tmpl[i:], "$${") {
+			i += 3
+			continue
+		}
+		if strings.HasPrefix(tmpl[i:], "${") {
+			closeIdx := strings.IndexByte(tmpl[i+2:], '}')
+			if closeIdx == -1 {
+				i = len(tmpl)
+				break
+			}
+			i += 2 + closeIdx + 1
+			continue
+		}
+		if isTemplateSpace(tmpl[i]) {
+			break
+		}
+		i++
+	}
+	return tmpl[start:i], tmpl[i:]
+}
+
+func isTemplateSpace(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n'
 }
 
 // EnvFor returns "WF_<UPPERCASED_KEY>=<value>" pairs for each of keys that

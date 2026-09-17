@@ -1,12 +1,19 @@
 package journal
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 )
+
+// slugHashLen is the number of hex characters of root's sha256 digest kept
+// in Slug's output. Short enough to stay readable, long enough that two
+// distinct roots colliding on it is not a practical concern.
+const slugHashLen = 8
 
 // ResolveRoot resolves the working-copy root for cwd by asking the VCS —
 // `jj workspace root`, else `git rev-parse --show-toplevel`, else cwd
@@ -70,8 +77,18 @@ func vcsRoot(dir, name string, args ...string) (string, bool) {
 	return abs, true
 }
 
-// Slug returns root with each path separator replaced by "-", used as the
-// run-directory namespace for a working copy (DESIGN.md §4).
+// Slug returns the run-directory namespace for a working copy (DESIGN.md
+// §4): root with each path separator replaced by "-", followed by a short
+// hex digest of the full root, e.g. "-home-user-proj-7d73bf4f". The readable
+// prefix alone is not injective — "/home/u/my-proj" and "/home/u/my/proj"
+// both naively become "-home-u-my-proj" — so the digest suffix is load-
+// bearing, not decorative: it is what keeps distinct roots from sharing a
+// run namespace (and, once hooks exist, a guard-lookup namespace). This is
+// the single function both the runtime and any future hook must call for
+// this identity (DESIGN.md §5) — never reimplement the naive replacement or
+// the hash elsewhere.
 func Slug(root string) string {
-	return strings.ReplaceAll(root, string(filepath.Separator), "-")
+	naive := strings.ReplaceAll(root, string(filepath.Separator), "-")
+	sum := sha256.Sum256([]byte(root))
+	return naive + "-" + hex.EncodeToString(sum[:])[:slugHashLen]
 }

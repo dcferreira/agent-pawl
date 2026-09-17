@@ -233,3 +233,121 @@ func TestEnvFor(t *testing.T) {
 		})
 	}
 }
+
+func TestRenderRaw(t *testing.T) {
+	tests := []struct {
+		name    string
+		tmpl    string
+		vals    Values
+		want    string
+		wantErr string
+	}{
+		{
+			name: "plain substitution, no quoting applied",
+			tmpl: "${p}/run.sh",
+			vals: Values{"p": StringValue("scripts")},
+			want: "scripts/run.sh",
+		},
+		{
+			name: "value with quotes and shell metacharacters comes back completely unescaped",
+			tmpl: "${tool}",
+			vals: Values{"tool": StringValue("x'/y $(touch PWNED)'")},
+			want: "x'/y $(touch PWNED)'",
+		},
+		{
+			name: "json value renders compact",
+			vals: Values{"data": JSONValue(map[string]any{"a": 1})},
+			tmpl: "${data}",
+			want: `{"a":1}`,
+		},
+		{
+			name:    "unknown key is an error",
+			tmpl:    "${missing}",
+			vals:    Values{},
+			wantErr: "unknown key",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := RenderRaw(tt.tmpl, tt.vals)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("RenderRaw() error = %v, want containing %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("RenderRaw() unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("RenderRaw() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFirstTokenTemplate(t *testing.T) {
+	tests := []struct {
+		name     string
+		tmpl     string
+		wantTok  string
+		wantRest string
+	}{
+		{
+			name:     "bare word then arg",
+			tmpl:     "ruff format .",
+			wantTok:  "ruff",
+			wantRest: " format .",
+		},
+		{
+			name:     "literal relative path with separator",
+			tmpl:     "scripts/run-tests.sh --foo",
+			wantTok:  "scripts/run-tests.sh",
+			wantRest: " --foo",
+		},
+		{
+			name:     "whole first token is one ${key}",
+			tmpl:     "${script} --foo",
+			wantTok:  "${script}",
+			wantRest: " --foo",
+		},
+		{
+			name:     "first token mixes literal text and a ${key}",
+			tmpl:     "scripts/${name}.sh ${arg}",
+			wantTok:  "scripts/${name}.sh",
+			wantRest: " ${arg}",
+		},
+		{
+			name:     "leading whitespace is skipped",
+			tmpl:     "  ./check.sh",
+			wantTok:  "./check.sh",
+			wantRest: "",
+		},
+		{
+			name:     "single token, no remainder",
+			tmpl:     "true",
+			wantTok:  "true",
+			wantRest: "",
+		},
+		{
+			name:     "empty template",
+			tmpl:     "",
+			wantTok:  "",
+			wantRest: "",
+		},
+		{
+			name:     "literal dollar-brace escape inside the first token is not a key boundary",
+			tmpl:     "a$${b}/c.sh d",
+			wantTok:  "a$${b}/c.sh",
+			wantRest: " d",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tok, rest := FirstTokenTemplate(tt.tmpl)
+			if tok != tt.wantTok || rest != tt.wantRest {
+				t.Errorf("FirstTokenTemplate(%q) = (%q, %q), want (%q, %q)", tt.tmpl, tok, rest, tt.wantTok, tt.wantRest)
+			}
+		})
+	}
+}

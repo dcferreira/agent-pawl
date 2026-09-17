@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -86,7 +87,7 @@ func (e *Engine) execShell(cmdline string, keys []string, vals render.Values) (s
 // "captured in full"), even on error, so the caller can persist them for
 // diagnosis (finding I2) regardless of how the step ended.
 func (e *Engine) execDeterministic(step *spec.Step, vals render.Values) (result emit.Result, timedOut bool, stdout, stderr string, err error) {
-	cmd, err := render.RenderShell(step.Run, vals)
+	cmd, err := resolveScriptPathTemplate(step.Run, vals, filepath.Dir(e.Workflow.Path))
 	if err != nil {
 		return emit.Result{}, false, "", "", fmt.Errorf("engine: rendering run: for step %q: %w", step.ID, err)
 	}

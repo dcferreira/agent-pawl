@@ -1,11 +1,21 @@
 package journal
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
 )
+
+// shortHash mirrors the digest Slug appends, so the test expresses the
+// contract ("readable path + short hash of the full root") rather than
+// duplicating Slug's own hash-length choice as a second magic number.
+func shortHash(root string) string {
+	sum := sha256.Sum256([]byte(root))
+	return hex.EncodeToString(sum[:])[:8]
+}
 
 func mustRun(t *testing.T, dir, name string, args ...string) {
 	t.Helper()
@@ -169,12 +179,31 @@ func TestSlug(t *testing.T) {
 		root string
 		want string
 	}{
-		{"/home/user/proj", "-home-user-proj"},
-		{"/a/b/c", "-a-b-c"},
+		{"/home/user/proj", "-home-user-proj-" + shortHash("/home/user/proj")},
+		{"/a/b/c", "-a-b-c-" + shortHash("/a/b/c")},
 	}
 	for _, tt := range tests {
 		if got := Slug(tt.root); got != tt.want {
 			t.Errorf("Slug(%q) = %q, want %q", tt.root, got, tt.want)
 		}
+	}
+}
+
+// TestSlug_NoCollision guards the DESIGN.md §5 failure mode this change
+// exists to prevent: two distinct working-copy roots whose naive "/" -> "-"
+// replacement collides (a path component boundary vs. a literal "-" in a
+// name) must still produce distinct slugs.
+func TestSlug_NoCollision(t *testing.T) {
+	a := Slug("/home/u/my-proj")
+	b := Slug("/home/u/my/proj")
+	if a == b {
+		t.Fatalf("Slug collision: both %q and %q produced %q", "/home/u/my-proj", "/home/u/my/proj", a)
+	}
+}
+
+func TestSlug_Deterministic(t *testing.T) {
+	root := "/home/user/proj"
+	if Slug(root) != Slug(root) {
+		t.Fatalf("Slug(%q) is not deterministic", root)
 	}
 }

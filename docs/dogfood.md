@@ -45,30 +45,30 @@ script, laid out like this:
   go.mod
   fixture.go          # the code under test
   fixture_test.go
-  scripts/
-    run-tests.sh       # from examples/green-tests/scripts/
   .claude/
     workflows/
       green-tests.yaml  # from examples/green-tests/workflow.yaml
+      scripts/
+        run-tests.sh    # from examples/green-tests/scripts/
 ```
 
 This repo ships exactly such a fixture at `testdata/fixture/` (a two-line `Add` function that
 subtracts instead of adding). From a checkout of this repo:
 
 ```
-mkdir -p /tmp/wf-dogfood/.claude/workflows
+mkdir -p /tmp/wf-dogfood/.claude/workflows/scripts
 cp testdata/fixture/go.mod          /tmp/wf-dogfood/go.mod
 cp testdata/fixture/fixture.go      /tmp/wf-dogfood/fixture.go
 cp testdata/fixture/fixture_test.go /tmp/wf-dogfood/fixture_test.go
-cp -r examples/green-tests/scripts  /tmp/wf-dogfood/scripts
+cp examples/green-tests/scripts/run-tests.sh /tmp/wf-dogfood/.claude/workflows/scripts/run-tests.sh
 cp examples/green-tests/workflow.yaml /tmp/wf-dogfood/.claude/workflows/green-tests.yaml
 ```
 
-`scripts/` and `.claude/workflows/` both live at the project root here — that's the layout `wf`
-actually resolves against (its own end-to-end test, `e2e/green_tests_test.go`, builds the exact
-same layout). DESIGN.md §9 describes scripts resolving relative to the workflow file itself; in
-this build they resolve relative to the working-copy root, so keep `scripts/` at the root as
-shown.
+`scripts/` lives beside the workflow file, under `.claude/workflows/`, not at the project root:
+DESIGN.md §9's "scripts/ resolve relative to the workflow file" rule is implemented as of this
+build, so `run: scripts/run-tests.sh ${test_cmd}` in `green-tests.yaml` resolves against
+`.claude/workflows/`, the directory containing it — exactly the layout `examples/green-tests`
+itself uses and `e2e/green_tests_test.go` builds.
 
 ## Run it
 

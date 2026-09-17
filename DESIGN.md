@@ -127,11 +127,16 @@ A run directory, keyed `(working_copy_root, workflow_id, run_id)`:
 ```
 
 `slug` is the **working-copy root** — a jj workspace or a git worktree is its own root — with `/`
-replaced by `-`. Never the raw `cwd`: a monorepo-subdirectory launch or a mid-session `cd` would make
-the hook and the runtime resolve different identities and silently disable enforcement. Never the
-session id either: a run outlives the session that started it, and the session id is recorded as
-provenance only. The lock is an `O_EXCL` file holding the pid; a lock whose pid is not alive is taken,
-a live one is refused with the holder printed, and `--force` steals it.
+replaced by `-`, followed by `-` and a short hex digest of the full root path (e.g.
+`-home-user-my-proj-7d73bf4f`). The readable prefix alone is not injective — `/home/u/my-proj` and
+`/home/u/my/proj` both naively become `-home-u-my-proj` — so the digest suffix is load-bearing: it is
+what keeps two distinct roots from sharing a run namespace. `journal.Slug` is the single, pure
+function that computes this; the runtime and any future hook both call it, never a second,
+independently-derived rule (the §5 failure mode). Never the raw `cwd`: a monorepo-subdirectory launch
+or a mid-session `cd` would make the hook and the runtime resolve different identities and silently
+disable enforcement. Never the session id either: a run outlives the session that started it, and the
+session id is recorded as provenance only. The lock is an `O_EXCL` file holding the pid; a lock whose
+pid is not alive is taken, a live one is refused with the holder printed, and `--force` steals it.
 
 Eight event kinds, each carrying run id, sequence number, wall clock, step and attempt: `RUN_START`
 (args, digest, resumed flag, hook self-test result), `RESUME` (a crash resume, or a user intervention

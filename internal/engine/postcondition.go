@@ -3,6 +3,7 @@ package engine
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -44,7 +45,7 @@ func (e *Engine) evaluatePostcondition(step *spec.Step, raw map[string]any, vals
 }
 
 func (e *Engine) evaluateCommandPostcondition(tmpl string, vals render.Values, soft bool) (checkResult, error) {
-	cmd, err := render.RenderShell(tmpl, vals)
+	cmd, err := resolveScriptPathTemplate(tmpl, vals, filepath.Dir(e.Workflow.Path))
 	if err != nil {
 		return checkResult{}, fmt.Errorf("engine: rendering postcondition command: %w", err)
 	}
