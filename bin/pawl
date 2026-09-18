@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# Wrapper shipped by the agent-pawl Claude Code plugin.
+#
+# A plugin cannot ship the real `pawl` binary (it's a Go build artifact, not
+# plugin content), so this script's only job is to find a real `pawl` on
+# PATH and exec it — or fail with an actionable message if there isn't one.
+#
+# TRAP: Claude Code puts a plugin's bin/ on PATH, so this script is itself
+# named `pawl` and sits ahead of everywhere else. A naive `exec pawl "$@"`
+# would find itself and recurse forever. Skipping our own directory is not
+# enough either: a symlink named `pawl` in some *other* PATH directory can
+# point straight back here, which resolves the directory check but still
+# re-enters this script. So we fully resolve every candidate through its
+# symlinks before deciding, and keep a depth guard as a last line of defence
+# that does not depend on getting the path reasoning right.
+set -euo pipefail
+
+if [ "${PAWL_WRAPPER_ACTIVE:-}" = "1" ]; then
+  echo "error: pawl wrapper re-entered itself; refusing to recurse." >&2
+  echo "A 'pawl' on PATH points back at this wrapper instead of the real binary." >&2
+  exit 1
+fi
+export PAWL_WRAPPER_ACTIVE=1
+
+# Portable realpath: readlink -f is GNU-only, and this has to work on macOS.
+# The counter bounds a symlink cycle, which would otherwise spin here.
+resolve() {
+  local p="$1" target hops=0
+  while [ -L "$p" ]; do
+    hops=$((hops + 1))
+    [ "$hops" -gt 40 ] && return 1
+    target="$(readlink "$p")"
+    case "$target" in
+      /*) p="$target" ;;
+      *)  p="$(dirname "$p")/$target" ;;
+    esac
+  done
+  [ -e "$p" ] || return 1
+  printf '%s/%s\n' "$(cd "$(dirname "$p")" && pwd -P)" "$(basename "$p")"
+}
+
+self="$(resolve "${BASH_SOURCE[0]}")" || {
+  echo "error: pawl wrapper could not resolve its own path." >&2
+  exit 1
+}
+
+IFS=':' read -r -a path_entries <<< "${PATH:-}"
+
+found=""
+for dir in "${path_entries[@]}"; do
+  [ -z "$dir" ] && continue
+  candidate="$dir/pawl"
+  [ -x "$candidate" ] || continue
+
+  # Fully resolve the candidate — directory symlinks AND the file itself —
+  # so anything that is really this script is recognised and skipped.
+  candidate_resolved="$(resolve "$candidate" || true)"
+  [ -z "$candidate_resolved" ] && continue
+  [ "$candidate_resolved" = "$self" ] && continue
+
+  found="$candidate_resolved"
+  break
+done
+
+if [ -z "$found" ]; then
+  cat >&2 <<'EOF'
+error: the `pawl` binary is not installed.
+
+The agent-pawl Claude Code plugin ships the /agent-pawl:pawl skill, but it
+cannot ship the pawl binary itself (Go build artifacts aren't plugin
+content). Install it with:
+
+  go install github.com/dcferreira/agent-pawl/cmd/pawl@latest
+
+then make sure $(go env GOPATH)/bin is on your PATH, and try again.
+EOF
+  exit 1
+fi
+
+exec "$found" "$@"

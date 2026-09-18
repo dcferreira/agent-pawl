@@ -43,6 +43,17 @@ jobs:
           go mod tidy
           git diff --exit-code go.mod go.sum
 
+      # Validates .claude-plugin/plugin.json and marketplace.json. The
+      # Claude Code CLI isn't preinstalled on GitHub-hosted runners, so it's
+      # fetched from npm (ubuntu-latest ships Node.js/npm); pinned to a
+      # version verified to work offline (no auth/API key needed for
+      # `plugin validate`) rather than tracking latest, for reproducibility.
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code@2.1.276
+
+      - name: Validate plugin manifest
+        run: claude plugin validate . --strict
+
   test:
     name: Test (unit + e2e)
     runs-on: ubuntu-latest

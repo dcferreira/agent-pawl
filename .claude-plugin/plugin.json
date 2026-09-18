@@ -1,0 +1,11 @@
+{
+  "name": "agent-pawl",
+  "version": "0.1.0",
+  "description": "Claude Code skill for driving pawl, a state-machine workflow engine. Requires the pawl binary (go install github.com/dcferreira/agent-pawl/cmd/pawl@latest) — this plugin does not ship it.",
+  "author": {
+    "name": "Daniel Ferreira"
+  },
+  "homepage": "https://github.com/dcferreira/agent-pawl",
+  "repository": "https://github.com/dcferreira/agent-pawl",
+  "license": "MIT"
+}

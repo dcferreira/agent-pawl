@@ -1,9 +1,11 @@
 # Install
 
-**This build has no plugin, no `install.sh`, and no release binaries.** DESIGN.md §9 describes a
-Claude Code plugin (a `/pawl` skill plus two static hooks, self-installing a pinned release binary)
-as the intended distribution story. None of that exists yet. What exists is a Go module you build
-yourself, and a skill file you copy into place by hand — see [dogfood.md](dogfood.md).
+**This build has no `install.sh` and no release binaries.** DESIGN.md §9 describes a fuller Claude
+Code plugin story (self-installing a pinned release binary via two static hooks) as the intended
+end state; none of that exists yet. What exists today is a Go module you build yourself, and a
+Claude Code plugin (see the README's Installation section) that ships the `/agent-pawl:pawl` skill
+— the plugin does not and cannot ship the `pawl` binary itself, so you still build or `go install`
+it separately, as below.
 
 ## Build and install the binary
 
@@ -24,12 +26,12 @@ go install github.com/dcferreira/agent-pawl/cmd/pawl@latest
 There is no `go install ./cmd/pawl@latest`-with-version story: nothing here is tagged or released,
 so `@latest` means "whatever is on the default branch," not a pinned build.
 
-If you'd rather not touch `$GOPATH/bin`, `make build` puts the binary at `./bin/pawl` in the repo
-instead:
+If you'd rather not touch `$GOPATH/bin`, `make build` puts the binary at `./dist/pawl` in the repo
+instead (not `./bin/`, which is a committed plugin directory — see the plugin section below):
 
 ```
 make build
-./bin/pawl version
+./dist/pawl version
 ```
 
 ## Verify

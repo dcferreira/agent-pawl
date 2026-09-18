@@ -1,6 +1,6 @@
 ---
 name: pawl
-description: Drive a pawl workflow run (dispatch subagents for agentic steps, submit their results, report the terminal outcome). Use when the user asks to run, resume, or continue a pawl workflow, or when you see a DISPATCH/TERMINAL line from pawl that needs a response.
+description: Drive a pawl workflow run (dispatch subagents for agentic steps, submit their results, report the terminal outcome). Requires the `pawl` binary on PATH (go install github.com/dcferreira/agent-pawl/cmd/pawl@latest) — this skill does not ship it. Use when the user asks to run, resume, or continue a pawl workflow, or when you see a DISPATCH/TERMINAL line from pawl that needs a response.
 ---
 
 # /pawl: driving a workflow run

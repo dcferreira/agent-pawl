@@ -1,0 +1,13 @@
+{
+  "name": "agent-pawl",
+  "description": "The agent-pawl plugin: a Claude Code skill for driving the pawl workflow engine.",
+  "owner": {
+    "name": "Daniel Ferreira"
+  },
+  "plugins": [
+    {
+      "name": "agent-pawl",
+      "source": "./"
+    }
+  ]
+}
