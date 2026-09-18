@@ -187,6 +187,203 @@ func TestResolveRoot_ThisRepo(t *testing.T) {
 	}
 }
 
+// The following TestResolveRoot_Marker* tests construct every marker
+// scenario with plain filesystem operations only (mkdir/WriteFile) — no jj
+// or git binary involved — so they exercise the marker-walk algorithm
+// itself, independent of whether any VCS tool is installed.
+
+// TestResolveRoot_MarkerDirectory covers the plain non-worktree repo shape:
+// .git is a directory.
+func TestResolveRoot_MarkerDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(dir, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	root, err := ResolveRoot(sub)
+	if err != nil {
+		t.Fatalf("ResolveRoot: %v", err)
+	}
+	if got, want := root, realpath(t, dir); got != want {
+		t.Errorf("ResolveRoot(sub) = %q, want %q", got, want)
+	}
+}
+
+// TestResolveRoot_MarkerFile covers the git-worktree/submodule shape: .git
+// is a regular FILE (containing a "gitdir: ..." pointer), not a directory.
+// This is the case the task calls out as the interesting one to verify
+// against the pre-change implementation.
+func TestResolveRoot_MarkerFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".git"), []byte("gitdir: /elsewhere/.git/worktrees/x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(dir, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	root, err := ResolveRoot(sub)
+	if err != nil {
+		t.Fatalf("ResolveRoot: %v", err)
+	}
+	if got, want := root, realpath(t, dir); got != want {
+		t.Errorf("ResolveRoot(sub) = %q, want %q (.git-as-a-file worktree/submodule shape)", got, want)
+	}
+}
+
+// TestResolveRoot_JJMarkerOnly covers the jj-secondary-workspace shape: a
+// .jj marker with NO .git alongside it at all. `git rev-parse` has nothing
+// to find here, so this case only ever worked before this change because jj
+// itself was installed and used as the first fallback.
+func TestResolveRoot_JJMarkerOnly(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".jj"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(dir, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	root, err := ResolveRoot(sub)
+	if err != nil {
+		t.Fatalf("ResolveRoot: %v", err)
+	}
+	if got, want := root, realpath(t, dir); got != want {
+		t.Errorf("ResolveRoot(sub) = %q, want %q (.jj-only, no .git)", got, want)
+	}
+}
+
+// TestResolveRoot_BothMarkers covers a colocated git+jj repo: both .git and
+// .jj exist in the same directory; either one identifies the same root, so
+// the answer is unambiguous.
+func TestResolveRoot_BothMarkers(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".jj"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(dir, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	root, err := ResolveRoot(sub)
+	if err != nil {
+		t.Fatalf("ResolveRoot: %v", err)
+	}
+	if got, want := root, realpath(t, dir); got != want {
+		t.Errorf("ResolveRoot(sub) = %q, want %q (both markers present)", got, want)
+	}
+}
+
+// TestResolveRoot_NearestMarkerWins covers nested repos: an outer repo
+// containing an inner repo. The inner repo's root must win for a cwd inside
+// it — the walk must stop at the nearest marker, not the outermost one.
+func TestResolveRoot_NearestMarkerWins(t *testing.T) {
+	outer := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outer, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	inner := filepath.Join(outer, "nested")
+	if err := os.MkdirAll(filepath.Join(inner, ".jj"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(inner, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	root, err := ResolveRoot(sub)
+	if err != nil {
+		t.Fatalf("ResolveRoot: %v", err)
+	}
+	if got, want := root, realpath(t, inner); got != want {
+		t.Errorf("ResolveRoot(sub) = %q, want inner repo root %q (nearest marker must win over outer %q)", got, want, realpath(t, outer))
+	}
+}
+
+// TestResolveRoot_DeepSubdirectory covers a marker several levels above
+// cwd, to make sure the walk actually climbs multiple levels rather than
+// checking only the immediate parent.
+func TestResolveRoot_DeepSubdirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	deep := filepath.Join(dir, "a", "b", "c", "d")
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	root, err := ResolveRoot(deep)
+	if err != nil {
+		t.Fatalf("ResolveRoot: %v", err)
+	}
+	if got, want := root, realpath(t, dir); got != want {
+		t.Errorf("ResolveRoot(deep) = %q, want %q", got, want)
+	}
+}
+
+// TestResolveRoot_MarkerThroughSymlink covers a marker reached via a
+// symlinked path component, mirroring
+// TestResolveRoot_NonRepoDirectory_ThroughSymlink but for the marker-found
+// branch: both paths must resolve to the same identity.
+func TestResolveRoot_MarkerThroughSymlink(t *testing.T) {
+	real := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(real, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(real, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks not usable in this environment: %v", err)
+	}
+
+	direct, err := ResolveRoot(filepath.Join(real, "sub"))
+	if err != nil {
+		t.Fatalf("ResolveRoot(direct): %v", err)
+	}
+	viaLink, err := ResolveRoot(filepath.Join(link, "sub"))
+	if err != nil {
+		t.Fatalf("ResolveRoot(via symlink): %v", err)
+	}
+	if direct != viaLink {
+		t.Errorf("ResolveRoot disagrees across a symlink: direct=%q, via symlink=%q", direct, viaLink)
+	}
+	if direct != realpath(t, real) {
+		t.Errorf("ResolveRoot(direct) = %q, want %q", direct, realpath(t, real))
+	}
+}
+
+// TestResolveRoot_NoMarkerAnywhere covers the case where no ancestor,
+// including the filesystem root, has a marker: ResolveRoot must fall back
+// to cwd itself rather than climbing forever or erroring.
+func TestResolveRoot_NoMarkerAnywhere(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "x", "y")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	root, err := ResolveRoot(sub)
+	if err != nil {
+		t.Fatalf("ResolveRoot: %v", err)
+	}
+	if got, want := root, realpath(t, sub); got != want {
+		t.Errorf("ResolveRoot(sub) = %q, want %q (no marker anywhere)", got, want)
+	}
+}
+
 func TestSlug(t *testing.T) {
 	tests := []struct {
 		root string

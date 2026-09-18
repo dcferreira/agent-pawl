@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -15,12 +14,32 @@ import (
 // distinct roots colliding on it is not a practical concern.
 const slugHashLen = 8
 
-// ResolveRoot resolves the working-copy root for cwd by asking the VCS —
-// `jj workspace root`, else `git rev-parse --show-toplevel`, else cwd
-// itself — never by string-manipulating cwd (DESIGN.md §5). A git worktree
-// or a jj workspace is its own root. This is the single algorithm both the
-// runtime and (in a later build) the enforcement hooks must call, so that
-// the two sides can never derive identity differently.
+// ResolveRoot resolves the working-copy root for cwd by walking up from it
+// looking for a directory that contains a ".git" or ".jj" entry — never by
+// string-manipulating cwd (DESIGN.md §5), and never by shelling out to jj or
+// git: the marker's mere existence is what a working copy *is*, for both a
+// git worktree and a jj workspace, so no subprocess is needed to answer this
+// question and this package has no runtime dependency on either binary. The
+// nearest marker wins: for a repo nested inside another repo, the inner
+// marker stops the walk first. If no ancestor (including the filesystem
+// root) has a marker, ResolveRoot falls back to cwd itself. This is the
+// single algorithm both the runtime and (in a later build) the enforcement
+// hooks must call, so that the two sides can never derive identity
+// differently.
+//
+// The marker entry may be a directory (the common case) or a plain file: in
+// a git worktree and in a git submodule, ".git" is a file containing a
+// "gitdir: ..." pointer, not a directory. ResolveRoot only tests for the
+// entry's existence, never for it being a directory, or both shapes would
+// silently fall through to the wrong ancestor.
+//
+// One case is a deliberate divergence from asking git directly: with
+// GIT_WORK_TREE/GIT_DIR set in the environment, `git rev-parse
+// --show-toplevel` reports the overridden work tree, while this walk always
+// reports the physical directory containing the marker. That is fine for
+// this package's two uses (namespacing run state and bounding workflow
+// discovery) and arguably more correct for them, so it is accepted rather
+// than emulated.
 //
 // Every branch, including the non-repo fallback, resolves symlinks before
 // returning: the same directory reached two ways (once through a symlink,
@@ -36,45 +55,37 @@ func ResolveRoot(cwd string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("journal: resolving root: %w", err)
 	}
-	if _, err := os.Stat(abs); err != nil {
-		return "", fmt.Errorf("journal: resolving root: %w", err)
-	}
-	if root, ok := vcsRoot(abs, "jj", "workspace", "root"); ok {
-		return root, nil
-	}
-	if root, ok := vcsRoot(abs, "git", "rev-parse", "--show-toplevel"); ok {
-		return root, nil
-	}
 	real, err := filepath.EvalSymlinks(abs)
 	if err != nil {
 		return "", fmt.Errorf("journal: resolving root: %w", err)
 	}
+
+	dir := real
+	for {
+		if hasMarker(dir) {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+
 	return real, nil
 }
 
-// vcsRoot runs a VCS root-query command with dir as its working directory
-// and reports the resolved, symlink-free absolute root, or ok=false if the
-// command failed (not that VCS, or not inside a working copy of it).
-func vcsRoot(dir, name string, args ...string) (string, bool) {
-	cmd := exec.Command(name, args...)
-	cmd.Dir = dir
-	out, err := cmd.Output()
-	if err != nil {
-		return "", false
+// hasMarker reports whether dir directly contains a ".git" or ".jj" entry,
+// regardless of whether that entry is a directory or a plain file (the
+// worktree/submodule shape for ".git").
+func hasMarker(dir string) bool {
+	if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
+		return true
 	}
-	root := strings.TrimSpace(string(out))
-	if root == "" {
-		return "", false
+	if _, err := os.Lstat(filepath.Join(dir, ".jj")); err == nil {
+		return true
 	}
-	real, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		return "", false
-	}
-	abs, err := filepath.Abs(real)
-	if err != nil {
-		return "", false
-	}
-	return abs, true
+	return false
 }
 
 // Slug returns the run-directory namespace for a working copy (DESIGN.md
