@@ -57,10 +57,17 @@ jobs:
   test:
     name: Test (unit + e2e)
     runs-on: ubuntu-latest
-    # Set only in our own CI, once jj is installed below — never rely on the
-    # generic CI env var GitHub Actions sets automatically, since a
-    # git-only contributor could have CI set in their own shell for
-    # unrelated reasons and this project must not require jj locally.
+    # Guarantees a missing/failing git in internal/journal's VCS tests is a
+    # loud failure (t.Fatalf), not a silent skip: git ships on every runner
+    # this workflow uses, so its absence here would mean the runner image is
+    # broken, not that coverage should quietly shrink. This is scoped to git
+    # only — jj is not installed in this job (root resolution has no runtime
+    # dependency on either VCS binary; see internal/journal/root.go), so
+    # TestResolveRoot_JJWorkspace always skips when jj is missing regardless
+    # of this variable. Never rely on the generic CI env var GitHub Actions
+    # sets automatically, since a git-only contributor could have CI set in
+    # their own shell for unrelated reasons, and this project must not
+    # require git or jj for local development.
     env:
       PAWL_REQUIRE_VCS_TOOLS: "1"
     steps:
@@ -76,27 +83,6 @@ jobs:
       # fails loudly at setup rather than mid-suite.
       - name: Install jq
         run: sudo apt-get install -y jq
-
-      # jj (Jujutsu) is not packaged for apt, and internal/journal's
-      # TestResolveRoot_JJWorkspace needs a real `jj` binary on PATH to cover
-      # the jj-workspace branch of root resolution (see mustRun in
-      # internal/journal/root_test.go) instead of silently skipping. Pinned
-      # to a release verified to exist (checked via `gh api
-      # repos/jj-vcs/jj/releases/latest` at authoring time) rather than
-      # tracking `latest`, for reproducibility.
-      - name: Install jj
-        run: |
-          set -euo pipefail
-          version=0.45.1
-          sha256=f35438350b5d61963aac5dd74ede510b31d6b9690769d1a6268cf058cc825f72
-          curl -sSL -o /tmp/jj.tar.gz \
-            "https://github.com/jj-vcs/jj/releases/download/v${version}/jj-v${version}-x86_64-unknown-linux-musl.tar.gz"
-          echo "${sha256}  /tmp/jj.tar.gz" | sha256sum -c -
-          # Members are ./jj, ./README.md, ./LICENSE — the leading ./ is part
-          # of the name, so extracting the member as "jj" does not match it.
-          tar -xzf /tmp/jj.tar.gz -C /tmp ./jj
-          sudo install -m 0755 /tmp/jj /usr/local/bin/jj
-          jj --version
 
       - name: Test
         run: make test

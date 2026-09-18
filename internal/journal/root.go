@@ -50,6 +50,15 @@ const slugHashLen = 8
 // A cwd that does not exist is an error: there is no sensible identity to
 // return for it, and returning one anyway (silently) is the failure mode
 // this whole function is designed against.
+//
+// Practical consequence of the fallback: a directory with no ".git" or
+// ".jj" anywhere above it has no stable root at all — every subdirectory
+// resolves to itself, not to some shared ancestor. Since workflow discovery
+// walks up from this root looking for ".claude/workflows/", and run state is
+// namespaced under Slug(root), that means pawl run/list/status stop seeing
+// each other's workflows and runs as soon as you're one level below where
+// they were invoked. This is a known, accepted limitation of not shelling
+// out to a VCS — see docs/troubleshooting.md — not a bug in the walk above.
 func ResolveRoot(cwd string) (string, error) {
 	abs, err := filepath.Abs(cwd)
 	if err != nil {

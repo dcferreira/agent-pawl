@@ -82,3 +82,25 @@ from the journal.
 
 Compare `root` in `pawl status` against the tree you think you're in — guards and `Stop` resolve the
 working-copy root the same way, and a git worktree or jj workspace is its own root with its own runs.
+
+## Workflow not found, or run not visible, outside a VCS-tracked directory
+
+```
+pawl: no workflow named "manage-mr" found under .claude/workflows/ (searched /home/ada/src/app/sub
+    up to working-copy root /home/ada/src/app/sub) or ~/.claude/workflows/
+```
+
+or `pawl list` prints nothing, or `pawl status` can't find a run you know is active — but everything
+works fine one directory up.
+
+The working-copy root is found by walking up from cwd looking for a `.git` or `.jj` marker. If a
+directory has neither anywhere above it, there's nothing to find, and root falls back to cwd itself.
+That means an unversioned directory has no stable root: every subdirectory of it *is* its own root,
+not a shared ancestor. `pawl` only looks for `.claude/workflows/` between cwd and root, so from a
+subdirectory the walk stops immediately and finds nothing; run state is namespaced under root the same
+way, so a run started at the top of such a directory is invisible from a subdirectory too — they're
+different roots, not different views of the same one.
+
+Workaround: run `pawl` from the directory that contains `.claude/`, not a subdirectory of it — or put
+that directory under version control. `git init` with no commits is enough; only the `.git` marker's
+presence is checked.

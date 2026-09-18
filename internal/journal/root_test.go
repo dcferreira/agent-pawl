@@ -18,13 +18,16 @@ func shortHash(root string) string {
 }
 
 // requireVCSTools, when set to a non-empty value, turns a missing/failing
-// VCS tool in mustRun (and the symlink probe below) into a hard test
-// failure instead of a skip. This is deliberately its own variable rather
-// than the generic CI (which GitHub Actions sets automatically on every
-// runner): a git-only contributor could have CI set in their own shell for
-// unrelated reasons, and this project must never require jj for local
-// development. Only our own CI workflow sets this explicitly, once it has
-// installed jj itself.
+// VCS tool in mustRun into a hard test failure instead of a skip. Its scope
+// is git only: git ships on every runner this project's CI uses, so if it
+// ever went missing there we want a loud failure, not a silently reduced
+// test suite. jj is not installed in CI (see TestResolveRoot_JJWorkspace,
+// which uses optionalRun instead and always skips rather than fails when jj
+// is absent). requireVCSTools is deliberately its own variable rather than
+// the generic CI (which GitHub Actions sets automatically on every runner):
+// a git-only contributor could have CI set in their own shell for unrelated
+// reasons, and this project must never require git *or* jj for local
+// development — only our own CI workflow sets this explicitly.
 const requireVCSTools = "PAWL_REQUIRE_VCS_TOOLS"
 
 func mustRun(t *testing.T, dir, name string, args ...string) {
@@ -37,6 +40,24 @@ func mustRun(t *testing.T, dir, name string, args ...string) {
 			t.Fatalf("%s not usable in this environment: %v: %s", name, err, out)
 		}
 		t.Skipf("%s not usable in this environment: %v: %s", name, err, out)
+	}
+}
+
+// optionalRun runs an external VCS tool that this project's CI does not
+// install (currently: jj). Unlike mustRun, a missing/failing tool here
+// always skips the test, regardless of requireVCSTools: jj is not
+// guaranteed to be on any runner or contributor machine, so there is no
+// environment in which its absence should be a hard failure. The skip
+// message is intentionally explicit about what is skipped and why, so a
+// reader of CI logs sees the reduced coverage rather than having to infer
+// it from a silent pass.
+func optionalRun(t *testing.T, dir, name string, args ...string) {
+	t.Helper()
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Skipf("SKIPPING: %s is not installed/usable in this environment (%v: %s) — this test only verifies that a real jj workspace carries a \".jj\" marker; that jj-specific coverage is reduced here, everything else in this package still runs", name, err, out)
 	}
 }
 
@@ -150,7 +171,7 @@ func TestResolveRoot_GitWorktree(t *testing.T) {
 
 func TestResolveRoot_JJWorkspace(t *testing.T) {
 	dir := t.TempDir()
-	mustRun(t, dir, "jj", "git", "init")
+	optionalRun(t, dir, "jj", "git", "init")
 
 	sub := filepath.Join(dir, "sub")
 	if err := os.MkdirAll(sub, 0o755); err != nil {

@@ -69,6 +69,11 @@ worth checking if enforcement looks wrong; `--json` prints the same fields.
 Runs are keyed by working-copy root, not session: several may be live in one repo, but two on one
 tree collide — separate git worktrees/jj workspaces are separate roots.
 
+That keying assumes a `.git` or `.jj` somewhere above cwd. With neither, root falls back to cwd
+itself, so every subdirectory of an unversioned tree is its own root: a run started at the top is
+invisible to `pawl status`/`pawl run` from a subdirectory. See
+[troubleshooting.md](troubleshooting.md#workflow-not-found-or-run-not-visible-outside-a-vcs-tracked-directory).
+
 ## Resume after a crash
 
 Close the terminal, reboot — the run is on disk.
