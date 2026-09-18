@@ -16,21 +16,21 @@ func TestRun(t *testing.T) {
 	}{
 		{
 			name:       "version",
-			args:       []string{"wf", "version"},
+			args:       []string{"pawl", "version"},
 			wantExit:   0,
-			wantStdout: "wf " + Version + "\n",
+			wantStdout: "pawl " + Version + "\n",
 		},
 		{
 			name:          "no subcommand",
-			args:          []string{"wf"},
+			args:          []string{"pawl"},
 			wantExit:      2,
-			wantStderrHas: "wf run",
+			wantStderrHas: "pawl run",
 		},
 		{
 			name:          "unknown subcommand",
-			args:          []string{"wf", "bogus"},
+			args:          []string{"pawl", "bogus"},
 			wantExit:      2,
-			wantStderrHas: "wf validate",
+			wantStderrHas: "pawl validate",
 		},
 	}
 
@@ -54,7 +54,7 @@ func TestRun(t *testing.T) {
 
 func TestUsageListsAllMilestone1Commands(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	run([]string{"wf"}, &stdout, &stderr)
+	run([]string{"pawl"}, &stdout, &stderr)
 
 	for _, cmd := range []string{"run", "validate", "status", "abandon", "list"} {
 		if !strings.Contains(stderr.String(), cmd) {

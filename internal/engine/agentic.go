@@ -3,8 +3,8 @@ package engine
 import (
 	"errors"
 
-	"github.com/dcferreira/agentic-workflow-fsm/internal/journal"
-	"github.com/dcferreira/agentic-workflow-fsm/internal/spec"
+	"github.com/dcferreira/agent-pawl/internal/journal"
+	"github.com/dcferreira/agent-pawl/internal/spec"
 )
 
 // dispatchAgentic enters an agentic step (a cap check, then STEP_ENTER) and

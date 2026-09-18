@@ -9,7 +9,7 @@ the four kinds compare.
   definition of done. Not the prompt itself: the session composes the subagent prompt from this plus
   `context:` and session knowledge. Don't restate `writes:`, write the literal subagent prompt, or
   smuggle in routing logic.
-- **`context:`** — files/command output `wf` gathers into `DISPATCH`: `CHANGELOG.md` (verbatim),
+- **`context:`** — files/command output `pawl` gathers into `DISPATCH`: `CHANGELOG.md` (verbatim),
   `"!uv run pytest -q | tail -n 150"` (stdout). `${key}` inside `!cmd` resolves first. Keep it small.
 - **`subagent_args:`** — extra arguments passed through verbatim for the subagent launch; the engine
   does not interpret or enforce any of it. In Claude Code these are typically `model`, `tools`,
@@ -49,7 +49,7 @@ the four kinds compare.
 The engine prints a `DISPATCH` block: rendered `description`, gathered `context`, the `writes:`
 schema, `subagent_args:` (printed as given). The session composes the subagent prompt, dispatches
 honouring the `subagent_args:` settings its harness understands, and submits the result via
-`wf submit`.
+`pawl submit`.
 
 ## Outcomes
 

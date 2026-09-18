@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/dcferreira/agentic-workflow-fsm/internal/journal"
+	"github.com/dcferreira/agent-pawl/internal/journal"
 )
 
 // runIDPattern matches newRunID's 4-hex-character output, wherever it
@@ -16,7 +16,7 @@ import (
 var runIDPattern = regexp.MustCompile(`\b[0-9a-f]{4}\b`)
 
 // setupWorkingCopy creates a fresh temp directory, chdirs into it (t.Chdir
-// restores on cleanup), and points WF_STATE_DIR at a separate fresh temp
+// restores on cleanup), and points PAWL_STATE_DIR at a separate fresh temp
 // directory so no test ever touches the real state directory. It returns
 // the working copy root.
 func setupWorkingCopy(t *testing.T) string {

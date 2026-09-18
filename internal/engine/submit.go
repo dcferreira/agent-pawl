@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/dcferreira/agentic-workflow-fsm/internal/emit"
-	"github.com/dcferreira/agentic-workflow-fsm/internal/journal"
-	"github.com/dcferreira/agentic-workflow-fsm/internal/spec"
+	"github.com/dcferreira/agent-pawl/internal/emit"
+	"github.com/dcferreira/agent-pawl/internal/journal"
+	"github.com/dcferreira/agent-pawl/internal/spec"
 )
 
 // Submit applies the result of an agentic step's dispatch: it refuses any
@@ -155,7 +155,7 @@ func (e *Engine) Submit(runID, stepID string, attempt int, result json.RawMessag
 // a key that is in the schema but does not fit its declared type is a hard
 // validation error. A step with no typed writes: schema at all is treated
 // as the empty schema and fails closed: no returned key is ever accepted
-// (this should be unreachable once wf run gates on spec.Validate, which
+// (this should be unreachable once pawl run gates on spec.Validate, which
 // requires a typed writes: on every agentic step).
 func validateAgenticWrites(step *spec.Step, parsed map[string]any) (writes map[string]any, errText string) {
 	if !step.Writes.IsTyped || len(step.Writes.Types) == 0 {

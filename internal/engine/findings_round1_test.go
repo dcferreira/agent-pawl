@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dcferreira/agentic-workflow-fsm/internal/emit"
-	"github.com/dcferreira/agentic-workflow-fsm/internal/journal"
-	"github.com/dcferreira/agentic-workflow-fsm/internal/spec"
+	"github.com/dcferreira/agent-pawl/internal/emit"
+	"github.com/dcferreira/agent-pawl/internal/journal"
+	"github.com/dcferreira/agent-pawl/internal/spec"
 )
 
 // TestCaps_C1_RetriesDoNotBypassOrInflateMaxVisits is the probe-P1

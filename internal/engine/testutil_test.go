@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dcferreira/agentic-workflow-fsm/internal/journal"
-	"github.com/dcferreira/agentic-workflow-fsm/internal/spec"
+	"github.com/dcferreira/agent-pawl/internal/journal"
+	"github.com/dcferreira/agent-pawl/internal/spec"
 )
 
 // loadWorkflow writes yaml to a temp file, loads and validates it, and fails
-// the test if validation reports any error — mirroring the "wf run gates on
+// the test if validation reports any error — mirroring the "pawl run gates on
 // Validate returning zero errors" contract this package relies on.
 func loadWorkflow(t *testing.T, yaml string) *spec.Workflow {
 	t.Helper()
@@ -34,7 +34,7 @@ func loadWorkflow(t *testing.T, yaml string) *spec.Workflow {
 	return w
 }
 
-// newTestEngine loads yaml, points WF_STATE_DIR at a fresh temp dir (so
+// newTestEngine loads yaml, points PAWL_STATE_DIR at a fresh temp dir (so
 // tests never touch the real state directory), and returns an Engine rooted
 // at a separate temp "working copy" directory where run: scripts execute.
 func newTestEngine(t *testing.T, yaml string) *Engine {

@@ -30,7 +30,7 @@ the outer shell hands `${build_cmd}`'s quoted value to an inner `sh -c` as one a
 which then runs it as a command line.
 
 **`sh -c ${key}` is legitimate only for an `args:` value, never for a `state:` key that a
-step or subagent writes.** A workflow argument comes from whoever invokes `wf run` — the
+step or subagent writes.** A workflow argument comes from whoever invokes `pawl run` — the
 same person who can already run any command as themselves, so `sh -c ${build_cmd}`
 introducing no new capability. A `state:` key can be written by a step's `writes:` (a
 deterministic step's own stdout, or an agentic step's typed return, both of which the
@@ -70,5 +70,5 @@ observes real test output until `jq` is installed.
   a fix classified as a real regression vs. a flake) is out of scope for a two-step loop.
 - **No human gate.** A real dogfood loop that burns through every `attempts:` and
   `max_visits:` retry lands on `gave_up` — a `blocked` terminal — with no `human` step to
-  ask a person how to proceed; `wf run` on the same working copy simply resumes it, per
+  ask a person how to proceed; `pawl run` on the same working copy simply resumes it, per
   design/format-spec.md §B.12.

@@ -26,7 +26,7 @@ elsewhere; `[]` (empty) denies it for the whole run: "never do this by hand".
 A denied call does not run:
 
 ```
-PreToolUse: denied by wf guard `merge-only-in-merge-step` (run 7f3a, step wait_for_ci).
+PreToolUse: denied by pawl guard `merge-only-in-merge-step` (run 7f3a, step wait_for_ci).
 `gh pr merge` may only run in step merge_pr.
 ```
 
@@ -51,7 +51,7 @@ invariants:
     message: "The MR was un-drafted or given reviewers before any were approved."
 ```
 
-The engine evaluates every invariant after every step and after every `wf submit`, `${key}`
+The engine evaluates every invariant after every step and after every `pawl submit`, `${key}`
 substituted.
 
 Exit 0 holds, non-zero is violated, and cannot run at all (missing script, unparseable output,

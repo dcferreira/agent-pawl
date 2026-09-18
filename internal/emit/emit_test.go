@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dcferreira/agentic-workflow-fsm/internal/emit"
-	"github.com/dcferreira/agentic-workflow-fsm/internal/spec"
+	"github.com/dcferreira/agent-pawl/internal/emit"
+	"github.com/dcferreira/agent-pawl/internal/spec"
 )
 
 func namedStep(id string, outcomes map[string]string, writesKeys []string, emits string) *spec.Step {

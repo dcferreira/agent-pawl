@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/dcferreira/agentic-workflow-fsm/internal/engine"
-	"github.com/dcferreira/agentic-workflow-fsm/internal/spec"
+	"github.com/dcferreira/agent-pawl/internal/engine"
+	"github.com/dcferreira/agent-pawl/internal/spec"
 )
 
 // printLine writes one line to w: parts are space-joined and the whole
@@ -30,7 +30,7 @@ func printLine(w io.Writer, parts ...string) {
 
 // blockWriter is the single guarded writer for everything this package
 // prints that carries run-time or author-supplied content: the
-// DISPATCH/TERMINAL block, the resume line, and wf status's own output.
+// DISPATCH/TERMINAL block, the resume line, and pawl status's own output.
 //
 // Fix rounds 1-3 found three separate places — a context entry's Source on
 // its header line, spec.Terminal.Status (no format validator at all: an
@@ -105,20 +105,20 @@ func (w *blockWriter) literal(s string) {
 	w.b.WriteString(s)
 }
 
-// formatBanner renders wf run's start banner: which workflow file was used
+// formatBanner renders pawl run's start banner: which workflow file was used
 // (design/format-spec.md §I), the enforcement line (Ruling R5 — there are no
-// hooks in this build, so wf run prints rather than refuses), and the
+// hooks in this build, so pawl run prints rather than refuses), and the
 // soft: census (design/format-spec.md §H, last line: "printed every time").
 // The banner precedes the instruction grammar and is not itself
 // instruction-shaped (DESIGN.md §2's column-0 sentence names only
 // DISPATCH|ASK|WAIT|TERMINAL and END), but it is still built through
-// blockWriter for the same reason wf status is (see formatStatus): a
+// blockWriter for the same reason pawl status is (see formatStatus): a
 // workflow file's path is the least attacker-adjacent value in this
 // package, yet "least" is not "never", and there is no cost to guarding it
 // anyway.
-func formatBanner(wf *resolvedWorkflow, report *spec.Report) string {
+func formatBanner(rw *resolvedWorkflow, report *spec.Report) string {
 	w := &blockWriter{}
-	w.line(0, "workflow:", wf.Path, "("+wf.Source+")")
+	w.line(0, "workflow:", rw.Path, "("+rw.Source+")")
 	w.literal("enforcement: off (milestone 1)\n")
 	writeSoftCensus(w, report)
 	return w.String()
@@ -171,7 +171,7 @@ func formatKeySet(m map[string]any) string {
 }
 
 // formatInstruction renders the one line — and, for DISPATCH/TERMINAL, the
-// indented, sentinel-terminated block beneath it — that the /wf skill reads
+// indented, sentinel-terminated block beneath it — that the /pawl skill reads
 // to know what to do next (DESIGN.md §2). w supplies a Dispatch step's
 // declared attempts: budget (not carried on engine.Dispatch itself) and, for
 // a blocked Terminal, root+w.Workflow locate the run directory so the
@@ -192,7 +192,7 @@ func formatInstruction(instr engine.Instruction, w *spec.Workflow, root string) 
 		}
 		return formatTerminal(v, detail)
 	default:
-		return fmt.Sprintf("wf: internal error: unknown instruction type %T\n", instr)
+		return fmt.Sprintf("pawl: internal error: unknown instruction type %T\n", instr)
 	}
 }
 
@@ -251,7 +251,7 @@ func formatDispatch(d engine.Dispatch, maxAttempts int) string {
 		w.field(0, "interrupted", "a previous attempt on this step did not finish (a crash, or a person intervened after a block); inspect current state before acting.")
 	}
 
-	w.line(0, "submit with:", fmt.Sprintf("wf submit --run %s --step %s --json '<the object above>'", d.RunID, d.Step))
+	w.line(0, "submit with:", fmt.Sprintf("pawl submit --run %s --step %s --json '<the object above>'", d.RunID, d.Step))
 	w.line(0, "END", "DISPATCH", d.RunID, d.Step)
 	return w.String()
 }
@@ -362,12 +362,12 @@ func formatTerminal(t engine.Terminal, detail string) string {
 	return w.String()
 }
 
-// formatStatus renders wf status's output through the same guarded
+// formatStatus renders pawl status's output through the same guarded
 // blockWriter every DISPATCH/TERMINAL/resume line uses. It is not part of
 // the instruction grammar DESIGN.md §2 governs, but it prints the same
 // unvalidated values (a run's state key names via formatKeySet, in
 // particular) that motivated fix round 4, and the round's own whole-output
-// property test drives wf status as part of what it checks — so it is held
+// property test drives pawl status as part of what it checks — so it is held
 // to the same guarantee for the same reason formatBanner is.
 func formatStatus(root, workflowPath, warning, runID, status, step string, attempt int, visits, state string, report *spec.Report) string {
 	w := &blockWriter{}

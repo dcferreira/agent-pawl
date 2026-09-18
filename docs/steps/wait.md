@@ -15,7 +15,7 @@ Wait on something outside the run: CI, a review, a build, a person doing a thing
   separately from `timeout:` which bounds one sojourn. Exceeding it gives the reserved outcome
   `exhausted`; route it somewhere useful (e.g. a `human` gate) or it goes to `blocked`.
 - **`postcondition:`** — optional here; the outcome *is* the check (`wait` and `human` are the two
-  kinds `wf validate` exempts).
+  kinds `pawl validate` exempts).
 
 ## Example
 
@@ -35,10 +35,10 @@ Wait on something outside the run: CI, a review, a build, a person doing a thing
       timeout:   blocked
 ```
 
-The engine prints `WAIT 7f3a wait_for_mr`; the session runs `wf poll --run 7f3a --step wait_for_mr`
-in the background. **`wf poll` submits its own result** the moment a poll iteration's last line
-carries a routed token, or on `timeout:` — the model never runs `wf submit` for a `wait` step. The
-session is free meanwhile (no token cost while polling); if it dies, `wf run <name>` resumes at the
+The engine prints `WAIT 7f3a wait_for_mr`; the session runs `pawl poll --run 7f3a --step wait_for_mr`
+in the background. **`pawl poll` submits its own result** the moment a poll iteration's last line
+carries a routed token, or on `timeout:` — the model never runs `pawl submit` for a `wait` step. The
+session is free meanwhile (no token cost while polling); if it dies, `pawl run <name>` resumes at the
 same step and restarts the poller.
 
 ## Outcomes

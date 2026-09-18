@@ -17,13 +17,13 @@ type RunRef struct {
 
 // Live enumerates every non-terminal run (BLOCKED included, per DESIGN.md
 // §4) for the working copy rooted at root, across every workflow id. It is
-// what `wf run`'s resume-when-exactly-one rule iterates over.
+// what `pawl run`'s resume-when-exactly-one rule iterates over.
 //
 // A run directory that exists but has never recorded a single event (e.g.
 // created and then abandoned before RUN_START landed) is not counted: it has
 // nothing to resume. An unreadable or corrupt run directory, or workflow-id
 // directory, is skipped rather than aborting the whole scan — one bad run
-// must not hide every other live run for the working copy from `wf run`'s
+// must not hide every other live run for the working copy from `pawl run`'s
 // resume rule.
 func Live(root string) ([]RunRef, error) {
 	base := filepath.Join(StateBase(), Slug(root))

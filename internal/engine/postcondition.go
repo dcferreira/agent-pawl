@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dcferreira/agentic-workflow-fsm/internal/render"
-	"github.com/dcferreira/agentic-workflow-fsm/internal/spec"
+	"github.com/dcferreira/agent-pawl/internal/render"
+	"github.com/dcferreira/agent-pawl/internal/spec"
 )
 
 // checkResult is the outcome of evaluating a postcondition or an agentic

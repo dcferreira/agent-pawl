@@ -1,5 +1,5 @@
-// Package cli implements the wf commands — run, submit, status, abandon,
-// validate, list — and the stdout grammar the /wf skill drives against
+// Package cli implements the pawl commands — run, submit, status, abandon,
+// validate, list — and the stdout grammar the /pawl skill drives against
 // (DESIGN.md §2): the run-start banner, the DISPATCH block and the TERMINAL
 // line. internal/engine returns every decision as a value (engine.Dispatch,
 // engine.Terminal); turning that into the printed contract with the model is
@@ -15,28 +15,28 @@ import (
 	"os"
 )
 
-// usage is the single source of truth for wf's command-line surface
-// (design/format-spec.md §I): cmd/wf's own run() prints this same text for
+// usage is the single source of truth for pawl's command-line surface
+// (design/format-spec.md §I): cmd/pawl's own run() prints this same text for
 // every command but "version", which it handles itself so a build-time
 // version string need not flow through this package.
-const usage = `Usage: wf <command> [args]
+const usage = `Usage: pawl <command> [args]
 
 Commands:
-  wf run <name> [key=value …] [--fresh] [--force] [--run <id>]
+  pawl run <name> [key=value …] [--fresh] [--force] [--run <id>]
         start, or resume a non-terminal run
-  wf validate <name>
+  pawl validate <name>
         run the static checks against a workflow file
-  wf status [--run <id>]
+  pawl status [--run <id>]
         show where a run is, and its trust surface
-  wf abandon --run <id>
+  pawl abandon --run <id>
         abandon a run; always available, always terminal
-  wf list
+  pawl list
         list resolvable workflows and their source
-  wf submit --run <id> --step <id> --json '<result>'
-        internal: submit an agentic step's result (the /wf skill calls this;
+  pawl submit --run <id> --step <id> --json '<result>'
+        internal: submit an agentic step's result (the /pawl skill calls this;
         an author never writes it)
-  wf version
-        print the wf version
+  pawl version
+        print the pawl version
 `
 
 // Run dispatches on args[1] and returns the process exit code. It is the
@@ -49,7 +49,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
-		printLine(stderr, "wf: resolving working directory:", err.Error())
+		printLine(stderr, "pawl: resolving working directory:", err.Error())
 		return 1
 	}
 	switch args[1] {

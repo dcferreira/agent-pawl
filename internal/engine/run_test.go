@@ -3,7 +3,7 @@ package engine
 import (
 	"testing"
 
-	"github.com/dcferreira/agentic-workflow-fsm/internal/journal"
+	"github.com/dcferreira/agent-pawl/internal/journal"
 )
 
 // TestStart_ThreeDeterministicSteps is the end-to-end test the brief's

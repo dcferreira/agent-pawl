@@ -9,7 +9,7 @@
         preflight.sh
 ```
 
-`wf run <name>` resolves `<name>` by walking up from your working-copy root for
+`pawl run <name>` resolves `<name>` by walking up from your working-copy root for
 `.claude/workflows/<name>.yaml`, falling back to `~/.claude/workflows/<name>.yaml`. First match wins;
 the run banner prints which one it used.
 
@@ -19,7 +19,7 @@ workflow is self-contained. There is no `prompts/` directory: an agentic step's 
 [agentic steps](steps/agentic.md)).
 
 ```
-› wf list
+› pawl list
 manage-mr           repo   .claude/workflows/manage-mr.yaml
 dependency-upgrade  repo   .claude/workflows/dependency-upgrade.yaml
 brain-dispatch      user   ~/.claude/workflows/brain-dispatch.yaml
@@ -63,7 +63,7 @@ quotes survives an argument boundary intact. In prose contexts (`description:`, 
 
 Six pseudo-keys are always readable and never declared: `run_id`, `step`, `attempt`, `visits`,
 `last_error`, `blocked_reason`. Scripts also get state through the environment: every key a step
-reads is exported as `WF_<KEY>`, upper-cased — `${branch}` is also `$WF_BRANCH`.
+reads is exported as `PAWL_<KEY>`, upper-cased — `${branch}` is also `$PAWL_BRANCH`.
 
 ## Arguments
 
@@ -74,7 +74,7 @@ args:
 ```
 
 ```
-wf run ship-change mr_url=https://gitlab/x/y/-/merge_requests/41 dry_run=true
+pawl run ship-change mr_url=https://gitlab/x/y/-/merge_requests/41 dry_run=true
 ```
 
 Args are ordinary state keys that no step may write — `writes: [mr_url]` is a validator error.
@@ -111,7 +111,7 @@ Three fields, in order of precedence:
 `next:` does not send you to the next step in the file, and the last step does not implicitly go to
 `done` — reordering `steps:` never changes what a workflow does. "Complete" routes every outcome the
 step's kind can produce, except `failure` (via `catch:`) and `exhausted` (unrouted → `blocked`),
-which already have engine-wide defaults. An outcome with no route is a `wf validate` error naming it.
+which already have engine-wide defaults. An outcome with no route is a `pawl validate` error naming it.
 
 ## Caps
 
@@ -232,7 +232,7 @@ mean something:
 ## Sharing
 
 Commit `.claude/workflows/` and the workflow is the team's: reviewable in a diff, validated in CI with
-`wf validate`. Keep personal ones in `~/.claude/workflows/` — a repo-local file of the same name wins.
+`pawl validate`. Keep personal ones in `~/.claude/workflows/` — a repo-local file of the same name wins.
 
 Next: the four kinds — [deterministic](steps/deterministic.md), [agentic](steps/agentic.md),
 [wait](steps/wait.md), [human](steps/human.md).

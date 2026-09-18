@@ -4,14 +4,14 @@
 `DESIGN.md` and `examples/`, found by trying to write each behaviour down for a user. Roughly most
 consequential first.
 
-1. **Who submits a `wait` result is unspecified.** The `/wf` skill text in `DESIGN.md` §2 says
-   `WAIT` → "run `wf poll` under Monitor" and stops there. The transcript immediately below it shows
-   `wf submit --run … --step wait_for_mr --token COMMENTS --json '…'`. So either the poller submits
+1. **Who submits a `wait` result is unspecified.** The `/pawl` skill text in `DESIGN.md` §2 says
+   `WAIT` → "run `pawl poll` under Monitor" and stops there. The transcript immediately below it shows
+   `pawl submit --run … --step wait_for_mr --token COMMENTS --json '…'`. So either the poller submits
    on its own behalf or the model must, and the skill never says which. The guide assumes the model
    submits what the poller printed.
 
 2. **No submit flags exist for two of the three human answer shapes.** The skill documents
-   `wf submit --option '<choice>'`. A `multi: true` answer is a list and an "Other" answer is free
+   `pawl submit --option '<choice>'`. A `multi: true` answer is a list and an "Other" answer is free
    text; neither has a documented representation. The guide invents repeatable `--option` plus
    `--other`.
 
@@ -44,7 +44,7 @@ consequential first.
    refusing once the run is `BLOCKED`", which reads like a live-but-halted run. Resumability of a
    blocked run is stated nowhere. The guide says terminal.
 
-9. **First line or last line, for a poller.** `DESIGN.md` §3 says `wf poll` "prints the **first**
+9. **First line or last line, for a poller.** `DESIGN.md` §3 says `pawl poll` "prints the **first**
    line whose token is a routed outcome"; §B.1 says the engine reads the **last** non-empty line of
    stdout. Both can be true (first *iteration* whose last line carries a routed token) but the
    wording is a genuine trip hazard for an author.
@@ -54,9 +54,9 @@ consequential first.
     `"Needs a human: ${blocked_reason}"`, and nothing sets `blocked_reason` on a timeout. Either the
     engine populates it for every route to a blocked terminal, or those messages render empty.
 
-11. **`/wf run` vs `wf run`.** `manage-mr`'s header comment and `dependency-upgrade`'s NOTES use
-    `/wf run <name>`; the spec's CLI section uses `wf run <name>`. With the plugin decision now made
-    (`/wf` is the skill, `wf` is the binary) the examples read as the skill invoking itself.
+11. **`/pawl run` vs `pawl run`.** `manage-mr`'s header comment and `dependency-upgrade`'s NOTES use
+    `/pawl run <name>`; the spec's CLI section uses `pawl run <name>`. With the plugin decision now made
+    (`/pawl` is the skill, `pawl` is the binary) the examples read as the skill invoking itself.
 
 12. **The examples were written against an older `context:` rule.** `dependency-upgrade`'s NOTES §6.4
     says it deliberately avoided `${key}` in `context:` because substitution was said to apply only
@@ -82,10 +82,10 @@ Decisions applied across `design/format-spec.md`, `DESIGN.md`, `docs/**` and `ex
 [DECISIONS-MADE-WHILE-WRITING.md](DECISIONS-MADE-WHILE-WRITING.md) for #8's status (accepted) and
 #11/#12's (reversed, renumbered from #14/#15 there).
 
-1. **Who submits a `wait` result.** `wf poll` does, internally: it takes the same internal path
-   `wf submit` would (write, postcondition, transition, invariants, deterministic continuation) and
+1. **Who submits a `wait` result.** `pawl poll` does, internally: it takes the same internal path
+   `pawl submit` would (write, postcondition, transition, invariants, deterministic continuation) and
    prints the resulting `DISPATCH`/`ASK`/`WAIT`/`TERMINAL` line itself. The model never runs
-   `wf submit` for a `wait`. Spec §B.13; `DESIGN.md` §2–3; `docs/steps/wait.md`, `docs/cli.md`,
+   `pawl submit` for a `wait`. Spec §B.13; `DESIGN.md` §2–3; `docs/steps/wait.md`, `docs/cli.md`,
    `docs/running.md`.
 2. **No submit flags for two human answer shapes.** Confirmed as the guide's own decision (#8,
    accepted): `--option` repeatable for multi-select, `--other '<text>'` for free text. Already
@@ -123,8 +123,8 @@ Decisions applied across `design/format-spec.md`, `DESIGN.md`, `docs/**` and `ex
     invariant's `message:` on a violation, or a fixed engine string naming the step and outcome
     otherwise (e.g. `"wait_for_ci: timeout"`). It is never empty by the time a `blocked` terminal
     renders. Spec §B.2.
-11. **`/wf run` vs `wf run`.** The CLI reference documents the `wf` binary directly; author-facing
-    comments and notes now say `wf run <name>`, matching `format-spec.md` §I. Fixed in
+11. **`/pawl run` vs `pawl run`.** The CLI reference documents the `pawl` binary directly; author-facing
+    comments and notes now say `pawl run <name>`, matching `format-spec.md` §I. Fixed in
     `manage-mr/workflow.yaml`'s header comment and `dependency-upgrade/NOTES.md`'s transcripts.
 12. **The examples were written against an older `context:` rule.** Already resolved in
     `dependency-upgrade/NOTES.md` §6.4/§7 (a prior pass): substitution applies to every `context:`

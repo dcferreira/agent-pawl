@@ -1,14 +1,14 @@
-# `wf validate`
+# `pawl validate`
 
 ```
-wf validate <name|path> [--strict]
+pawl validate <name|path> [--strict]
 ```
 
 Static only: no commands run, no network, no model. It parses the file, walks the graph, and checks
 the rules below. Exit 0 clean, 2 on error. Run before every run, and in CI with `--strict`.
 
 ```
-› wf validate manage-mr
+› pawl validate manage-mr
 .claude/workflows/manage-mr.yaml: ok — 23 steps, 3 terminals, 2 cycles.
 soft postconditions: 6 of 23 (26%):
   entry, changelog, fix_issues, fix_issues_push, trigger_coderabbit, route_reviewers

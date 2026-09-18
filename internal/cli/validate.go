@@ -5,7 +5,7 @@ import (
 	"io"
 )
 
-// cmdValidate implements wf validate <name> (design/format-spec.md §H,
+// cmdValidate implements pawl validate <name> (design/format-spec.md §H,
 // §I): resolve the workflow, run the static checks, print every error plus
 // the soft: census, and exit non-zero on any error.
 //
@@ -19,7 +19,7 @@ import (
 // interpolation correctly.
 func cmdValidate(args []string, cwd string, stdout, stderr io.Writer) int {
 	if len(args) < 1 {
-		fmt.Fprintln(stderr, "usage: wf validate <name>")
+		fmt.Fprintln(stderr, "usage: pawl validate <name>")
 		return 2
 	}
 	name := args[0]

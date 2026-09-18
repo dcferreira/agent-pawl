@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dcferreira/agentic-workflow-fsm/internal/render"
+	"github.com/dcferreira/agent-pawl/internal/render"
 )
 
 // Report is the result of Validate: the ordered list of error messages, and

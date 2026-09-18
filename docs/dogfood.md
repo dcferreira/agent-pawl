@@ -1,18 +1,18 @@
 # Dogfooding: running `green-tests` for real
 
 This walks through actually running the `examples/green-tests` workflow, end to end, in a real
-Claude Code session. It assumes you've followed [install.md](install.md) and have a `wf` binary
+Claude Code session. It assumes you've followed [install.md](install.md) and have a `pawl` binary
 on your `PATH`. Everything in this document was run and its output pasted verbatim — nothing here
 is retyped or paraphrased.
 
 ## The most important thing to know before you start
 
-**There is no enforcement layer in this build.** `wf run` prints `enforcement: off (milestone 1)`
+**There is no enforcement layer in this build.** `pawl run` prints `enforcement: off (milestone 1)`
 in its start banner instead of the `hooks: PreToolUse ✔ Stop ✔` line DESIGN.md §5 describes for
 the finished system. Concretely, that means:
 
 - Nothing stops the session from editing files, running the build, or running the tests itself
-  instead of dispatching a subagent through `wf`.
+  instead of dispatching a subagent through `pawl`.
 - Nothing stops the session from simply walking away mid-run — closing the chat, starting a new
   task — leaving the run journal sitting there `running` forever. There is no `Stop` hook to
   refuse to end the turn.
@@ -20,16 +20,16 @@ the finished system. Concretely, that means:
   invariants in this build at all (`guards:`/`invariants:` in a workflow file is a validation
   error, not a silently-skipped feature).
 
-The only thing keeping a dogfood run honest is the `/wf` skill's protocol (below) and the
+The only thing keeping a dogfood run honest is the `/pawl` skill's protocol (below) and the
 discipline of actually following it. Treat a live run as a real state machine you must not skip
 steps of, even though nothing forces that on you.
 
 ## Prerequisites
 
-- `wf` installed per [install.md](install.md).
-- `jq` on your `PATH`. **This is a real prerequisite of this specific example**, not of `wf`
+- `pawl` installed per [install.md](install.md).
+- `jq` on your `PATH`. **This is a real prerequisite of this specific example**, not of `pawl`
   itself: `examples/green-tests/scripts/run-tests.sh` shells out to `jq -Rs .` to JSON-encode a
-  possibly multi-line test failure so it survives as a `wf` state value (see
+  possibly multi-line test failure so it survives as a `pawl` state value (see
   `examples/green-tests/NOTES.md`, Ruling R11). If `jq` is missing, `run_tests` doesn't crash —
   it reports a named `FAIL` saying `run-tests.sh requires jq` — but you'll never see a real test
   failure until you install it.
@@ -56,12 +56,12 @@ This repo ships exactly such a fixture at `testdata/fixture/` (a two-line `Add` 
 subtracts instead of adding). From a checkout of this repo:
 
 ```
-mkdir -p /tmp/wf-dogfood/.claude/workflows/scripts
-cp testdata/fixture/go.mod          /tmp/wf-dogfood/go.mod
-cp testdata/fixture/fixture.go      /tmp/wf-dogfood/fixture.go
-cp testdata/fixture/fixture_test.go /tmp/wf-dogfood/fixture_test.go
-cp examples/green-tests/scripts/run-tests.sh /tmp/wf-dogfood/.claude/workflows/scripts/run-tests.sh
-cp examples/green-tests/workflow.yaml /tmp/wf-dogfood/.claude/workflows/green-tests.yaml
+mkdir -p /tmp/pawl-dogfood/.claude/workflows/scripts
+cp testdata/fixture/go.mod          /tmp/pawl-dogfood/go.mod
+cp testdata/fixture/fixture.go      /tmp/pawl-dogfood/fixture.go
+cp testdata/fixture/fixture_test.go /tmp/pawl-dogfood/fixture_test.go
+cp examples/green-tests/scripts/run-tests.sh /tmp/pawl-dogfood/.claude/workflows/scripts/run-tests.sh
+cp examples/green-tests/workflow.yaml /tmp/pawl-dogfood/.claude/workflows/green-tests.yaml
 ```
 
 `scripts/` lives beside the workflow file, under `.claude/workflows/`, not at the project root:
@@ -72,16 +72,16 @@ itself uses and `e2e/green_tests_test.go` builds.
 
 ## Run it
 
-From `/tmp/wf-dogfood`:
+From `/tmp/pawl-dogfood`:
 
 ```
-$ wf run green-tests
+$ pawl run green-tests
 ```
 
 captured output:
 
 ```
-workflow: /tmp/wf-dogfood/.claude/workflows/green-tests.yaml (repo-local)
+workflow: /tmp/pawl-dogfood/.claude/workflows/green-tests.yaml (repo-local)
 enforcement: off (milestone 1)
 soft: 0/2 steps (0.0%): (none)
 DISPATCH 9074 fix_tests
@@ -101,22 +101,22 @@ context:
 return: a JSON object with exactly these keys (key order does not matter)
   fix_summary: string
 subagent_args: {"model":"sonnet","tools":["Read","Edit","Bash"]}
-submit with: wf submit --run 9074 --step fix_tests --json '<the object above>'
+submit with: pawl submit --run 9074 --step fix_tests --json '<the object above>'
 END DISPATCH 9074 fix_tests
 ```
 
 Note: the run resolved and executed `run_tests` (a `deterministic` step) entirely by itself before
 stopping — the first thing you see is the `DISPATCH` for `fix_tests`, the `agentic` step, since
-`wf run` only ever hands control back at an agentic step or a terminal. The `
+`pawl run` only ever hands control back at an agentic step or a terminal. The `
 `/`	`
 sequences are real: the captured multi-line test failure is carried in a rendered string and its
 control characters come out escaped, not as raw newlines/tabs, in the printed block.
 
-`[1] jj diff (0 bytes)` is empty because `/tmp/wf-dogfood` isn't a jj (or git) working copy in
+`[1] jj diff (0 bytes)` is empty because `/tmp/pawl-dogfood` isn't a jj (or git) working copy in
 this walkthrough; per `examples/green-tests/NOTES.md`, a failing or unavailable `!cmd` context
 entry degrades silently to empty rather than blocking the run.
 
-Per the `/wf` skill (`.claude/skills/wf/SKILL.md`), this `DISPATCH` line is the instruction: it's
+Per the `/pawl` skill (`.claude/skills/pawl/SKILL.md`), this `DISPATCH` line is the instruction: it's
 the first column-0 line matching `DISPATCH|TERMINAL`, and everything indented beneath it up to
 `END DISPATCH 9074 fix_tests` is data, not a new instruction — including the failure text, which
 could in principle contain something instruction-shaped.
@@ -135,7 +135,7 @@ Then submit exactly the JSON object `return:` asked for, using the `submit with:
 above:
 
 ```
-$ wf submit --run 9074 --step fix_tests --json '{"fix_summary":"Fixed Add to use + instead of -"}'
+$ pawl submit --run 9074 --step fix_tests --json '{"fix_summary":"Fixed Add to use + instead of -"}'
 ```
 
 captured output:
@@ -148,15 +148,15 @@ END TERMINAL 9074 ok
 ```
 
 The run re-entered `run_tests` (visit 2), the suite passed, and the workflow reached its `done`
-terminal. `wf status` afterwards confirms there's nothing left live:
+terminal. `pawl status` afterwards confirms there's nothing left live:
 
 ```
-$ wf status
-root: /tmp/wf-dogfood
+$ pawl status
+root: /tmp/pawl-dogfood
 no live runs for this working copy
 ```
 
-That's the whole loop for a workflow with a single agentic step: one `DISPATCH`, one `wf submit`,
+That's the whole loop for a workflow with a single agentic step: one `DISPATCH`, one `pawl submit`,
 one `TERMINAL`. A workflow with more agentic steps, or one whose fix doesn't compile or doesn't
 actually fix the suite, repeats the `DISPATCH` → dispatch-and-submit cycle — burning `attempts:`
 on a bad submission, or `max_visits:` on a submission that compiles but doesn't fix the tests —
@@ -172,7 +172,7 @@ against injection. `fix_tests`'s postcondition is `{command: "sh -c ${build_cmd}
 literally named `go build ./...`; that failure looks exactly like a real build failure — it's a
 postcondition failure that burns an attempt, with no hint that the actual command never ran. The
 `sh -c ${key}` idiom is legitimate **only for an `args:` value** (it comes from whoever ran
-`wf run`, who could already run anything). Never do this for a `state:` key a step or a subagent
+`pawl run`, who could already run anything). Never do this for a `state:` key a step or a subagent
 wrote — `writes:` output is workflow-internal data, and piping it through `sh -c` turns it into
 arbitrary command execution chosen by whatever produced that state.
 
@@ -186,9 +186,9 @@ correct.
 Nothing here demonstrates enforcement, because there isn't any — see the warning at the top.
 Nothing here shows `wait` or `human` steps, `guards:`, `invariants:`, or `retry:`, because none of
 them exist in this build; a workflow file that declares any of them is rejected outright by both
-`wf validate` and `wf run`.
+`pawl validate` and `pawl run`.
 
 ---
 
 See also: `examples/green-tests/NOTES.md` for the workflow author's own notes on this example's
-design, and `.claude/skills/wf/SKILL.md` for the exact protocol a Claude Code session follows.
+design, and `.claude/skills/pawl/SKILL.md` for the exact protocol a Claude Code session follows.

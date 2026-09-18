@@ -47,7 +47,7 @@ be enough; the workflow keeps both.
 **The gate / act / commit triad** (`fix_issues_gate` → `fix_issues` →
 `fix_issues_push`). A deterministic gate step filters findings down to the
 still-actionable subset using the engine's own crash-safe counter store
-(`wf count`/`wf reset`), an agentic step acts only on that filtered list,
+(`pawl count`/`pawl reset`), an agentic step acts only on that filtered list,
 and a deterministic commit step records what actually shipped — including a
 `partial_committed` outcome that commits what worked and blocks only on
 what didn't, rather than failing the whole round.

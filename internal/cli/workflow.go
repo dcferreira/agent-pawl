@@ -8,13 +8,13 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dcferreira/agentic-workflow-fsm/internal/journal"
-	"github.com/dcferreira/agentic-workflow-fsm/internal/spec"
+	"github.com/dcferreira/agent-pawl/internal/journal"
+	"github.com/dcferreira/agent-pawl/internal/spec"
 )
 
 // resolvedWorkflow is a workflow file found by name, plus the source it was
 // found under, for the start banner (design/format-spec.md §I, DESIGN.md
-// §9: "wf run prints which one it used").
+// §9: "pawl run prints which one it used").
 type resolvedWorkflow struct {
 	Path   string
 	Source string // "repo-local" or "user"
@@ -28,11 +28,11 @@ type resolvedWorkflow struct {
 func resolveWorkflowFile(cwd, name string) (*resolvedWorkflow, error) {
 	root, err := journal.ResolveRoot(cwd)
 	if err != nil {
-		return nil, fmt.Errorf("wf: resolving working-copy root: %w", err)
+		return nil, fmt.Errorf("pawl: resolving working-copy root: %w", err)
 	}
 	abs, err := filepath.Abs(cwd)
 	if err != nil {
-		return nil, fmt.Errorf("wf: resolving cwd: %w", err)
+		return nil, fmt.Errorf("pawl: resolving cwd: %w", err)
 	}
 	if real, err := filepath.EvalSymlinks(abs); err == nil {
 		abs = real
@@ -61,7 +61,7 @@ func resolveWorkflowFile(cwd, name string) (*resolvedWorkflow, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("wf: no workflow named %q found under .claude/workflows/ (searched %s up to working-copy root %s) or ~/.claude/workflows/", name, abs, root)
+	return nil, fmt.Errorf("pawl: no workflow named %q found under .claude/workflows/ (searched %s up to working-copy root %s) or ~/.claude/workflows/", name, abs, root)
 }
 
 func fileExists(path string) bool {
@@ -69,7 +69,7 @@ func fileExists(path string) bool {
 	return err == nil && !info.IsDir()
 }
 
-// loadAndValidate loads path and runs spec.Validate: wf run and wf validate
+// loadAndValidate loads path and runs spec.Validate: pawl run and pawl validate
 // both gate on Validate returning zero errors before anything constructs an
 // Engine (the engine's contract is that a schema always exists).
 func loadAndValidate(path string) (*spec.Workflow, *spec.Report, error) {
@@ -84,7 +84,7 @@ func loadAndValidate(path string) (*spec.Workflow, *spec.Report, error) {
 	return w, report, nil
 }
 
-// pinnedWorkflow is the workflow definition exactly as wf run pinned it for
+// pinnedWorkflow is the workflow definition exactly as pawl run pinned it for
 // a run (plan.json's own recorded copy — DESIGN.md §4: "immutable for the
 // run"), plus whether the file it was originally loaded from has since
 // changed underneath the run, and which steps differ if so.
@@ -97,20 +97,20 @@ type pinnedWorkflow struct {
 // loadPinnedWorkflow reads dir's plan.json and returns the workflow
 // definition it recorded, never by re-resolving a name.
 //
-// Finding C1: a workflow whose workflow: id differs from the filename wf
+// Finding C1: a workflow whose workflow: id differs from the filename pawl
 // run was given must not make a live run unreachable by every command but
-// abandon — wf status and wf submit used to re-run resolveWorkflowFile
+// abandon — pawl status and pawl submit used to re-run resolveWorkflowFile
 // against the run directory's own name (the workflow: id), which is not
 // necessarily a resolvable filename at all. plan.Workflow.Path (present
 // because spec.Workflow.Path has no json:"-" tag: journal.WritePlan
-// marshals the whole *spec.Workflow, so the exact file wf run loaded
+// marshals the whole *spec.Workflow, so the exact file pawl run loaded
 // travels with the run) is the only correct source for "which file is
 // this".
 //
-// Finding C2: wf submit is a separate process for every agentic step, so it
+// Finding C2: pawl submit is a separate process for every agentic step, so it
 // must never silently adopt a mid-run edit of that file. This reloads
 // plan.Workflow.Path and compares its digest to plan.Digest, exactly the
-// check Engine.Resume already performs for wf run, and reports the result
+// check Engine.Resume already performs for pawl run, and reports the result
 // via Changed/Detail rather than ever returning the newer content: the
 // pinned copy is always what Workflow holds. A file that has since become
 // unreadable or unparsable is not itself treated as a mismatch — the run's
@@ -120,10 +120,10 @@ type pinnedWorkflow struct {
 func loadPinnedWorkflow(dir string) (*pinnedWorkflow, error) {
 	plan, err := journal.ReadPlan(dir)
 	if err != nil {
-		return nil, fmt.Errorf("wf: reading plan for %s: %w", dir, err)
+		return nil, fmt.Errorf("pawl: reading plan for %s: %w", dir, err)
 	}
 	if plan.Workflow == nil || plan.Workflow.Path == "" {
-		return nil, fmt.Errorf("wf: plan.json for %s has no recorded workflow path", dir)
+		return nil, fmt.Errorf("pawl: plan.json for %s has no recorded workflow path", dir)
 	}
 	pw := &pinnedWorkflow{Workflow: plan.Workflow}
 

@@ -3,7 +3,7 @@ package engine
 import (
 	"testing"
 
-	"github.com/dcferreira/agentic-workflow-fsm/internal/journal"
+	"github.com/dcferreira/agent-pawl/internal/journal"
 )
 
 // TestResume_BlockedInterventionResetsAttempt: resuming a BLOCKED run

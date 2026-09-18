@@ -12,19 +12,19 @@ subject to review.
 
 1. `cli.md` · Exit codes 0/1/2/3(BLOCKED, paused)/4/5, one table for every command · Alt: 0/1 only,
    or one code per refusal kind · accepted.
-2. `cli.md` · `wf version` prints binary version + plugin pin + path, exits 4 on mismatch · Alt:
-   `wf --version` flag, no pin display · accepted.
-3. `cli.md` · `wf validate` accepts a path as well as a name, `--strict` promotes warnings to errors
+2. `cli.md` · `pawl version` prints binary version + plugin pin + path, exits 4 on mismatch · Alt:
+   `pawl --version` flag, no pin display · accepted.
+3. `cli.md` · `pawl validate` accepts a path as well as a name, `--strict` promotes warnings to errors
    · Alt: name only, no strict mode · accepted.
-4. `cli.md` · `wf status` flags `--run`/`--all`/`--json`, default scope is live runs for the current
+4. `cli.md` · `pawl status` flags `--run`/`--all`/`--json`, default scope is live runs for the current
    working copy · Alt: default to all runs machine-wide · accepted.
 5. `cli.md`, `running.md` · Seven status words (`running`/`dispatched`/`asking`/`waiting`/`blocked`/
    `ok`/`abandoned`) · Alt: fewer words, JSON only · accepted.
-6. `cli.md` · `wf abandon --reason <text>`, journalled and shown in status · Alt: no reason field ·
+6. `cli.md` · `pawl abandon --reason <text>`, journalled and shown in status · Alt: no reason field ·
    accepted.
-7. `cli.md` · `wf list` prints name, source (repo/user), path, marks a shadowed user-level workflow ·
+7. `cli.md` · `pawl list` prints name, source (repo/user), path, marks a shadowed user-level workflow ·
    Alt: names only · accepted.
-8. `cli.md`, `steps/human.md` · `wf submit` human flags: repeatable `--option`, `--other '<text>'`.
+8. `cli.md`, `steps/human.md` · `pawl submit` human flags: repeatable `--option`, `--other '<text>'`.
    `DESIGN.md` documents only a single `--option` · Alt: submit all human answers as `--json` ·
    accepted.
 
@@ -38,12 +38,12 @@ subject to review.
 ## Semantics
 
 11. **REVERSED.** `running.md`, `troubleshooting.md` · Was: a blocked run is terminal, not resumable.
-    Now: **BLOCKED is a pause** — `wf run <name>` (or `--run <id>`) resumes it at the step that
+    Now: **BLOCKED is a pause** — `pawl run <name>` (or `--run <id>`) resumes it at the step that
     blocked, `attempts:` reset to 1, journalled as an intervention; `Stop` no longer refuses. See
     `format-spec.md` §B.12, `DESIGN.md` §4.
 12. **REVERSED.** `writing-workflows.md` · Was: omitting `next:` falls through to the next step in
     the file, and from the last step to `done`. Now: **no fall-through, ever** — every step needs
-    `next:` or a complete `outcomes:` map; unrouted is a `wf validate` error. Spec's own hello
+    `next:` or a complete `outcomes:` map; unrouted is a `pawl validate` error. Spec's own hello
     workflow fixed to add an explicit `next: done`.
 13. `steps/wait.md` · After a resume the `timeout:` deadline restarts from zero · Alt: an absolute
     deadline from first entry · accepted.
@@ -58,11 +58,11 @@ subject to review.
 
 ## Installation and paths
 
-18. `install.md` · Paths: plugin `~/.claude/plugins/wf/`, binary `~/.claude/wf/bin/wf`, live-run
-    symlinks `~/.claude/wf/live/`, run directories `~/.local/state/wf/` (`DESIGN.md` says only
-    `<state_base>`) · Alt: run directories under `~/.claude/wf/runs/` · accepted.
-19. `install.md` · Plugin verbs `/plugin install|update|uninstall wf`, plus exact uninstall steps
-    (`rm -rf ~/.claude/wf ~/.local/state/wf`) · Alt: an `install.sh`-only flow · accepted.
+18. `install.md` · Paths: plugin `~/.claude/plugins/pawl/`, binary `~/.claude/pawl/bin/pawl`, live-run
+    symlinks `~/.claude/pawl/live/`, run directories `~/.local/state/pawl/` (`DESIGN.md` says only
+    `<state_base>`) · Alt: run directories under `~/.claude/pawl/runs/` · accepted.
+19. `install.md` · Plugin verbs `/plugin install|update|uninstall pawl`, plus exact uninstall steps
+    (`rm -rf ~/.claude/pawl ~/.local/state/pawl`) · Alt: an `install.sh`-only flow · accepted.
 
 ## Validation
 
@@ -80,7 +80,7 @@ subject to review.
     · accepted.
 24. `steps/deterministic.md` · The exit-code-to-token wrapper shown as *the* supported pattern, with
     a concrete `case` snippet · Alt: mention only in prose · accepted.
-25. `README.md` · A "Not yet" list naming `wf graph`, `--walk`, `--history`, `parallel`, `foreach`,
+25. `README.md` · A "Not yet" list naming `pawl graph`, `--walk`, `--history`, `parallel`, `foreach`,
     plugin-shipped workflows, no milestone numbers · Alt: omit entirely · accepted.
 26. `quickstart.md` · The hello workflow writes `hello.txt` in the repo rather than running
     `ruff`/`pytest`, so it works in any repo · Alt: the spec's §F `tidy` workflow · accepted.
@@ -89,7 +89,7 @@ subject to review.
 
 27. **`goal: prompts/<step>.md` → inline `description:`, composed into the subagent prompt by the
     model at dispatch time.** Replaces the `goal:`/`prompts/` convention across spec, `DESIGN.md`,
-    examples and docs. `wf` prints `description`, gathered `context`, the `writes:` schema, `tools:`,
+    examples and docs. `pawl` prints `description`, gathered `context`, the `writes:` schema, `tools:`,
     `model:`, and on retry the previous failure text in `DISPATCH`; the `tools:` allowlist became
     enforced (not advisory) via `PreToolUse`. Status: decided by the user directly.
 

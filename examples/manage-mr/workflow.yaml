@@ -12,7 +12,7 @@ max_steps: 200                        # backstop on total steps executed in one 
 # exactly as it was left, with the failure text appended to the prompt — no
 # restore, no snapshot.
 
-args:                                 # wf run manage-mr mr_url_arg=https://…
+args:                                 # pawl run manage-mr mr_url_arg=https://…
   mr_url_arg: {type: string, default: ""}   # read-only; entry/resume_mr only read it
 
 state:

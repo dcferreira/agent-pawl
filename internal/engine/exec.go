@@ -11,9 +11,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/dcferreira/agentic-workflow-fsm/internal/emit"
-	"github.com/dcferreira/agentic-workflow-fsm/internal/render"
-	"github.com/dcferreira/agentic-workflow-fsm/internal/spec"
+	"github.com/dcferreira/agent-pawl/internal/emit"
+	"github.com/dcferreira/agent-pawl/internal/render"
+	"github.com/dcferreira/agent-pawl/internal/spec"
 )
 
 // waitDelay bounds how long execShell waits for a command's stdout/stderr
@@ -24,7 +24,7 @@ const waitDelay = 2 * time.Second
 
 // execShell runs cmdline under "sh -c" with cwd at the working-copy root
 // (never the session's raw cwd — DESIGN.md §5) and every key in keys
-// exported as WF_<KEY> (design/format-spec.md §B.2), subject to the one
+// exported as PAWL_<KEY> (design/format-spec.md §B.2), subject to the one
 // engine-wide wall-clock ceiling. It returns errTimeout, wrapped, if the
 // ceiling is hit; that is not a normal execution error and callers handle it
 // specially.

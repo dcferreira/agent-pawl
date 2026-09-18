@@ -1,7 +1,7 @@
 # Install
 
 **This build has no plugin, no `install.sh`, and no release binaries.** DESIGN.md §9 describes a
-Claude Code plugin (a `/wf` skill plus two static hooks, self-installing a pinned release binary)
+Claude Code plugin (a `/pawl` skill plus two static hooks, self-installing a pinned release binary)
 as the intended distribution story. None of that exists yet. What exists is a Go module you build
 yourself, and a skill file you copy into place by hand — see [dogfood.md](dogfood.md).
 
@@ -13,46 +13,46 @@ You need Go (this build was developed and tested against Go 1.27) and a clone of
 make install
 ```
 
-This is exactly `go install ./cmd/wf` (see the `Makefile`). It builds `cmd/wf` and drops `wf` at
-`$(go env GOPATH)/bin/wf` — make sure that directory is on your `PATH`. Equivalent, if you don't
+This is exactly `go install ./cmd/pawl` (see the `Makefile`). It builds `cmd/pawl` and drops `pawl` at
+`$(go env GOPATH)/bin/pawl` — make sure that directory is on your `PATH`. Equivalent, if you don't
 want to clone the repo yourself and it's published somewhere your `go install` can reach:
 
 ```
-go install github.com/dcferreira/agentic-workflow-fsm/cmd/wf@latest
+go install github.com/dcferreira/agent-pawl/cmd/pawl@latest
 ```
 
-There is no `go install ./cmd/wf@latest`-with-version story: nothing here is tagged or released,
+There is no `go install ./cmd/pawl@latest`-with-version story: nothing here is tagged or released,
 so `@latest` means "whatever is on the default branch," not a pinned build.
 
-If you'd rather not touch `$GOPATH/bin`, `make build` puts the binary at `./bin/wf` in the repo
+If you'd rather not touch `$GOPATH/bin`, `make build` puts the binary at `./bin/pawl` in the repo
 instead:
 
 ```
 make build
-./bin/wf version
+./bin/pawl version
 ```
 
 ## Verify
 
 ```
-wf version
+pawl version
 ```
 
-prints `wf dev` — every build from source prints `dev`, because nothing in this build sets the
-`-ldflags "-X main.Version=..."` that `cmd/wf/main.go` supports; there is no version-numbering or
-release process yet, so `wf dev` is what installing correctly looks like, not a symptom of a bad
+prints `pawl dev` — every build from source prints `dev`, because nothing in this build sets the
+`-ldflags "-X main.Version=..."` that `cmd/pawl/main.go` supports; there is no version-numbering or
+release process yet, so `pawl dev` is what installing correctly looks like, not a symptom of a bad
 build.
 
 ```
-wf
+pawl
 ```
 
 with no arguments prints the command list — `run`, `validate`, `status`, `abandon`, `list`,
 `submit`, `version`. That is the complete command surface of this build. In particular:
 
-- **`wf poll` and `wf hook` do not exist.** There is no `wait`/`human` step kind to poll for
+- **`pawl poll` and `pawl hook` do not exist.** There is no `wait`/`human` step kind to poll for
   (see below), and there are no hooks to invoke.
-- **`wf run` never refuses to start for lack of enforcement.** It prints
+- **`pawl run` never refuses to start for lack of enforcement.** It prints
   `enforcement: off (milestone 1)` in its banner and proceeds — see
   [dogfood.md](dogfood.md) for what that means in practice.
 
@@ -69,17 +69,17 @@ Go toolchain and checkout are in order, though it is not required just to use th
 ## Uninstall
 
 ```
-rm $(go env GOPATH)/bin/wf
+rm $(go env GOPATH)/bin/pawl
 ```
 
-There is no other installed state to remove: no plugin directory, no `~/.claude/wf/`, no global
-`~/.local/state/wf/`. Where run state actually lives is `internal/journal`'s run directory — see
-`docs/running.md` and `wf status`'s `root:` line for the mechanism that exists today.
+There is no other installed state to remove: no plugin directory, no `~/.claude/pawl/`, no global
+`~/.local/state/pawl/`. Where run state actually lives is `internal/journal`'s run directory — see
+`docs/running.md` and `pawl status`'s `root:` line for the mechanism that exists today.
 
 ## Step kinds and validator scope in this build
 
 Only two step kinds are implemented: `deterministic` and `agentic`. A workflow that declares
-`kind: wait`, `kind: human`, or `kind: parallel` is rejected by both `wf validate` and `wf run`
+`kind: wait`, `kind: human`, or `kind: parallel` is rejected by both `pawl validate` and `pawl run`
 with a "not implemented in this build" (or, for `parallel`, "reserved for Milestone 3") message —
 it does not silently no-op. The same is true of top-level `guards:`, `invariants:`, and a step's
 `retry:` field: declaring any of them is a validation error, not a quietly-ignored field.

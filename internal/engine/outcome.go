@@ -3,7 +3,7 @@ package engine
 import (
 	"fmt"
 
-	"github.com/dcferreira/agentic-workflow-fsm/internal/spec"
+	"github.com/dcferreira/agent-pawl/internal/spec"
 )
 
 // reservedRoutable are the reserved outcome tokens routed via the

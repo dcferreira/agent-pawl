@@ -1,8 +1,8 @@
-// Package e2e drives the real wf binary (never internal/engine or
+// Package e2e drives the real pawl binary (never internal/engine or
 // internal/cli directly) against the examples/green-tests workflow and the
 // testdata/fixture Go module, to prove — with no LLM and no network — that
 // spec, render, emit, journal, engine and cli compose into a working
-// engine. The agentic fix_tests step is satisfied by scripted `wf submit`
+// engine. The agentic fix_tests step is satisfied by scripted `pawl submit`
 // calls; the fixture's "fix" is applied by this test writing new source
 // directly, exactly as a real fix would land on disk before submission
 // (design/format-spec.md §B.8: "the engine never touches the working
@@ -41,11 +41,11 @@ func repoRoot(t *testing.T) string {
 	return root
 }
 
-// binPath is the wf binary TestMain builds once, before any test runs, and
+// binPath is the pawl binary TestMain builds once, before any test runs, and
 // removes once every test has finished.
 var binPath string
 
-// TestMain builds cmd/wf exactly once into its own temp directory, shared
+// TestMain builds cmd/pawl exactly once into its own temp directory, shared
 // read-only by every test in this package. runTests does the real work
 // inside a deferred-cleanup scope, since os.Exit itself must be the last
 // thing TestMain does (os.Exit bypasses any defer still pending in the
@@ -60,18 +60,18 @@ func runTests(m *testing.M) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	dir, err := os.MkdirTemp("", "wf-e2e-bin")
+	dir, err := os.MkdirTemp("", "pawl-e2e-bin")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "e2e: creating build dir:", err)
 		return 1
 	}
 	defer os.RemoveAll(dir)
 
-	binPath = filepath.Join(dir, "wf")
-	cmd := exec.Command("go", "build", "-o", binPath, "./cmd/wf")
+	binPath = filepath.Join(dir, "pawl")
+	cmd := exec.Command("go", "build", "-o", binPath, "./cmd/pawl")
 	cmd.Dir = root
 	if out, err := cmd.CombinedOutput(); err != nil {
-		fmt.Fprintf(os.Stderr, "e2e: go build ./cmd/wf: %v\n%s", err, out)
+		fmt.Fprintf(os.Stderr, "e2e: go build ./cmd/pawl: %v\n%s", err, out)
 		return 1
 	}
 
@@ -82,14 +82,14 @@ func runTests(m *testing.M) int {
 func wfBinary(t *testing.T) string {
 	t.Helper()
 	if binPath == "" {
-		t.Fatal("e2e: wf binary was not built (TestMain did not run?)")
+		t.Fatal("e2e: pawl binary was not built (TestMain did not run?)")
 	}
 	return binPath
 }
 
 // project is a fixture project directory wired up as a working copy for
-// wf run/submit: the fixture Go module at its root, the green-tests
-// workflow under .claude/workflows/, and its own isolated WF_STATE_DIR so
+// pawl run/submit: the fixture Go module at its root, the green-tests
+// workflow under .claude/workflows/, and its own isolated PAWL_STATE_DIR so
 // the test never touches the real state directory.
 type project struct {
 	root      string
@@ -141,21 +141,21 @@ func copyFile(t *testing.T, src, dst string, perm os.FileMode) {
 	}
 }
 
-// run invokes the built wf binary with args, cwd at p.root and
-// WF_STATE_DIR pointed at p.stateDir, and returns combined stdout+stderr
+// run invokes the built pawl binary with args, cwd at p.root and
+// PAWL_STATE_DIR pointed at p.stateDir, and returns combined stdout+stderr
 // and the exit code.
 func (p *project) run(t *testing.T, args ...string) (output string, exitCode int) {
 	t.Helper()
 	cmd := exec.Command(wfBinary(t), args...)
 	cmd.Dir = p.root
-	cmd.Env = append(os.Environ(), "WF_STATE_DIR="+p.stateDir)
+	cmd.Env = append(os.Environ(), "PAWL_STATE_DIR="+p.stateDir)
 	out, err := cmd.Output()
 	combined := string(out)
 	if ee, ok := err.(*exec.ExitError); ok {
 		combined += string(ee.Stderr)
 		exitCode = ee.ExitCode()
 	} else if err != nil {
-		t.Fatalf("running wf %v: %v", args, err)
+		t.Fatalf("running pawl %v: %v", args, err)
 	}
 	return combined, exitCode
 }
@@ -215,9 +215,9 @@ func extractRunID(t *testing.T, output string) string {
 	return ""
 }
 
-// TestGreenTestsEndToEnd drives the real wf binary through the green-tests
+// TestGreenTestsEndToEnd drives the real pawl binary through the green-tests
 // example against the fixture module, with the agentic fix_tests step
-// satisfied entirely by scripted wf submit calls that patch the fixture's
+// satisfied entirely by scripted pawl submit calls that patch the fixture's
 // source directly — no LLM, no network. It asserts the five behaviours the
 // example exists to demonstrate (design/format-spec.md §B.4's two
 // independent counters: attempts: on fix_tests' cheap build postcondition,
@@ -225,11 +225,11 @@ func extractRunID(t *testing.T, output string) string {
 func TestGreenTestsEndToEnd(t *testing.T) {
 	p := newProject(t)
 
-	// 1. The first `wf run` reaches DISPATCH: the fixture starts with a
+	// 1. The first `pawl run` reaches DISPATCH: the fixture starts with a
 	// real bug (Add subtracts), so run_tests fails and routes to fix_tests.
 	out, code := p.run(t, "run", "green-tests")
 	if code != 0 {
-		t.Fatalf("wf run green-tests: exit %d, output:\n%s", code, out)
+		t.Fatalf("pawl run green-tests: exit %d, output:\n%s", code, out)
 	}
 	if !strings.Contains(out, "DISPATCH") || !strings.Contains(out, "fix_tests") {
 		t.Fatalf("expected a DISPATCH of fix_tests, got:\n%s", out)
@@ -245,7 +245,7 @@ func TestGreenTestsEndToEnd(t *testing.T) {
 	out, code = p.run(t, "submit", "--run", runID, "--step", "fix_tests",
 		"--json", `{"fix_summary":"introduced a syntax error"}`)
 	if code != 0 {
-		t.Fatalf("wf submit (broken build): exit %d, output:\n%s", code, out)
+		t.Fatalf("pawl submit (broken build): exit %d, output:\n%s", code, out)
 	}
 	if !strings.Contains(out, "DISPATCH") || !strings.Contains(out, "fix_tests") {
 		t.Fatalf("expected a re-dispatch of fix_tests, got:\n%s", out)
@@ -268,7 +268,7 @@ func TestGreenTestsEndToEnd(t *testing.T) {
 	out, code = p.run(t, "submit", "--run", runID, "--step", "fix_tests",
 		"--json", `{"fix_summary":"fixed the syntax error only"}`)
 	if code != 0 {
-		t.Fatalf("wf submit (build ok, tests still red): exit %d, output:\n%s", code, out)
+		t.Fatalf("pawl submit (build ok, tests still red): exit %d, output:\n%s", code, out)
 	}
 	if !strings.Contains(out, "DISPATCH") || !strings.Contains(out, "fix_tests") {
 		t.Fatalf("expected another dispatch of fix_tests after looping through run_tests, got:\n%s", out)
@@ -278,10 +278,10 @@ func TestGreenTestsEndToEnd(t *testing.T) {
 	}
 	statusOut, code := p.run(t, "status", "--run", runID)
 	if code != 0 {
-		t.Fatalf("wf status: exit %d, output:\n%s", code, statusOut)
+		t.Fatalf("pawl status: exit %d, output:\n%s", code, statusOut)
 	}
 	if !strings.Contains(statusOut, "run_tests=2") {
-		t.Fatalf("expected wf status to show run_tests visited twice (proving the loop re-entered it), got:\n%s", statusOut)
+		t.Fatalf("expected pawl status to show run_tests visited twice (proving the loop re-entered it), got:\n%s", statusOut)
 	}
 
 	// 4. A submit that fixes both reaches TERMINAL … ok.
@@ -289,7 +289,7 @@ func TestGreenTestsEndToEnd(t *testing.T) {
 	out, code = p.run(t, "submit", "--run", runID, "--step", "fix_tests",
 		"--json", `{"fix_summary":"fixed the actual bug"}`)
 	if code != 0 {
-		t.Fatalf("wf submit (real fix): exit %d, output:\n%s", code, out)
+		t.Fatalf("pawl submit (real fix): exit %d, output:\n%s", code, out)
 	}
 	if !strings.Contains(out, "TERMINAL "+runID+" ok") {
 		t.Fatalf("expected TERMINAL %s ok, got:\n%s", runID, out)
@@ -315,7 +315,7 @@ func TestGreenTestsMaxVisitsGivesUp(t *testing.T) {
 
 	out, code := p.run(t, "run", "green-tests")
 	if code != 0 {
-		t.Fatalf("wf run green-tests: exit %d, output:\n%s", code, out)
+		t.Fatalf("pawl run green-tests: exit %d, output:\n%s", code, out)
 	}
 	runID := extractRunID(t, out)
 	if !strings.Contains(out, "attempt: 1 of 3") {
@@ -334,7 +334,7 @@ func TestGreenTestsMaxVisitsGivesUp(t *testing.T) {
 		out, code = p.run(t, "submit", "--run", runID, "--step", "fix_tests",
 			"--json", `{"fix_summary":"compiles, does not fix anything"}`)
 		if code != 0 {
-			t.Fatalf("wf submit (round %d): exit %d, output:\n%s", i, code, out)
+			t.Fatalf("pawl submit (round %d): exit %d, output:\n%s", i, code, out)
 		}
 		if !strings.Contains(out, "DISPATCH") {
 			t.Fatalf("round %d: expected a re-dispatch (run should not have given up yet), got:\n%s", i, out)
@@ -349,7 +349,7 @@ func TestGreenTestsMaxVisitsGivesUp(t *testing.T) {
 	out, code = p.run(t, "submit", "--run", runID, "--step", "fix_tests",
 		"--json", `{"fix_summary":"compiles, does not fix anything"}`)
 	if code != 0 {
-		t.Fatalf("wf submit (final round): exit %d, output:\n%s", code, out)
+		t.Fatalf("pawl submit (final round): exit %d, output:\n%s", code, out)
 	}
 	if !strings.Contains(out, "TERMINAL "+runID+" blocked") {
 		t.Fatalf("expected TERMINAL %s blocked (gave_up via max_visits), got:\n%s", runID, out)

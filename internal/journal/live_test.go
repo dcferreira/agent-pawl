@@ -74,7 +74,7 @@ func TestLive_NoRunsForRoot(t *testing.T) {
 // TestLive_SkipsNeverStartedRun is half of I4: a run directory that exists
 // (e.g. created by CreateRunDir just before a crash, before RUN_START ever
 // landed) but has no events.jsonl at all must not count as live — it has
-// nothing to resume, and counting it would silently break `wf run`'s
+// nothing to resume, and counting it would silently break `pawl run`'s
 // resume-when-exactly-one rule.
 func TestLive_SkipsNeverStartedRun(t *testing.T) {
 	base := t.TempDir()
@@ -96,7 +96,7 @@ func TestLive_SkipsNeverStartedRun(t *testing.T) {
 
 // TestLive_SkipsCorruptRunRatherThanAbortingTheScan is I4's other half: one
 // unreadable/corrupt run directory must not hide every other live run for
-// the working copy from `wf run`'s resume rule.
+// the working copy from `pawl run`'s resume rule.
 func TestLive_SkipsCorruptRunRatherThanAbortingTheScan(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv(EnvStateDir, base)

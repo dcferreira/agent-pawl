@@ -6,11 +6,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dcferreira/agentic-workflow-fsm/internal/journal"
-	"github.com/dcferreira/agentic-workflow-fsm/internal/spec"
+	"github.com/dcferreira/agent-pawl/internal/journal"
+	"github.com/dcferreira/agent-pawl/internal/spec"
 )
 
-// cmdStatus implements wf status [--run <id>] (design/format-spec.md §I):
+// cmdStatus implements pawl status [--run <id>] (design/format-spec.md §I):
 // the resolved root, run id, current step, attempt, visits, restored state
 // keys, and the soft: census.
 func cmdStatus(args []string, cwd string, stdout, stderr io.Writer) int {
@@ -20,12 +20,12 @@ func cmdStatus(args []string, cwd string, stdout, stderr io.Writer) int {
 		case "--run":
 			i++
 			if i >= len(args) {
-				fmt.Fprintln(stderr, "wf status: --run needs a value")
+				fmt.Fprintln(stderr, "pawl status: --run needs a value")
 				return 2
 			}
 			runID = args[i]
 		default:
-			printLine(stderr, "wf status: unrecognised argument", args[i])
+			printLine(stderr, "pawl status: unrecognised argument", args[i])
 			return 2
 		}
 	}
@@ -50,7 +50,7 @@ func cmdStatus(args []string, cwd string, stdout, stderr io.Writer) int {
 			}
 		}
 		if ref == nil {
-			printLine(stderr, "wf status: no live run", runID, "for this working copy")
+			printLine(stderr, "pawl status: no live run", runID, "for this working copy")
 			return 1
 		}
 	case len(live) == 0:
@@ -67,7 +67,7 @@ func cmdStatus(args []string, cwd string, stdout, stderr io.Writer) int {
 			ids[i] = r.RunID
 		}
 		sort.Strings(ids)
-		printLine(stderr, fmt.Sprintf("wf status: multiple runs are live for this working copy; disambiguate with --run <id>: %s", strings.Join(ids, ", ")))
+		printLine(stderr, fmt.Sprintf("pawl status: multiple runs are live for this working copy; disambiguate with --run <id>: %s", strings.Join(ids, ", ")))
 		return 1
 	}
 
@@ -86,7 +86,7 @@ func cmdStatus(args []string, cwd string, stdout, stderr io.Writer) int {
 
 	warning := ""
 	if pinned.Changed {
-		warning = fmt.Sprintf("workflow file has changed since this run started (changed: %s); wf submit will refuse until you abandon and start fresh", pinned.Detail)
+		warning = fmt.Sprintf("workflow file has changed since this run started (changed: %s); pawl submit will refuse until you abandon and start fresh", pinned.Detail)
 	}
 	fmt.Fprint(stdout, formatStatus(
 		root, pinned.Workflow.Path, warning,

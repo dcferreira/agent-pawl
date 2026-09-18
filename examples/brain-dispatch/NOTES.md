@@ -224,7 +224,7 @@ non-determinism in service of avoiding a *different* reliability problem.
   rather than dropping the postcondition altogether — and D's validation
   rule 6 says a missing postcondition is a hard error with `soft: true` as
   the *only* escape, so I left a syntactically-cheap-but-semantically-thin
-  check (`slug` and `task_type` are set) rather than risk breaking `wf
+  check (`slug` and `task_type` are set) rather than risk breaking `pawl
   validate`.
 - `flip_today_action`'s Shortcut mirror is explicitly best-effort in the
   prose skill ("if the Shortcut write fails, report it but keep the vault

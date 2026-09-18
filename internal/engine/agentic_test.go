@@ -3,8 +3,8 @@ package engine
 import (
 	"testing"
 
-	"github.com/dcferreira/agentic-workflow-fsm/internal/journal"
-	"github.com/dcferreira/agentic-workflow-fsm/internal/spec"
+	"github.com/dcferreira/agent-pawl/internal/journal"
+	"github.com/dcferreira/agent-pawl/internal/spec"
 )
 
 // TestSubmit_RetriesOnPostconditionFailure exercises the agentic
@@ -97,7 +97,7 @@ terminal: {done: {status: ok}}
 // agentic step must never accept a returned key.
 func TestSubmit_EmptyWritesSchemaFailsClosed(t *testing.T) {
 	// spec.Validate rejects an agentic step with no typed writes: map, so
-	// this build's real entry point (wf run, gated on Validate) can never
+	// this build's real entry point (pawl run, gated on Validate) can never
 	// hand the engine a Workflow like this. The brief still asks for
 	// fail-closed behaviour if one ever does reach this package, so this
 	// test builds the Workflow value directly rather than through

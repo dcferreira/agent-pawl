@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/dcferreira/agentic-workflow-fsm/internal/render"
+	"github.com/dcferreira/agent-pawl/internal/render"
 )
 
 // resolveScriptPathTemplate implements DESIGN.md §9's "scripts/ resolve

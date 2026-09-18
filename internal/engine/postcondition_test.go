@@ -3,7 +3,7 @@ package engine
 import (
 	"testing"
 
-	"github.com/dcferreira/agentic-workflow-fsm/internal/journal"
+	"github.com/dcferreira/agent-pawl/internal/journal"
 )
 
 // TestPostcondition_ThreeForms exercises all three postcondition shapes

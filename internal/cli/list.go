@@ -7,22 +7,22 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/dcferreira/agentic-workflow-fsm/internal/journal"
+	"github.com/dcferreira/agent-pawl/internal/journal"
 )
 
-// cmdList implements wf list (design/format-spec.md §I): every resolvable
+// cmdList implements pawl list (design/format-spec.md §I): every resolvable
 // workflow name and the source it would resolve from — repo-local
 // .claude/workflows/ at the working-copy root wins over the user-level
 // ~/.claude/workflows/ for the same name, matching resolveWorkflowFile.
 //
 // Every printed entry goes through a blockWriter (fix round 5): a workflow
 // file's name comes from the filesystem, which — on Linux — permits a
-// filename containing \n, \r or U+2028; wf list used to print it via a bare
+// filename containing \n, \r or U+2028; pawl list used to print it via a bare
 // Fprintf, so such a filename could put an instruction-shaped line at
-// column 0 in wf list's own output.
+// column 0 in pawl list's own output.
 func cmdList(args []string, cwd string, stdout, stderr io.Writer) int {
 	if len(args) > 0 {
-		fmt.Fprintln(stderr, "usage: wf list")
+		fmt.Fprintln(stderr, "usage: pawl list")
 		return 2
 	}
 

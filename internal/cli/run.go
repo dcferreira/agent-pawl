@@ -7,20 +7,20 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dcferreira/agentic-workflow-fsm/internal/engine"
-	"github.com/dcferreira/agentic-workflow-fsm/internal/journal"
-	"github.com/dcferreira/agentic-workflow-fsm/internal/spec"
+	"github.com/dcferreira/agent-pawl/internal/engine"
+	"github.com/dcferreira/agent-pawl/internal/journal"
+	"github.com/dcferreira/agent-pawl/internal/spec"
 )
 
-// cmdRun implements wf run <name> [key=value …] [--fresh] [--force]
+// cmdRun implements pawl run <name> [key=value …] [--fresh] [--force]
 // [--run <id>] (design/format-spec.md §I): resolve the workflow, gate on
 // spec.Validate, resume a live run when exactly one resolves (--run only
 // disambiguates), or bind args and start a fresh one, then print the start
 // banner and the first instruction line.
 func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 	if len(args) < 1 {
-		fmt.Fprintln(stderr, "wf run: missing workflow name")
-		fmt.Fprintln(stderr, "usage: wf run <name> [key=value …] [--fresh] [--force] [--run <id>]")
+		fmt.Fprintln(stderr, "pawl run: missing workflow name")
+		fmt.Fprintln(stderr, "usage: pawl run <name> [key=value …] [--fresh] [--force] [--run <id>]")
 		return 2
 	}
 	name := args[0]
@@ -30,7 +30,7 @@ func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if flags.Fresh && flags.RunID != "" {
-		fmt.Fprintln(stderr, "wf run: --run is only used to disambiguate a resume; it does not name a fresh run's id — drop --run or drop --fresh")
+		fmt.Fprintln(stderr, "pawl run: --run is only used to disambiguate a resume; it does not name a fresh run's id — drop --run or drop --fresh")
 		return 2
 	}
 
@@ -79,7 +79,7 @@ func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 				// more than a state key name does (fix round 5's finding:
 				// this used to reach stderr via a bare Fprintf, and a raw CR
 				// in a bound arg's value re-homed the cursor to column 0).
-				printLine(stderr, fmt.Sprintf("wf run: args are bound at run start; run %s was started with %s — use --fresh to rebind", ref.RunID, formatArgsKV(ref.State.Args)))
+				printLine(stderr, fmt.Sprintf("pawl run: args are bound at run start; run %s was started with %s — use --fresh to rebind", ref.RunID, formatArgsKV(ref.State.Args)))
 				return 2
 			}
 			instr, ierr := e.Resume(ref.RunID, flags.Force)
@@ -112,7 +112,7 @@ func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 	runID := newRunID()
 	instr, err := e.Start(runID, boundArgs)
 	if err != nil {
-		printLine(stderr, "wf run:", err.Error())
+		printLine(stderr, "pawl run:", err.Error())
 		return 1
 	}
 	fmt.Fprint(stdout, formatInstruction(instr, w, root))
@@ -141,7 +141,7 @@ func resolveRunToResume(root, workflowID, explicit string) (*journal.RunRef, err
 				return &matches[i], nil
 			}
 		}
-		return nil, fmt.Errorf("wf run: no live run %q for workflow %q", explicit, workflowID)
+		return nil, fmt.Errorf("pawl run: no live run %q for workflow %q", explicit, workflowID)
 	}
 	switch len(matches) {
 	case 0:
@@ -154,7 +154,7 @@ func resolveRunToResume(root, workflowID, explicit string) (*journal.RunRef, err
 			ids[i] = m.RunID
 		}
 		sort.Strings(ids)
-		return nil, fmt.Errorf("wf run: multiple runs are live for workflow %q; disambiguate with --run <id>: %s", workflowID, strings.Join(ids, ", "))
+		return nil, fmt.Errorf("pawl run: multiple runs are live for workflow %q; disambiguate with --run <id>: %s", workflowID, strings.Join(ids, ", "))
 	}
 }
 
@@ -164,10 +164,10 @@ func resolveRunToResume(root, workflowID, explicit string) (*journal.RunRef, err
 func handleRunErr(err error, stderr io.Writer, root string, w *spec.Workflow, runID string) int {
 	if errors.Is(err, engine.ErrDigestMismatch) {
 		changed := diffChangedSteps(root, w, runID)
-		printLine(stderr, fmt.Sprintf("wf run: workflow file has changed since run %s started (changed: %s); use --fresh to start a new run", runID, changed))
+		printLine(stderr, fmt.Sprintf("pawl run: workflow file has changed since run %s started (changed: %s); use --fresh to start a new run", runID, changed))
 		return 1
 	}
-	printLine(stderr, "wf run:", err.Error())
+	printLine(stderr, "pawl run:", err.Error())
 	return 1
 }
 

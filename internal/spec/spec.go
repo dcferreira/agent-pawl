@@ -1,4 +1,4 @@
-// Package spec defines the authoring format for a wf workflow file: the Go
+// Package spec defines the authoring format for a pawl workflow file: the Go
 // types that mirror design/format-spec.md §D, a YAML loader that applies the
 // spec's defaults, and a static validator implementing the design/format-spec.md
 // §H subset scoped for this build.

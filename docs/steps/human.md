@@ -36,7 +36,7 @@ Ask the person at the keyboard. One step, one question, mapped exactly onto Clau
 ```
 
 The engine prints `ASK 7f3a choose_reviewer`; the session asks with `AskUserQuestion`. You never
-type a `wf` command.
+type a `pawl` command.
 
 ## Outcomes
 

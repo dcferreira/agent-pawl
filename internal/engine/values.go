@@ -3,9 +3,9 @@ package engine
 import (
 	"fmt"
 
-	"github.com/dcferreira/agentic-workflow-fsm/internal/journal"
-	"github.com/dcferreira/agentic-workflow-fsm/internal/render"
-	"github.com/dcferreira/agentic-workflow-fsm/internal/spec"
+	"github.com/dcferreira/agent-pawl/internal/journal"
+	"github.com/dcferreira/agent-pawl/internal/render"
+	"github.com/dcferreira/agent-pawl/internal/spec"
 )
 
 // declaredType returns the state: or args: type declared for key, or ""

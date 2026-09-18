@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/dcferreira/agentic-workflow-fsm/internal/spec"
+	"github.com/dcferreira/agent-pawl/internal/spec"
 )
 
-// runFlags holds wf run's own flags, as opposed to key=value arg bindings
+// runFlags holds pawl run's own flags, as opposed to key=value arg bindings
 // (design/format-spec.md §I).
 type runFlags struct {
 	Fresh bool
@@ -17,7 +17,7 @@ type runFlags struct {
 	RunID string
 }
 
-// parseRunArgs splits wf run's trailing arguments into key=value bindings
+// parseRunArgs splits pawl run's trailing arguments into key=value bindings
 // and flags.
 func parseRunArgs(args []string) (raw map[string]string, flags runFlags, err error) {
 	raw = map[string]string{}
@@ -31,7 +31,7 @@ func parseRunArgs(args []string) (raw map[string]string, flags runFlags, err err
 		case a == "--run":
 			i++
 			if i >= len(args) {
-				return nil, flags, fmt.Errorf("wf run: --run needs a value")
+				return nil, flags, fmt.Errorf("pawl run: --run needs a value")
 			}
 			flags.RunID = args[i]
 		case strings.HasPrefix(a, "--run="):
@@ -40,7 +40,7 @@ func parseRunArgs(args []string) (raw map[string]string, flags runFlags, err err
 			kv := strings.SplitN(a, "=", 2)
 			raw[kv[0]] = kv[1]
 		default:
-			return nil, flags, fmt.Errorf("wf run: unrecognised argument %q", a)
+			return nil, flags, fmt.Errorf("pawl run: unrecognised argument %q", a)
 		}
 	}
 	return raw, flags, nil
@@ -80,21 +80,21 @@ func bindArgs(decls map[string]spec.ArgDecl, raw map[string]string) (map[string]
 		}
 		coerced, err := coerceArgValue(v, decl.Type)
 		if err != nil {
-			return nil, fmt.Errorf("wf run: arg %q: %w", name, err)
+			return nil, fmt.Errorf("pawl run: arg %q: %w", name, err)
 		}
 		out[name] = coerced
 	}
 	if len(missing) > 0 {
 		sort.Strings(missing)
 		return nil, &argsUsageError{
-			Reason: fmt.Sprintf("wf run: missing required arg(s): %s", strings.Join(missing, ", ")),
+			Reason: fmt.Sprintf("pawl run: missing required arg(s): %s", strings.Join(missing, ", ")),
 			Decls:  decls,
 		}
 	}
 	for k := range raw {
 		if _, ok := decls[k]; !ok {
 			return nil, &argsUsageError{
-				Reason: fmt.Sprintf("wf run: %q is not a declared arg", k),
+				Reason: fmt.Sprintf("pawl run: %q is not a declared arg", k),
 				Decls:  decls,
 			}
 		}

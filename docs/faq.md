@@ -5,7 +5,7 @@ No — only the **last non-empty line** of stdout is parsed; everything else is 
 token and payload last, after any `set -x` trace. See [steps/deterministic.md](steps/deterministic.md).
 
 **Can the agent skip a step?**
-No. `wf submit` refuses any `(run, step, attempt)` other than the one the journal is waiting on, and
+No. `pawl submit` refuses any `(run, step, attempt)` other than the one the journal is waiting on, and
 the postcondition runs in the engine's process afterwards. See
 [guards-and-invariants.md](guards-and-invariants.md).
 
@@ -15,12 +15,12 @@ text carried forward. There is no snapshot or restore; fix-forward is the only s
 why idempotent scripts matter. See [steps/deterministic.md](steps/deterministic.md#common-mistakes).
 
 **How do I test a workflow without an LLM?**
-`wf validate` covers the whole graph statically, for free. Then write a version with `agentic` steps
+`pawl validate` covers the whole graph statically, for free. Then write a version with `agentic` steps
 replaced by `deterministic` ones that `echo` a fixed JSON payload, to exercise every transition with
 no model and no tokens. See [validation.md](validation.md).
 
 **Does waiting cost tokens?**
-No — `wf poll` is a background process running your shell command; nothing is generated while CI
+No — `pawl poll` is a background process running your shell command; nothing is generated while CI
 runs. See [steps/wait.md](steps/wait.md).
 
 **What if I answer a `human` step with something that isn't an option?**
@@ -34,16 +34,16 @@ router after it that reads the agent's typed `writes:` and prints a token. See
 [steps/agentic.md](steps/agentic.md#outcomes).
 
 **Where does run state live, and can I read or write it?**
-`~/.local/state/wf/<root-slug>/<workflow>/<run-id>/` — `events.jsonl` is the append-only truth,
-`grep`/`jq`-able; read it to debug, never write it. There is no `wf set`: state enters only through
+`~/.local/state/pawl/<root-slug>/<workflow>/<run-id>/` — `events.jsonl` is the append-only truth,
+`grep`/`jq`-able; read it to debug, never write it. There is no `pawl set`: state enters only through
 the stdout contract or a schema-validated agentic return.
 
 **Do I have to rewrite my existing scripts?**
 No. `run:` takes the command you have — JSON output gets you `writes:` for free, `k=v` output needs
-`emits: pairs`, and inputs can come from `$WF_BRANCH`-style environment variables instead of
+`emits: pairs`, and inputs can come from `$PAWL_BRANCH`-style environment variables instead of
 arguments. See [writing-workflows.md](writing-workflows.md#state-and-key).
 
-**Can I use `wf` with a harness other than Claude Code?**
+**Can I use `pawl` with a harness other than Claude Code?**
 The engine is harness-agnostic: an agentic step's `subagent_args:` map is passed through to
 `DISPATCH` verbatim, and the engine never interprets or enforces it. In Claude Code these are
 typically `model`, `tools`, `effort` — read by the Claude Code plugin as suggestions for the

@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/dcferreira/agentic-workflow-fsm/internal/engine"
-	"github.com/dcferreira/agentic-workflow-fsm/internal/journal"
+	"github.com/dcferreira/agent-pawl/internal/engine"
+	"github.com/dcferreira/agent-pawl/internal/journal"
 )
 
-// cmdAbandon implements wf abandon --run <id> (design/format-spec.md §I):
+// cmdAbandon implements pawl abandon --run <id> (design/format-spec.md §I):
 // always available, always terminal. There is no Engine.Abandon — the
 // engine has only Start/Resume/Submit — so this appends the RUN_END event
 // directly via internal/journal, the same package the engine itself uses to
@@ -21,17 +21,17 @@ func cmdAbandon(args []string, cwd string, stdout, stderr io.Writer) int {
 		case "--run":
 			i++
 			if i >= len(args) {
-				fmt.Fprintln(stderr, "wf abandon: --run needs a value")
+				fmt.Fprintln(stderr, "pawl abandon: --run needs a value")
 				return 2
 			}
 			runID = args[i]
 		default:
-			printLine(stderr, "wf abandon: unrecognised argument", args[i])
+			printLine(stderr, "pawl abandon: unrecognised argument", args[i])
 			return 2
 		}
 	}
 	if runID == "" {
-		fmt.Fprintln(stderr, "usage: wf abandon --run <id>")
+		fmt.Fprintln(stderr, "usage: pawl abandon --run <id>")
 		return 2
 	}
 
@@ -42,20 +42,20 @@ func cmdAbandon(args []string, cwd string, stdout, stderr io.Writer) int {
 	}
 	ref, err := findLiveRun(root, runID)
 	if err != nil {
-		printLine(stderr, "wf abandon:", err.Error())
+		printLine(stderr, "pawl abandon:", err.Error())
 		return 1
 	}
 
 	lock, err := journal.AcquireLock(ref.Dir, false)
 	if err != nil {
-		printLine(stderr, "wf abandon:", err.Error())
+		printLine(stderr, "pawl abandon:", err.Error())
 		return 1
 	}
 	defer lock.Release()
 
 	log, err := journal.OpenLog(ref.Dir)
 	if err != nil {
-		printLine(stderr, "wf abandon:", err.Error())
+		printLine(stderr, "pawl abandon:", err.Error())
 		return 1
 	}
 	defer log.Close()
@@ -67,7 +67,7 @@ func cmdAbandon(args []string, cwd string, stdout, stderr io.Writer) int {
 		Status: "abandoned",
 		Reason: "abandoned by user",
 	}); err != nil {
-		printLine(stderr, "wf abandon:", err.Error())
+		printLine(stderr, "pawl abandon:", err.Error())
 		return 1
 	}
 

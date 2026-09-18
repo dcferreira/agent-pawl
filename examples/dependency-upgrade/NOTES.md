@@ -57,7 +57,7 @@ Replayed N deterministic steps from cache."
 > language, no cache. Left below for the historical record of the walkthrough.
 
 ```
-$ wf run dependency-upgrade
+$ pawl run dependency-upgrade
 run 9c2  dependency-upgrade  resumed at fix_tests (attempt 2/4)
 restored  baseline_status, baseline_lockfile_hash, upgrade_diff,
   changed_packages, test_status, failing_signature
@@ -97,7 +97,7 @@ step=fix_tests attempt=1 (attempt_key=e4f1...)
 
 # resume: (superseded phrasing — see the resolved-inconsistency #15 note above; current
 # form is `run <id> <workflow> resumed at <step> (attempt n/m)` / `restored <keys>`)
-$ wf run dependency-upgrade
+$ pawl run dependency-upgrade
 Resuming run 9c2 at fix_tests (attempt 2/4, attempt_key=e4f1...).
 Restored: baseline_status, baseline_lockfile_hash, upgrade_diff,
   changed_packages, test_status, failing_signature.
@@ -139,7 +139,7 @@ that assumption is doing real work and isn't stated.
   field for a literal inline list, so I had to declare a `state:` key with a
   `default:` just to hold a constant — a state key that is "written" by
   nobody and exists purely to satisfy `options_from`'s expected shape. This
-  passes `wf validate` rule 2 ("key written but never read" — it *is* read)
+  passes `pawl validate` rule 2 ("key written but never read" — it *is* read)
   but would probably still trip rule 1 ("a step reads a key nobody writes on
   any path reaching it") unless a `default:` counts as an implicit write,
   which the spec doesn't say explicitly. Minor, but a static
@@ -159,7 +159,7 @@ Ours doesn't have that naturally (pytest output is text), so "was
 `attempt_key:` enough?" — yes for the *field*, but only because I pushed a
 nontrivial classification job (turning raw test output into a stable id)
 into two separate scripts that both have to agree on the same hashing
-scheme. That agreement is not checked by `wf validate` anywhere in the
+scheme. That agreement is not checked by `pawl validate` anywhere in the
 spec's rule list — two failure-key generators drifting out of sync would
 silently break the "same failure counts down" guarantee, and nothing would
 catch it statically. Open question #2 in the spec ("does attempt_key want a
@@ -271,7 +271,7 @@ Genuinely easy for the linear, deterministic backbone — steps 1, 2, 3, 5,
 about data flow in a way that caught one real mistake while drafting (I
 initially had `commit_and_pr` reading `upgrade_diff` when it only needed
 `changed_packages` and `pinned_package` — the unused-read would have been a
-`wf validate` warning). The two `human` gates and the fix-loop's interaction
+`pawl validate` warning). The two `human` gates and the fix-loop's interaction
 with the outer CI-retry loop are where the format's few underspecified
 corners live (§3, §6.1–6.2), and they're exactly the parts of *this*
 workflow that most resemble what makes a hand-built version of this hard: bounded retries with
@@ -281,7 +281,7 @@ commit to and document inline — but "someone who has only read the hello
 workflow and the field table" (the spec's own goal 7 test) would not,
 I think, confidently author the `fix_tests`/`human_fix_decision`/
 `wait_for_ci` triangle without either guessing (as I did) or hitting
-`wf validate` and iterating. The deterministic 80% of this workflow is a
+`pawl validate` and iterating. The deterministic 80% of this workflow is a
 strong argument for the format as designed; the agentic-loop-plus-human-gate
 20% is where the spec should tighten field definitions (`human` timeout
 semantics, `catch:` targets, static option lists) before calling itself
@@ -367,7 +367,7 @@ step=fix_tests attempt=1 (attempt_key=e4f1..., via classify script)
 [CRASH — process killed here, src/foo.py left half-edited on disk]
 
 # resume:
-$ wf run dependency-upgrade
+$ pawl run dependency-upgrade
 Resuming run 9c2 at fix_tests (attempt 1/4, attempt_key=e4f1...).
 Restored: baseline_status, baseline_lockfile_hash, upgrade_diff,
   changed_packages, failing_signature.
@@ -412,7 +412,7 @@ attempt's start point and that attempt is re-run" — now exists verbatim.
   agreeing.** I pointed `fix_tests`'s classifier and my own
   `run-tests.sh`/`poll-ci.sh` payload code at the same file,
   `scripts/failure-key.sh`, specifically to close this gap myself — but
-  nothing in `wf validate`'s rule list (§H) checks that a script referenced
+  nothing in `pawl validate`'s rule list (§H) checks that a script referenced
   from `attempt_key.classify` is the *same* script (or produces the same
   values as) whatever a different step's `run:`/`poll:` script does with
   `failing_signature`. Open question 4 in the spec asks this exact question
@@ -462,7 +462,7 @@ whether `postcondition:` is required for `human`/`wait` steps.**
   fields that exist only to satisfy a rule the reference example itself
   doesn't follow. If the field table and rule 7 are right and the example is
   simply incomplete/under-specified, then my three additions are correct
-  and `wf validate` would flag the reference `ship-change.yaml` in §E as
+  and `pawl validate` would flag the reference `ship-change.yaml` in §E as
   broken. I could not resolve this from the text and chose the stricter,
   bolded, "no exceptions" reading — but I flag it because a v3 spec (or an
   actual validator implementation) needs to pick one and fix the other.

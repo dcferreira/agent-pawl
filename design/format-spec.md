@@ -3,7 +3,7 @@
 Normative definition of *what the author writes*; `DESIGN.md` defines *what the engine does*, and
 `docs/` teaches. A workflow is **one YAML file, pure data**. Step implementations (shell scripts) are
 referenced by path; an agentic step's prompt is not one of them (§B.6). Sequencing and branching live
-only in `next:` / `outcomes:` / `catch:`. New to `wf`? See `docs/README.md`.
+only in `next:` / `outcomes:` / `catch:`. New to `pawl`? See `docs/README.md`.
 
 ---
 
@@ -79,7 +79,7 @@ violated invariant's `message:`, or a fixed engine string naming the step and ou
 `"wait_for_ci: timeout"`, `"fix_tests: exhausted"`). It is always set by the time a `blocked`
 terminal's `message:` is rendered.
 
-Every key the engine can see a step reading is also exported to that step as `WF_<KEY>`
+Every key the engine can see a step reading is also exported to that step as `PAWL_<KEY>`
 (upper-cased).
 
 ### 3. Deterministic steps get named outcomes
@@ -143,7 +143,7 @@ work.
 YAML string (`${key}` substituted at dispatch time). The main agent composes the actual subagent
 prompt from it, the gathered `context:`, and session knowledge, then dispatches honouring the
 `subagent_args:` map exactly as given. No engine guarantee rests on the prompt text: they rest on the
-`writes:` return schema (validated by `wf`), the postcondition (evaluated by `wf`) and the guards.
+`writes:` return schema (validated by `pawl`), the postcondition (evaluated by `pawl`) and the guards.
 
 The engine passes `subagent_args:` through to the `DISPATCH` block **verbatim and uninterpreted** —
 extra arguments for the subagent launch, no engine opinion on harness vocabulary. In Claude Code
@@ -155,7 +155,7 @@ engine- or hook-enforced.
 ### 7. `soft: true` — what it costs
 
 A soft postcondition is still *executed* and still gates the transition; failure retries and routes
-exactly as a hard one does. `soft:` changes bookkeeping only: `wf validate` prints a census (count,
+exactly as a hard one does. `soft:` changes bookkeeping only: `pawl validate` prints a census (count,
 percentage, list) and the run's terminal summary prints `N of M steps advanced on a soft
 postcondition`. `postcondition: "true"` plus `soft: true` is the floor, and it is counted.
 
@@ -184,7 +184,7 @@ flag the script set itself — are what make a re-run safe.
 ### 9. `args:` — workflow arguments
 
 A top-level `args:` block, typed exactly like `state:`, each entry taking `type:` plus either
-`default:` or `required: true`. Bound on the command line as `key=value`: `wf run manage-mr
+`default:` or `required: true`. Bound on the command line as `key=value`: `pawl run manage-mr
 mr_url=https://…`. They enter run state at run start as read-only state keys; no step may write one.
 A missing `required:` arg refuses to start and prints a usage line listing every arg, its type and
 its default. Its job is to put "what do I pass in" at the top of the file.
@@ -197,7 +197,7 @@ canonical spelling of an action and nothing else: variable indirection, `$()`, b
 binary all defeat it. **Invariants are the layer that holds**, because an invariant runs a command
 that re-observes real external state.
 
-Invariants are evaluated by the engine after every step completion and after every `wf submit`.
+Invariants are evaluated by the engine after every step completion and after every `pawl submit`.
 Exit 0 holds; non-zero violates; a check that *cannot run* — missing script, unparseable output,
 network error — counts as violated. A violation blocks the run with the invariant's `message:` as the
 reason.
@@ -222,23 +222,23 @@ A run enters status `BLOCKED` on a `blocked` transition (author-routed, e.g. `ti
 invariant violation, or an unrouted `exhausted`/`failure`. Something unexpected happened; the run is
 paused for review before continuing — it is not a dead end.
 
-- `wf status` shows the reason and the step it stopped at.
-- `wf run <name>` **resumes at the step that produced the `blocked` outcome**, with that step's
+- `pawl status` shows the reason and the step it stopped at.
+- `pawl run <name>` **resumes at the step that produced the `blocked` outcome**, with that step's
   `attempts:` counter reset to 1, journalled as a user intervention (DESIGN.md §4). It resumes when
   exactly one run resolves for this working copy; `--run <id>` is only needed to disambiguate.
 - While `BLOCKED`, `PreToolUse` keeps denying guarded commands — the run is still live. The `Stop`
   hook does **not** refuse.
-- `wf abandon --run <id>` ends a blocked run for good, same as any other live run.
+- `pawl abandon --run <id>` ends a blocked run for good, same as any other live run.
 - `--from <step>`, to resume at an arbitrary earlier step, is Milestone 2 (§I).
 
 `terminal: {status: ok|blocked, …}` (§D) names the *message shown on reaching that outcome*; `done`
 is the one status that is final.
 
-### 13. `wf poll` submits for itself; the model never does
+### 13. `pawl poll` submits for itself; the model never does
 
-For a `wait` step the model runs `wf poll --run <id> --step <step>`, never `wf submit`. The poller
+For a `wait` step the model runs `pawl poll --run <id> --step <step>`, never `pawl submit`. The poller
 re-runs `poll:` every `every:`, reads each iteration's last non-empty stdout line per §B.1, and the
-first iteration whose line carries a routed token ends the loop; `wf poll` then submits on its own
+first iteration whose line carries a routed token ends the loop; `pawl poll` then submits on its own
 behalf (DESIGN.md §3).
 
 ### 14. Conditionals and warnings are patterns, not fields
@@ -261,7 +261,7 @@ behalf (DESIGN.md §3).
 
 Reserved outcome tokens, usable anywhere: `success`, `failure`, `timeout`, `exhausted`, `chosen`.
 
-`kind: parallel` is **reserved**: `wf validate` rejects it with "reserved for Milestone 3", not
+`kind: parallel` is **reserved**: `pawl validate` rejects it with "reserved for Milestone 3", not
 "unknown kind". Its semantics are deliberately not fixed here.
 
 ---
@@ -269,7 +269,7 @@ Reserved outcome tokens, usable anywhere: `success`, `failure`, `timeout`, `exha
 
 | Field | Required | Kinds | Type | Meaning | Default |
 |---|---|---|---|---|---|
-| `workflow` | yes | file | string | Id; the `wf run` name. | — |
+| `workflow` | yes | file | string | Id; the `pawl run` name. | — |
 | `description` | no | file | string | One paragraph. | — |
 | `start` | yes | file | step id | First step. | — |
 | `max_steps` | no | file | integer | Backstop on total step entries in a run. | `200` |
@@ -284,7 +284,7 @@ Reserved outcome tokens, usable anywhere: `success`, `failure`, `timeout`, `exha
 | `run` | yes | deterministic | string | A command. Exit 0 → token/`success`; non-zero → `failure`. | — |
 | `emits` | no | deterministic, wait | enum | Payload grammar: `json` \| `pairs`; the *maximum* payload shape (§B.1). | `json` |
 | `description` | **yes** | agentic | string | Inline, multi-line string: intent, constraints, definition of done; `${key}` substituted at dispatch time. Never handed to the subagent verbatim (§B.6). | — |
-| `context` | no | agentic | list | Files/`!cmd` output gathered by `wf` and included in the `DISPATCH` block; `${key}` resolved first. | `[]` |
+| `context` | no | agentic | list | Files/`!cmd` output gathered by `pawl` and included in the `DISPATCH` block; `${key}` resolved first. | `[]` |
 | `subagent_args` | no | agentic | map | Extra arguments passed through verbatim for the subagent launch — in Claude Code typically `model`, `tools`, `effort`; other harnesses use whatever they need. Not interpreted or enforced by the engine (§B.6). | `{}` |
 | `poll` | yes | wait | string | Command re-run every `every:`; its last stdout line is read per §B.1. | — |
 | `every` | no | wait | duration | Poll interval. | `60s` |
@@ -312,7 +312,7 @@ Reserved outcome tokens, usable anywhere: `success`, `failure`, `timeout`, `exha
 workflow: ship-change
 start: preflight
 max_steps: 60                              # backstop; per-step caps do the real work (§B.4)
-args:                                      # wf run ship-change mr_url=https://…
+args:                                      # pawl run ship-change mr_url=https://…
   mr_url: {type: string, default: ""}      # read-only; no step may write it
 state:
   branch:        {type: string}
@@ -409,7 +409,7 @@ terminal: {done: {status: ok}}
 Every field beyond these appears only when the workflow branches, loops, waits on a person, or hands
 work to an agent. See `docs/quickstart.md`.
 
-## H. `wf validate` — the static checks
+## H. `pawl validate` — the static checks
 
 1. `next:` / `outcomes:` / `catch[].next` names a step or terminal that does not exist.
 2. A step is unreachable from `start:`.
@@ -449,28 +449,28 @@ fault, and shows structured forms by example.
 **Milestone 1 — five commands plus three internal ones.**
 
 ```
-wf run <name> [key=value …] [--fresh] [--force]   start, or resume a non-terminal run — BLOCKED
+pawl run <name> [key=value …] [--fresh] [--force]   start, or resume a non-terminal run — BLOCKED
              [--run <id>]                          included — when exactly one resolves
-wf validate <name>                                the checks in §H
-wf status [--run <id>]                            where a run is, and its trust surface
-wf abandon --run <id>                             always available, always terminal
-wf list                                           resolvable workflows and their source
+pawl validate <name>                                the checks in §H
+pawl status [--run <id>]                            where a run is, and its trust surface
+pawl abandon --run <id>                             always available, always terminal
+pawl list                                           resolvable workflows and their source
 ```
 
-`--fresh` starts a new run and resets every counter; `wf run` refuses to resume a run whose workflow
-file has changed since it started, and offers `--fresh`. `--force` breaks a stale lock. `wf run` also
+`--fresh` starts a new run and resets every counter; `pawl run` refuses to resume a run whose workflow
+file has changed since it started, and offers `--fresh`. `--force` breaks a stale lock. `pawl run` also
 refuses to start if the installed binary's version does not match the plugin's pinned version, naming
 both. `--run <id>` is needed only to disambiguate when several runs resolve (§B.12). Internal
-commands, which the model calls and an author never writes: `wf submit --run … --step … --json …`, `wf poll --run …
---step …` (§B.13), and `wf hook pre|stop`.
+commands, which the model calls and an author never writes: `pawl submit --run … --step … --json …`, `pawl poll --run …
+--step …` (§B.13), and `pawl hook pre|stop`.
 
 Milestone 1 covers the four kinds, `state:` and `args:`, the stdout grammar, `${…}` substitution,
 postconditions with `soft:`, the attempt and visit caps, `retry:`/`catch:`, guards and invariants,
-fix-forward, crash-safe resume, `human` steps in full, and `wf validate`.
+fix-forward, crash-safe resume, `human` steps in full, and `pawl validate`.
 
-**Milestone 2.** `wf graph` (Mermaid from the parsed graph); `wf validate --walk step=TOKEN,…`, printing
-the step sequence a given outcome assignment produces without executing anything; `wf status --history`;
-`wf run <name> --from <step>`; plugin-shipped workflows, "if free".
+**Milestone 2.** `pawl graph` (Mermaid from the parsed graph); `pawl validate --walk step=TOKEN,…`, printing
+the step sequence a given outcome assignment produces without executing anything; `pawl status --history`;
+`pawl run <name> --from <step>`; plugin-shipped workflows, "if free".
 
 **Milestone 3.** `kind: parallel`; `foreach:` fan-out over a runtime-discovered list, with per-item
 postconditions and a partial-success join; an `outcome:` member of the agentic return schema,
@@ -494,5 +494,5 @@ Installation and distribution are in DESIGN.md §9.
   the VCS-mutation deny on a live subagent (DESIGN.md §5).
 - **Working-tree snapshot and restore**: doubles the durable state the engine must keep correct, for a guarantee a fresh attempt does not need (§B.8).
 - **Dynamically installed hooks**, rewritten per run: Claude Code hooks are static, so the hooks ship once and discover the live run on disk.
-- **`wf count` / `wf reset` as `PATH` shims**: they make a step script a writer of engine state.
+- **`pawl count` / `pawl reset` as `PATH` shims**: they make a step script a writer of engine state.
 - **Fields**: `on_timeout:`/`on_reject:` (reserved tokens), `exit_map:`/`outcomes_from: {exit:}` (§B.1), `reads:` (§A), `loops:` (§B.4), `deny_always:` (`only_in: []`), `writes_format:` (`emits:`), `emits: value`/`none` (§B.1), `snapshot:` (§B.8), `when:`/`warn:` (§B.14), `soft_writes:` (a second census dilutes the first), `timeout:` on `deterministic` (one engine-wide ceiling), `env:`/`defaults:`/`foreach:` (Milestone 3).

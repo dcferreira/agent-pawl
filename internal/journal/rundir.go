@@ -8,23 +8,23 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/dcferreira/agentic-workflow-fsm/internal/spec"
+	"github.com/dcferreira/agent-pawl/internal/spec"
 )
 
 // EnvStateDir overrides the run-directory base, for tests.
-const EnvStateDir = "WF_STATE_DIR"
+const EnvStateDir = "PAWL_STATE_DIR"
 
 // StateBase returns the base directory under which every run directory is
-// created: $WF_STATE_DIR if set (for tests), else ~/.claude/wf/runs.
+// created: $PAWL_STATE_DIR if set (for tests), else ~/.claude/pawl/runs.
 func StateBase() string {
 	if d := os.Getenv(EnvStateDir); d != "" {
 		return d
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return filepath.Join(".", ".claude", "wf", "runs")
+		return filepath.Join(".", ".claude", "pawl", "runs")
 	}
-	return filepath.Join(home, ".claude", "wf", "runs")
+	return filepath.Join(home, ".claude", "pawl", "runs")
 }
 
 // RunDir returns the run directory for (root, workflowID, runID):
@@ -63,10 +63,10 @@ type Plan struct {
 //   - Path: an invocation detail (where the file happened to be loaded
 //     from), not authored content. spec.Workflow.Path carries yaml:"-" but
 //     no json tag, so a naive json.Marshal(w) includes it verbatim — the
-//     same file loaded as "wf.yaml" from one cwd and "/abs/path/wf.yaml"
-//     from another then digests differently, and step 2 of DESIGN.md §4's
-//     resume procedure refuses a live run over nothing but where the user
-//     happened to invoke `wf` from.
+//     same file loaded as "workflow.yaml" from one cwd and
+//     "/abs/path/workflow.yaml" from another then digests differently, and
+//     step 2 of DESIGN.md §4's resume procedure refuses a live run over
+//     nothing but where the user happened to invoke `pawl` from.
 //   - MaxSteps/Attempts/MaxVisits (the resolved fields): these are
 //     computed from MaxStepsRaw/AttemptsRaw/MaxVisitsRaw by applyDefaults,
 //     not authored content in their own right, and duplicate the *Raw
@@ -160,7 +160,7 @@ func newDigestWorkflow(w *spec.Workflow) *digestWorkflow {
 // Digest returns a hex-encoded sha256 digest of w's authored content (see
 // digestWorkflow), stable across processes and invocation directories for
 // the same authored content: the value plan.json records and that a later
-// `wf run` recompiles and compares to detect a changed workflow file out
+// `pawl run` recompiles and compares to detect a changed workflow file out
 // from under a resumed run.
 func Digest(w *spec.Workflow) (string, error) {
 	data, err := json.Marshal(newDigestWorkflow(w))

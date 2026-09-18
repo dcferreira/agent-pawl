@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dcferreira/agentic-workflow-fsm/internal/render"
+	"github.com/dcferreira/agent-pawl/internal/render"
 )
 
 // TestResolveScriptPathTemplate covers the four cases DESIGN.md §9
@@ -16,7 +16,7 @@ import (
 // must be decided from the template (pre-render), not from rendered/quoted
 // output.
 func TestResolveScriptPathTemplate(t *testing.T) {
-	const dir = "/work/wf-dir"
+	const dir = "/work/pawl-dir"
 	tests := []struct {
 		name string
 		tmpl string
@@ -31,12 +31,12 @@ func TestResolveScriptPathTemplate(t *testing.T) {
 		{
 			name: "relative path with separator resolves against workflow dir",
 			tmpl: "scripts/run-tests.sh --foo",
-			want: render.ShellQuote("/work/wf-dir/scripts/run-tests.sh") + " --foo",
+			want: render.ShellQuote("/work/pawl-dir/scripts/run-tests.sh") + " --foo",
 		},
 		{
 			name: "explicit ./ relative path resolves against workflow dir",
 			tmpl: "./check.sh",
-			want: render.ShellQuote("/work/wf-dir/check.sh"),
+			want: render.ShellQuote("/work/pawl-dir/check.sh"),
 		},
 		{
 			name: "absolute path is untouched",
@@ -47,7 +47,7 @@ func TestResolveScriptPathTemplate(t *testing.T) {
 			name: "whole first token from a ${key} substitution resolves",
 			tmpl: "${script} --foo",
 			vals: render.Values{"script": render.StringValue("scripts/run-tests.sh")},
-			want: render.ShellQuote("/work/wf-dir/scripts/run-tests.sh") + " --foo",
+			want: render.ShellQuote("/work/pawl-dir/scripts/run-tests.sh") + " --foo",
 		},
 		{
 			name: "first token mixing literal text and a ${key} resolves",
@@ -56,7 +56,7 @@ func TestResolveScriptPathTemplate(t *testing.T) {
 				"name": render.StringValue("run-tests"),
 				"arg":  render.StringValue("x y"),
 			},
-			want: render.ShellQuote("/work/wf-dir/scripts/run-tests.sh") + " " + render.ShellQuote("x y"),
+			want: render.ShellQuote("/work/pawl-dir/scripts/run-tests.sh") + " " + render.ShellQuote("x y"),
 		},
 		{
 			name: "absolute path from a ${key} substitution is untouched (still quoted)",
@@ -104,7 +104,7 @@ func TestResolveScriptPathTemplate(t *testing.T) {
 // (in TestExecDeterministic_InjectionAttemptDoesNotExecute) that actually
 // running it does not perform the side effect.
 func TestResolveScriptPathTemplate_InjectionRegression(t *testing.T) {
-	const dir = "/work/wf-dir"
+	const dir = "/work/pawl-dir"
 	malicious := "x'/y $(touch PWNED)'"
 	vals := render.Values{"tool": render.StringValue(malicious)}
 
@@ -126,7 +126,7 @@ func TestResolveScriptPathTemplate_InjectionRegression(t *testing.T) {
 // apostrophe (no injection attempt at all) must resolve cleanly, not error
 // out as though a quote were unterminated.
 func TestResolveScriptPathTemplate_BenignApostropheIsNotAnError(t *testing.T) {
-	const dir = "/work/wf-dir"
+	const dir = "/work/pawl-dir"
 	vals := render.Values{"p": render.StringValue("a'b/c d")}
 	got, err := resolveScriptPathTemplate("${p}", vals, dir)
 	if err != nil {

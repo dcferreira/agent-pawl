@@ -16,7 +16,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/dcferreira/agentic-workflow-fsm/internal/spec"
+	"github.com/dcferreira/agent-pawl/internal/spec"
 )
 
 // ErrParse marks a Parse failure: the captured stdout was unintelligible

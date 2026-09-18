@@ -1,7 +1,7 @@
 // Package journal implements the run directory, the append-only event log,
 // pure replay and the run lock (DESIGN.md §4). It is the only memory the
-// engine has across process boundaries: `wf run` starts a run and exits;
-// `wf submit` is a brand-new process that reconstructs the run's state from
+// engine has across process boundaries: `pawl run` starts a run and exits;
+// `pawl submit` is a brand-new process that reconstructs the run's state from
 // the events already on disk before it can act.
 //
 // journal depends on internal/spec (for the Workflow type stored in

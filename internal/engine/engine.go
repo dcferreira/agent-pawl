@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dcferreira/agentic-workflow-fsm/internal/journal"
-	"github.com/dcferreira/agentic-workflow-fsm/internal/render"
-	"github.com/dcferreira/agentic-workflow-fsm/internal/spec"
+	"github.com/dcferreira/agent-pawl/internal/journal"
+	"github.com/dcferreira/agent-pawl/internal/render"
+	"github.com/dcferreira/agent-pawl/internal/spec"
 )
 
 // DefaultTimeout is the engine-wide wall-clock ceiling applied to every
@@ -27,7 +27,7 @@ const DefaultTimeout = 10 * time.Minute
 // Start/Resume/Submit independently.
 type Engine struct {
 	// Workflow is the parsed, spec.Validate-clean workflow definition.
-	// wf run must gate on Validate returning zero errors before ever
+	// pawl run must gate on Validate returning zero errors before ever
 	// constructing an Engine: the writes: schema and routing completeness
 	// this package relies on are Validate's job, not this package's.
 	Workflow *spec.Workflow

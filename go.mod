@@ -1,4 +1,4 @@
-module github.com/dcferreira/agentic-workflow-fsm
+module github.com/dcferreira/agent-pawl
 
 go 1.27
 

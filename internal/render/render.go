@@ -235,7 +235,7 @@ func isTemplateSpace(c byte) bool {
 	return c == ' ' || c == '\t' || c == '\n'
 }
 
-// EnvFor returns "WF_<UPPERCASED_KEY>=<value>" pairs for each of keys that
+// EnvFor returns "PAWL_<UPPERCASED_KEY>=<value>" pairs for each of keys that
 // has an entry in vals, in the given key order. A JSONValue entry is
 // exported as compact JSON. Keys absent from vals are silently skipped.
 func EnvFor(vals Values, keys []string) []string {
@@ -249,7 +249,7 @@ func EnvFor(vals Values, keys []string) []string {
 		if err != nil {
 			continue
 		}
-		env = append(env, fmt.Sprintf("WF_%s=%s", strings.ToUpper(k), s))
+		env = append(env, fmt.Sprintf("PAWL_%s=%s", strings.ToUpper(k), s))
 	}
 	return env
 }

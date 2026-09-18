@@ -7,7 +7,7 @@ The engine runs a shell command itself. No model, no tokens, no handshake. See
 
 - **`run:`** — any command you already have; pipes, `&&`, a script. Runs with cwd at the
   working-copy root, `${key}` substituted as single shell-quoted tokens. Every key a step reads is
-  also exported as `WF_<KEY>` (upper-cased).
+  also exported as `PAWL_<KEY>` (upper-cased).
 - **`emits:`** — `json` (default) or `pairs`. The engine reads **the last non-empty line of
   stdout**; everything above is logged, never parsed. `emits: json` expects
   `{"mr_url":"…","mr_iid":"41"}`; `emits: pairs` expects `dir_exists=yes vcs=jj`. Keys must be a

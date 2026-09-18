@@ -1,8 +1,8 @@
-# wf
+# pawl
 
-`wf` runs a workflow you wrote in YAML, as a state machine, inside a Claude Code session.
+`pawl` runs a workflow you wrote in YAML, as a state machine, inside a Claude Code session.
 Some steps are shell commands the engine runs itself. Some steps are handed to a subagent,
-which works until a postcondition — a command `wf` runs, not the agent — says it is done.
+which works until a postcondition — a command `pawl` runs, not the agent — says it is done.
 Some steps wait on CI. Some steps ask you a question.
 The engine owns the cursor: the model cannot skip a step, fake one, or decide what comes next.
 
@@ -23,7 +23,7 @@ terminal: {done: {status: ok}}
 ```
 
 ```
-› /wf run tidy
+› /pawl run tidy
   hooks: PreToolUse ✔  Stop ✔   guards: 0 advisory (pattern-matched)  invariants: 0
   ✔ format → test
   ✔ test → done
@@ -32,11 +32,11 @@ terminal: {done: {status: ok}}
 
 ## Read in this order
 
-1. [install.md](install.md) — get `wf` onto your machine.
+1. [install.md](install.md) — get `pawl` onto your machine.
 2. [quickstart.md](quickstart.md) — write and run your first workflow in under ten minutes.
 3. [concepts.md](concepts.md) — the eight nouns, and why postconditions are the engine's job.
 4. [step-types.md](step-types.md) — the four step kinds at a glance, and which one to reach for.
-5. [running.md](running.md) — what a run looks like: the banner, the step lines, `wf status`, resume, BLOCKED.
+5. [running.md](running.md) — what a run looks like: the banner, the step lines, `pawl status`, resume, BLOCKED.
 6. [writing-workflows.md](writing-workflows.md) — the file skeleton, transitions, state, caps, a full example.
 7. The four step kinds, in full:
    [deterministic](steps/deterministic.md) ·
@@ -44,7 +44,7 @@ terminal: {done: {status: ok}}
    [wait](steps/wait.md) ·
    [human](steps/human.md)
 8. [guards-and-invariants.md](guards-and-invariants.md) — the two enforcement layers, and what they do not cover.
-9. [validation.md](validation.md) — every `wf validate` check and its error message.
+9. [validation.md](validation.md) — every `pawl validate` check and its error message.
 10. [cli.md](cli.md) — the full command reference.
 11. [troubleshooting.md](troubleshooting.md) and [faq.md](faq.md).
 
@@ -65,13 +65,13 @@ manage your files; steps do that, and nothing is ever rolled back.
 
 These are planned but not available:
 
-- `wf graph` — a Mermaid diagram of the parsed graph.
-- `wf validate --walk step=TOKEN,…` — print the step sequence a given outcome assignment produces,
+- `pawl graph` — a Mermaid diagram of the parsed graph.
+- `pawl validate --walk step=TOKEN,…` — print the step sequence a given outcome assignment produces,
   without executing anything.
-- `wf status --history` — the full journal, not just the current position.
-- `wf run <name> --from <step>` — resume a run at an arbitrary step rather than the one it blocked
+- `pawl status --history` — the full journal, not just the current position.
+- `pawl run <name> --from <step>` — resume a run at an arbitrary step rather than the one it blocked
   at.
-- `kind: parallel` and `foreach:` fan-out over a runtime list. `wf validate` rejects `kind: parallel`
+- `kind: parallel` and `foreach:` fan-out over a runtime list. `pawl validate` rejects `kind: parallel`
   today with "reserved", not "unknown kind", so the error tells the truth.
 - Workflows shipped inside a plugin. Today a workflow comes from your repo or your home directory.
 

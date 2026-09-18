@@ -3,7 +3,7 @@ package engine
 import (
 	"testing"
 
-	"github.com/dcferreira/agentic-workflow-fsm/internal/spec"
+	"github.com/dcferreira/agent-pawl/internal/spec"
 )
 
 // TestResolveTarget is the outcome-resolution table test DESIGN.md §6 asks

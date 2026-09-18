@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dcferreira/agentic-workflow-fsm/internal/journal"
+	"github.com/dcferreira/agent-pawl/internal/journal"
 )
 
 // TestAttempts_PersistedForLifeOfRun: attempts: re-runs the same step on

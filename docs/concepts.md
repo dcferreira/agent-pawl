@@ -33,8 +33,8 @@ prints `WAIT`, polls in the background, resolves `COMMENTS` → `fix_issues` (ag
 → `done` (terminal, `status: ok`). After every step, invariants are re-checked; any non-zero routes
 to `BLOCKED` — paused, not terminal, see [running.md#blocked](running.md#blocked).
 
-`wf run` executes consecutive deterministic steps and stops only where the session must act, printing
-`DISPATCH`/`ASK`/`WAIT` and exiting. The session acts, calls `wf submit`, `wf` prints the next line.
+`pawl run` executes consecutive deterministic steps and stops only where the session must act, printing
+`DISPATCH`/`ASK`/`WAIT` and exiting. The session acts, calls `pawl submit`, `pawl` prints the next line.
 See [running.md](running.md).
 
 ## Deterministic vs agentic
@@ -50,7 +50,7 @@ verbatim and not enforced by the engine or a hook — returning the typed object
 
 An agentic step cannot choose its own branch — only `success`/`failure`. When the branch depends on
 what it produced, add a `deterministic` router that reads `writes:` and prints a token;
-`wf validate` rejects author-named outcomes on an agentic step.
+`pawl validate` rejects author-named outcomes on an agentic step.
 
 You don't have to pick the final kind up front: a workflow works with most steps `agentic` from the
 start, then you switch steps to `deterministic` one at a time as you want less cost and more
@@ -58,14 +58,14 @@ robustness, without the postcondition changing.
 
 ## Postconditions
 
-`wf` evaluates the postcondition in its own process, after the body, before the transition — the
+`pawl` evaluates the postcondition in its own process, after the body, before the transition — the
 step's output is an input, never the verdict. `{all_set: […]}` and `{equals: {…}}` run in-process;
 `command:` spawns a subprocess. Best postconditions re-observe reality, e.g.
 `glab mr view "${mr_iid}" --output json | jq -e '.state=="opened"'` rather than trust a flag the
 step set itself.
 
 Where you cannot check the real thing, write the weakest real check and mark it `soft: true`: it
-still gates the transition, but is counted separately in `wf validate`'s census and every run's
+still gates the transition, but is counted separately in `pawl validate`'s census and every run's
 `N of M advanced on a soft postcondition` line.
 
 Next: [running.md](running.md), then [writing-workflows.md](writing-workflows.md).

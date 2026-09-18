@@ -2,7 +2,7 @@
 # Flip the matching Today action to [/] with a dispatched-worker suffix.
 # (Uses python3, not sed/awk/>, so the never-rewrite-top-of-mind guard never sees a match.)
 set -euo pipefail
-python3 - "$WF_ACTION_TEXT" "$WF_SLUG" <<'PY'
+python3 - "$PAWL_ACTION_TEXT" "$PAWL_SLUG" <<'PY'
 import sys, pathlib
 action, slug = sys.argv[1], sys.argv[2]
 p = pathlib.Path.home() / "Obsidian/vault/00-home/top-of-mind.md"

@@ -199,28 +199,28 @@ func TestEnvFor(t *testing.T) {
 		want []string
 	}{
 		{
-			name: "uppercased WF_ prefix",
+			name: "uppercased PAWL_ prefix",
 			vals: Values{"run_id": StringValue("abc123")},
 			keys: []string{"run_id"},
-			want: []string{"WF_RUN_ID=abc123"},
+			want: []string{"PAWL_RUN_ID=abc123"},
 		},
 		{
 			name: "json value exported as compact json",
 			vals: Values{"data": JSONValue(map[string]any{"failures": 2})},
 			keys: []string{"data"},
-			want: []string{`WF_DATA={"failures":2}`},
+			want: []string{`PAWL_DATA={"failures":2}`},
 		},
 		{
 			name: "keys absent from vals are skipped",
 			vals: Values{"present": StringValue("x")},
 			keys: []string{"present", "absent"},
-			want: []string{"WF_PRESENT=x"},
+			want: []string{"PAWL_PRESENT=x"},
 		},
 		{
 			name: "preserves given key order",
 			vals: Values{"a": StringValue("1"), "b": StringValue("2")},
 			keys: []string{"b", "a"},
-			want: []string{"WF_B=2", "WF_A=1"},
+			want: []string{"PAWL_B=2", "PAWL_A=1"},
 		},
 	}
 

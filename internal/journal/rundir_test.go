@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/dcferreira/agentic-workflow-fsm/internal/spec"
+	"github.com/dcferreira/agent-pawl/internal/spec"
 )
 
 // wantSpecWorkflowFieldCount and wantSpecStepFieldCount are round-2 finding
@@ -33,8 +33,8 @@ func TestDigestProjection_PinnedAgainstSpecFieldCount(t *testing.T) {
 }
 
 func TestStateBase_EnvOverride(t *testing.T) {
-	t.Setenv(EnvStateDir, "/tmp/wf-test-state")
-	if got, want := StateBase(), "/tmp/wf-test-state"; got != want {
+	t.Setenv(EnvStateDir, "/tmp/pawl-test-state")
+	if got, want := StateBase(), "/tmp/pawl-test-state"; got != want {
 		t.Errorf("StateBase() = %q, want %q", got, want)
 	}
 }
@@ -119,13 +119,13 @@ func TestDigest_StableAndSensitiveToChange(t *testing.T) {
 }
 
 // TestDigest_IgnoresPath is C2: the same parsed content loaded from two
-// different paths (e.g. "wf.yaml" from one cwd, "/abs/path/wf.yaml" from
+// different paths (e.g. "workflow.yaml" from one cwd, "/abs/path/workflow.yaml" from
 // another) must digest identically, or resume step 2 of DESIGN.md §4
-// refuses a live run over nothing but where `wf` happened to be invoked
+// refuses a live run over nothing but where `pawl` happened to be invoked
 // from.
 func TestDigest_IgnoresPath(t *testing.T) {
-	w1 := &spec.Workflow{Workflow: "a", Path: "wf.yaml", Steps: []spec.Step{{ID: "s1", Kind: "deterministic", Run: "true"}}}
-	w2 := &spec.Workflow{Workflow: "a", Path: "/abs/path/wf.yaml", Steps: []spec.Step{{ID: "s1", Kind: "deterministic", Run: "true"}}}
+	w1 := &spec.Workflow{Workflow: "a", Path: "workflow.yaml", Steps: []spec.Step{{ID: "s1", Kind: "deterministic", Run: "true"}}}
+	w2 := &spec.Workflow{Workflow: "a", Path: "/abs/path/workflow.yaml", Steps: []spec.Step{{ID: "s1", Kind: "deterministic", Run: "true"}}}
 
 	d1, err := Digest(w1)
 	if err != nil {
