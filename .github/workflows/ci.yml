@@ -88,9 +88,13 @@ jobs:
         run: |
           set -euo pipefail
           version=0.45.1
+          sha256=f35438350b5d61963aac5dd74ede510b31d6b9690769d1a6268cf058cc825f72
           curl -sSL -o /tmp/jj.tar.gz \
             "https://github.com/jj-vcs/jj/releases/download/v${version}/jj-v${version}-x86_64-unknown-linux-musl.tar.gz"
-          tar -xzf /tmp/jj.tar.gz -C /tmp jj
+          echo "${sha256}  /tmp/jj.tar.gz" | sha256sum -c -
+          # Members are ./jj, ./README.md, ./LICENSE — the leading ./ is part
+          # of the name, so extracting the member as "jj" does not match it.
+          tar -xzf /tmp/jj.tar.gz -C /tmp ./jj
           sudo install -m 0755 /tmp/jj /usr/local/bin/jj
           jj --version
 
