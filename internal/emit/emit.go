@@ -259,7 +259,7 @@ func parseJSON(step *spec.Step, decls map[string]spec.StateDecl, payload string)
 		}
 		dt := declaredType(step, decls, key)
 		if dt == "" {
-			return nil, fmt.Errorf("%w: step %q: key %q has no declared state type in writes: or state:", ErrParse, step.ID, key)
+			return nil, fmt.Errorf("%w: step %q: key %q has no declared state type in writes: or state: block", ErrParse, step.ID, key)
 		}
 		coerced, err := coerceFromJSON(step.ID, key, v, dt)
 		if err != nil {
@@ -288,7 +288,7 @@ func parsePairs(step *spec.Step, decls map[string]spec.StateDecl, payload string
 		}
 		dt := declaredType(step, decls, key)
 		if dt == "" {
-			return nil, fmt.Errorf("%w: step %q: key %q has no declared state type in writes: or state:", ErrParse, step.ID, key)
+			return nil, fmt.Errorf("%w: step %q: key %q has no declared state type in writes: or state: block", ErrParse, step.ID, key)
 		}
 		coerced, err := coerceFromPairs(step.ID, key, val, dt)
 		if err != nil {
@@ -301,7 +301,7 @@ func parsePairs(step *spec.Step, decls map[string]spec.StateDecl, payload string
 
 func badType(stepID, key, declType string, v any) error {
 	return fmt.Errorf("%w: step %q: key %q: value %v does not fit declared type %q — "+
-		"either print a %s-shaped value for %q from the step, or change %q's declared type in state:/writes:",
+		"either print a %s-shaped value for %q from the step, or change %q's declared type in the state:/writes: block",
 		ErrParse, stepID, key, v, declType, declType, key, key)
 }
 

@@ -1,10 +1,13 @@
-.PHONY: build test install fmt fmt-check vet check
+.PHONY: build test test-race install fmt fmt-check vet staticcheck check
 
 build:
 	go build -o bin/pawl ./cmd/pawl
 
 test:
 	go test ./...
+
+test-race:
+	go test -race ./...
 
 install:
 	go install ./cmd/pawl
@@ -20,5 +23,9 @@ fmt-check:
 
 vet:
 	go vet ./...
+
+# Pinned here rather than assumed on PATH, so a fresh clone needs only Go.
+staticcheck:
+	go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...
 
 check: fmt vet test

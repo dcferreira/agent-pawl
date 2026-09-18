@@ -46,12 +46,3 @@ func newTestEngine(t *testing.T, yaml string) *Engine {
 	e.Timeout = 5 * time.Second
 	return e
 }
-
-// writeScript writes an executable shell script into e.Root/name.
-func writeScript(t *testing.T, root, name, body string) {
-	t.Helper()
-	path := filepath.Join(root, name)
-	if err := os.WriteFile(path, []byte("#!/bin/sh\nset -e\n"+body), 0o755); err != nil {
-		t.Fatal(err)
-	}
-}

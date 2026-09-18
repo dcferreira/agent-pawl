@@ -17,12 +17,25 @@ func shortHash(root string) string {
 	return hex.EncodeToString(sum[:])[:8]
 }
 
+// requireVCSTools, when set to a non-empty value, turns a missing/failing
+// VCS tool in mustRun (and the symlink probe below) into a hard test
+// failure instead of a skip. This is deliberately its own variable rather
+// than the generic CI (which GitHub Actions sets automatically on every
+// runner): a git-only contributor could have CI set in their own shell for
+// unrelated reasons, and this project must never require jj for local
+// development. Only our own CI workflow sets this explicitly, once it has
+// installed jj itself.
+const requireVCSTools = "PAWL_REQUIRE_VCS_TOOLS"
+
 func mustRun(t *testing.T, dir, name string, args ...string) {
 	t.Helper()
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		if os.Getenv(requireVCSTools) != "" {
+			t.Fatalf("%s not usable in this environment: %v: %s", name, err, out)
+		}
 		t.Skipf("%s not usable in this environment: %v: %s", name, err, out)
 	}
 }
@@ -203,6 +216,11 @@ func TestSlug_NoCollision(t *testing.T) {
 
 func TestSlug_Deterministic(t *testing.T) {
 	root := "/home/user/proj"
+	//lint:ignore SA4000 the point of this test is to call Slug twice on the
+	// same input and compare the results, to guard against Slug picking up
+	// non-deterministic state (e.g. time, randomness); staticcheck can't
+	// distinguish that from a copy-paste mistake, but the repetition here is
+	// deliberate.
 	if Slug(root) != Slug(root) {
 		t.Fatalf("Slug(%q) is not deterministic", root)
 	}
