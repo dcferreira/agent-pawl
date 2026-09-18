@@ -81,4 +81,4 @@ from the journal.
 ## Enforcement looks off
 
 Compare `root` in `pawl status` against the tree you think you're in — guards and `Stop` resolve the
-working-copy root the same way, and a jj workspace or git worktree is its own root with its own runs.
+working-copy root the same way, and a git worktree or jj workspace is its own root with its own runs.

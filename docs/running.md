@@ -67,7 +67,7 @@ Status word: `running`, `dispatched`, `asking`, `waiting`, `blocked`, `ok`, `aba
 worth checking if enforcement looks wrong; `--json` prints the same fields.
 
 Runs are keyed by working-copy root, not session: several may be live in one repo, but two on one
-tree collide — separate worktrees/jj workspaces are separate roots.
+tree collide — separate git worktrees/jj workspaces are separate roots.
 
 ## Resume after a crash
 

@@ -150,7 +150,7 @@ steps:
     kind: agentic
     description: |
       Write the MR title and description from the diff and commit messages in context.
-      Read-only — never run a state-changing VCS command (no jj new/edit, no git checkout).
+      Read-only — never run a state-changing VCS command (no git checkout, no jj new/edit).
       Title: conventional-commit style, under 72 characters, no "Draft:" prefix (added later by
       the push step). Description: use the template below, omitting optional sections only if
       they truly do not apply; be concise, explain the why (not just what the diff shows), and

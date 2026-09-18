@@ -25,7 +25,7 @@ steps:
       The failures:
       ${failures}
     context:
-      - !cmd "jj diff"
+      - !cmd "git diff"
     writes: {fix_summary: {type: string}}
     subagent_args: {model: sonnet, tools: [Read, Edit, Bash]}
     attempts: 3

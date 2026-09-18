@@ -126,7 +126,7 @@ A run directory, keyed `(working_copy_root, workflow_id, run_id)`:
     lock           pid lockfile
 ```
 
-`slug` is the **working-copy root** — a jj workspace or a git worktree is its own root — with `/`
+`slug` is the **working-copy root** — a git worktree or a jj workspace is its own root — with `/`
 replaced by `-`, followed by `-` and a short hex digest of the full root path (e.g.
 `-home-user-my-proj-7d73bf4f`). The readable prefix alone is not injective — `/home/u/my-proj` and
 `/home/u/my/proj` both naively become `-home-u-my-proj` — so the digest suffix is load-bearing: it is
@@ -243,7 +243,7 @@ payload splitting, type coercion, C0 escaping, the failure cases); `${key}` subs
 shell-quoting, prose rendering and `$${`; outcome resolution as a table over (kind, exit, token,
 postcondition, attempts remaining, catch chain) → target; counter semantics, one assertion per bullet
 of the spec's attempt rules; the validator, one fixture per rule with a golden-file test of the
-*message*; identity resolution from a subdirectory, a jj workspace, a git worktree and a non-repo
+*message*; identity resolution from a subdirectory, a git worktree, a jj workspace and a non-repo
 directory, with cwd ≠ root.
 
 Hook tests pipe synthetic payloads to `pawl hook pre|stop` against a constructed run directory and

@@ -10,7 +10,7 @@ The engine runs a shell command itself. No model, no tokens, no handshake. See
   also exported as `PAWL_<KEY>` (upper-cased).
 - **`emits:`** — `json` (default) or `pairs`. The engine reads **the last non-empty line of
   stdout**; everything above is logged, never parsed. `emits: json` expects
-  `{"mr_url":"…","mr_iid":"41"}`; `emits: pairs` expects `dir_exists=yes vcs=jj`. Keys must be a
+  `{"mr_url":"…","mr_iid":"41"}`; `emits: pairs` expects `dir_exists=yes vcs=git`. Keys must be a
   subset of `writes:`.
 - **`writes:`** — `[branch, title]` (types from `state:`) or `{comment_count: {type: integer}}`
   (typed here). Values are coerced and rejected loudly if they don't fit.

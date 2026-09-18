@@ -96,7 +96,7 @@ FAIL
 FAIL	fixture	0.002s
 FAIL
 context:
-  [1] jj diff (0 bytes)
+  [1] git diff (0 bytes)
     (empty)
 return: a JSON object with exactly these keys (key order does not matter)
   fix_summary: string
@@ -112,7 +112,7 @@ stopping — the first thing you see is the `DISPATCH` for `fix_tests`, the `age
 sequences are real: the captured multi-line test failure is carried in a rendered string and its
 control characters come out escaped, not as raw newlines/tabs, in the printed block.
 
-`[1] jj diff (0 bytes)` is empty because `/tmp/pawl-dogfood` isn't a jj (or git) working copy in
+`[1] git diff (0 bytes)` is empty because `/tmp/pawl-dogfood` isn't a git (or jj) working copy in
 this walkthrough; per `examples/green-tests/NOTES.md`, a failing or unavailable `!cmd` context
 entry degrades silently to empty rather than blocking the run.
 

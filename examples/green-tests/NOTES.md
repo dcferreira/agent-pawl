@@ -57,11 +57,11 @@ observes real test output until `jq` is installed.
 ## What this exercise could not express
 
 - **A `!cmd` context entry is a convenience, not a dependency.** `fix_tests`'s
-  `context: [!cmd "jj diff"]` is there so a real agentic run has the actual diff to look
+  `context: [!cmd "git diff"]` is there so a real agentic run has the actual diff to look
   at, but per the engine's own contract a failing/missing `!cmd` degrades silently (empty
   context, empty `last_error`) rather than wedging the run. `description:` therefore
-  stands on its own via `${failures}` regardless of whether `jj diff` succeeds, is
-  available, or the working copy isn't a jj repo at all — the example's correctness never
+  stands on its own via `${failures}` regardless of whether `git diff` succeeds, is
+  available, or the working copy isn't a git repo at all — the example's correctness never
   depends on that command.
 - **No routing on the agentic step itself.** Per format-spec.md §B.6, an `agentic` step
   yields only `success`/`failure`; there is nowhere in this workflow to see the fix

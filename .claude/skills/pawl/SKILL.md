@@ -50,7 +50,7 @@ attempt: 1 of 3
 description:
   <rendered prose — the task for the subagent>
 context:
-  [1] jj diff (0 bytes)
+  [1] git diff (0 bytes)
     (empty)
 return: a JSON object with exactly these keys (key order does not matter)
   fix_summary: string

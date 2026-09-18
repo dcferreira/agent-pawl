@@ -17,8 +17,8 @@ const slugHashLen = 8
 
 // ResolveRoot resolves the working-copy root for cwd by asking the VCS —
 // `jj workspace root`, else `git rev-parse --show-toplevel`, else cwd
-// itself — never by string-manipulating cwd (DESIGN.md §5). A jj workspace
-// or a git worktree is its own root. This is the single algorithm both the
+// itself — never by string-manipulating cwd (DESIGN.md §5). A git worktree
+// or a jj workspace is its own root. This is the single algorithm both the
 // runtime and (in a later build) the enforcement hooks must call, so that
 // the two sides can never derive identity differently.
 //
