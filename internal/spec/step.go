@@ -67,6 +67,9 @@ type Step struct {
 	Next     string
 	Outcomes map[string]string
 
+	// parallel
+	Branches []string
+
 	// UnknownFields lists, sorted, any YAML key under this step that is not
 	// part of the authoring format — reported by Validate rather than
 	// silently ignored.
@@ -113,6 +116,8 @@ type stepShadow struct {
 
 	Next     string            `yaml:"next"`
 	Outcomes map[string]string `yaml:"outcomes"`
+
+	Branches []string `yaml:"branches"`
 }
 
 // stepKnownFields is the set of step-level YAML keys this build understands.
@@ -124,6 +129,7 @@ var stepKnownFields = map[string]bool{
 	"writes": true, "postcondition": true, "soft": true,
 	"attempts": true, "attempt_key": true, "max_visits": true,
 	"retry": true, "catch": true, "next": true, "outcomes": true,
+	"branches": true,
 }
 
 // UnmarshalYAML decodes node into a map first (which resolves YAML merge
@@ -183,6 +189,7 @@ func (s *Step) UnmarshalYAML(node *yaml.Node) error {
 		Catch:         sh.Catch,
 		Next:          sh.Next,
 		Outcomes:      sh.Outcomes,
+		Branches:      sh.Branches,
 		UnknownFields: unknown,
 	}
 

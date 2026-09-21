@@ -111,6 +111,7 @@ type digestStep struct {
 	Catch         []spec.CatchRule
 	Next          string
 	Outcomes      map[string]string
+	Branches      []string
 	UnknownFields []string
 }
 
@@ -151,6 +152,7 @@ func newDigestWorkflow(w *spec.Workflow) *digestWorkflow {
 			Catch:         s.Catch,
 			Next:          s.Next,
 			Outcomes:      s.Outcomes,
+			Branches:      s.Branches,
 			UnknownFields: s.UnknownFields,
 		})
 	}

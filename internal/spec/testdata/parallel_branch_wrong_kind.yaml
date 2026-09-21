@@ -1,0 +1,18 @@
+workflow: parallel-wrong-kind
+start: p
+steps:
+  - id: p
+    kind: parallel
+    branches: [b1, w]
+    next: join
+  - id: b1
+    kind: deterministic
+    run: echo hi
+  - id: w
+    kind: wait
+    poll: echo poll
+  - id: join
+    kind: deterministic
+    run: echo done
+    next: done
+terminal: {done: {status: ok}}

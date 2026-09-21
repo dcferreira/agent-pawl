@@ -32,8 +32,9 @@ func (r *Report) SoftPercent() float64 {
 // Validate runs the static checks against w and returns a Report. The
 // checks implemented are design/format-spec.md §H rules 1, 2, 3, 3b, 4, 5,
 // 6, 9, 9b, 10, 11, 12, 13, 14 (Ruling R4), plus the R3 kind rejections
-// (wait, human, parallel) and the R8 guards:/invariants: rejection. Rules 7,
-// 8, 15, 16 and the two warnings are deferred per R4.
+// (wait, human), the R8 guards:/invariants: rejection, and the kind:
+// parallel branches: validation (checkParallelBranches). Rules 7, 8, 15, 16
+// and the two warnings are deferred per R4.
 func Validate(w *Workflow) (*Report, error) {
 	if w == nil {
 		return nil, fmt.Errorf("spec: Validate: nil workflow")
@@ -50,6 +51,7 @@ func Validate(w *Workflow) (*Report, error) {
 	checkGuardsInvariants(w, &errs)
 	checkRetry(w, &errs)
 	checkKindSupport(w, &errs)
+	checkParallelBranches(w, &errs)
 	checkDuplicateStepIDs(w, &errs)
 	checkStepIDFormat(w, &errs)
 	checkNextOutcomesExclusive(w, &errs)
@@ -133,13 +135,11 @@ func checkRetry(w *Workflow, errs *[]string) {
 func checkKindSupport(w *Workflow, errs *[]string) {
 	for _, s := range w.Steps {
 		switch s.Kind {
-		case "deterministic", "agentic":
+		case "deterministic", "agentic", "parallel":
 			// supported
 		case "wait", "human":
 			*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
 				"kind %q is not implemented in this build (milestone 1 MVP covers deterministic and agentic)", s.Kind)))
-		case "parallel":
-			*errs = append(*errs, stepErr(w, s.ID, "kind: parallel is reserved for Milestone 3"))
 		default:
 			*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
 				"kind %q is not one of deterministic, agentic, wait, human, parallel; fix the typo", s.Kind)))
@@ -382,7 +382,105 @@ func edgesOf(s *Step) []string {
 	for _, c := range s.Catch {
 		out = append(out, c.Next)
 	}
+	if s.Kind == "parallel" {
+		out = append(out, s.Branches...)
+	}
 	return out
+}
+
+// branchStepIDs maps every step id used as a parallel step's branch to the
+// id of the (first-declared, in w.Steps order) parallel step that claims it.
+// checkParallelBranches uses it to catch a step id claimed as a branch by
+// more than one parallel step, and checkRule3 uses it to identify branch
+// steps so that rule can skip them: a branch step is required (by
+// checkParallelBranches) to declare no next:/outcomes: of its own, since the
+// owning parallel step is the sole owner of routing for the whole group.
+func branchStepIDs(w *Workflow) map[string]string {
+	owner := map[string]string{}
+	for _, s := range w.Steps {
+		if s.Kind != "parallel" {
+			continue
+		}
+		for _, b := range s.Branches {
+			if _, claimed := owner[b]; !claimed {
+				owner[b] = s.ID
+			}
+		}
+	}
+	return owner
+}
+
+// checkParallelBranches implements the validation rules for kind: parallel's
+// branches: (design/format-spec.md §C, §D): branches: is required with at
+// least 2 entries, each entry must resolve to a declared deterministic or
+// agentic step (no nesting), no duplicates within one list, no step id
+// claimed as a branch by more than one parallel step, a branch may not be
+// the workflow's start: step, and a branch step may declare none of the
+// fields the owning parallel step alone controls (next:, outcomes:, catch:,
+// attempts:, attempt_key:, max_visits:).
+func checkParallelBranches(w *Workflow, errs *[]string) {
+	owner := branchStepIDs(w)
+
+	forbidden := []struct {
+		field string
+		has   func(Step) bool
+	}{
+		{"next:", func(s Step) bool { return s.Next != "" }},
+		{"outcomes:", func(s Step) bool { return len(s.Outcomes) > 0 }},
+		{"catch:", func(s Step) bool { return len(s.Catch) > 0 }},
+		{"attempts:", func(s Step) bool { return s.AttemptsRaw != nil }},
+		{"attempt_key:", func(s Step) bool { return s.AttemptKey != "" }},
+		{"max_visits:", func(s Step) bool { return s.MaxVisitsRaw != nil }},
+	}
+
+	for _, s := range w.Steps {
+		if s.Kind != "parallel" {
+			continue
+		}
+		if len(s.Branches) < 2 {
+			*errs = append(*errs, stepErr(w, s.ID,
+				"kind: parallel requires branches: with at least 2 entries"))
+			continue
+		}
+
+		seen := map[string]bool{}
+		for i, b := range s.Branches {
+			branch := w.StepByID(b)
+			switch {
+			case branch == nil:
+				*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
+					"branches[%d]: %q does not name a declared step", i, b)))
+			case branch.Kind != "deterministic" && branch.Kind != "agentic":
+				*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
+					"branches[%d]: step %q has kind %q, but a parallel branch must be deterministic or agentic (no nesting)", i, b, branch.Kind)))
+			}
+
+			if seen[b] {
+				*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
+					"branches[%d]: step %q is listed more than once", i, b)))
+			}
+			seen[b] = true
+
+			if first := owner[b]; first != "" && first != s.ID {
+				*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
+					"branches[%d]: step %q is already claimed as a branch by parallel step %q; a step may be a branch of only one parallel step", i, b, first)))
+			}
+
+			if b == w.Start {
+				*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
+					"branches[%d]: step %q is start:, but a parallel branch may not be the workflow's start step", i, b)))
+			}
+
+			if branch != nil {
+				for _, f := range forbidden {
+					if f.has(*branch) {
+						*errs = append(*errs, stepErr(w, b, fmt.Sprintf(
+							"declares %s, but it is a branch of parallel step %q, which owns routing and retry for the whole group; remove %s", f.field, s.ID, f.field)))
+					}
+				}
+			}
+		}
+	}
 }
 
 // checkRule2 implements §H rule 2. Terminal ids (declared or the implicit
@@ -416,9 +514,16 @@ func checkRule2(w *Workflow, errs *[]string) {
 	}
 }
 
-// checkRule3 implements §H rule 3.
+// checkRule3 implements §H rule 3. A parallel branch step is exempt: it is
+// required (checkParallelBranches) to declare no next:/outcomes: of its own,
+// since the owning parallel step is the sole owner of routing for the whole
+// group.
 func checkRule3(w *Workflow, errs *[]string) {
+	branches := branchStepIDs(w)
 	for _, s := range w.Steps {
+		if _, isBranch := branches[s.ID]; isBranch {
+			continue
+		}
 		if s.Next == "" && len(s.Outcomes) == 0 {
 			*errs = append(*errs, stepErr(w, s.ID, "rule 3: has no next: or outcomes:; add one naming its successor step or a terminal"))
 		}

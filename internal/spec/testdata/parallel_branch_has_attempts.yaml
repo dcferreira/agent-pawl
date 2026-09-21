@@ -1,0 +1,19 @@
+workflow: parallel-branch-has-attempts
+start: p
+steps:
+  - id: p
+    kind: parallel
+    branches: [b1, b2]
+    next: join
+  - id: b1
+    kind: deterministic
+    run: echo hi
+    attempts: 2
+  - id: b2
+    kind: deterministic
+    run: echo hi2
+  - id: join
+    kind: deterministic
+    run: echo done
+    next: done
+terminal: {done: {status: ok}}
