@@ -1,0 +1,9 @@
+workflow: rule8multikind
+start: a
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    multi: true
+    next: done
+terminal: {done: {status: ok}}

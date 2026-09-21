@@ -1,0 +1,14 @@
+workflow: rule8chosennowrites
+start: h
+steps:
+  - id: h
+    kind: human
+    question: "Who?"
+    options: [alice, bob]
+    timeout: 1h
+    outcomes:
+      alice: done
+      bob: done
+      chosen: done
+      timeout: done
+terminal: {done: {status: ok}}

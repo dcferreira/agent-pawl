@@ -1,0 +1,12 @@
+workflow: rule8unrouted
+start: h
+steps:
+  - id: h
+    kind: human
+    question: "Who?"
+    options: [alice, bob, skip]
+    timeout: 1h
+    outcomes:
+      alice: done
+      timeout: done
+terminal: {done: {status: ok}}

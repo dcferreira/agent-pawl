@@ -143,16 +143,82 @@ func TestValidate_GoldenMessages(t *testing.T) {
 			},
 		},
 		{
+			name: "rule7: human step with no timeout: (plus no route for the timeout outcome)",
+			file: "rule7_human_missing_timeout.yaml",
+			want: []string{
+				`testdata/rule7_human_missing_timeout.yaml: step "h": rule 3b: has no route for outcome "timeout"; add outcomes: {timeout: <step-or-terminal>, ...}`,
+				`testdata/rule7_human_missing_timeout.yaml: step "h": rule 7: kind: human requires timeout:; add a timeout: duration (e.g. "5m", "1h")`,
+			},
+		},
+		{
+			name: "rule7: wait step with no timeout: (also covered by wait's own wait_missing_timeout.yaml test)",
+			file: "rule7_wait_missing_timeout.yaml",
+			want: []string{
+				`testdata/rule7_wait_missing_timeout.yaml: step "w": rule 3b: has no route for outcome "timeout"; add outcomes: {timeout: <step-or-terminal>, ...}`,
+				`testdata/rule7_wait_missing_timeout.yaml: step "w": rule 7: kind: wait requires timeout:; add a timeout: duration (e.g. "5m", "1h")`,
+			},
+		},
+		{
+			name: "rule8: human step with both options: and options_from:",
+			file: "rule8_options_and_options_from.yaml",
+			want: []string{
+				`testdata/rule8_options_and_options_from.yaml: step "h": rule 8: kind: human sets both options: and options_from:; keep only one`,
+			},
+		},
+		{
+			name: "rule8: human step with neither options: nor options_from:",
+			file: "rule8_no_options.yaml",
+			want: []string{
+				`testdata/rule8_no_options.yaml: step "h": rule 8: kind: human requires exactly one of options: or options_from:; add one`,
+			},
+		},
+		{
+			name: "rule8: unrouted static options",
+			file: "rule8_unrouted_option.yaml",
+			want: []string{
+				`testdata/rule8_unrouted_option.yaml: step "h": rule 8: options: "bob" has no route in outcomes:; add outcomes: {bob: <step-or-terminal>, ...}`,
+				`testdata/rule8_unrouted_option.yaml: step "h": rule 8: options: "skip" has no route in outcomes:; add outcomes: {skip: <step-or-terminal>, ...}`,
+			},
+		},
+		{
+			name: "rule8: multi: on a non-human kind",
+			file: "rule8_multi_on_deterministic.yaml",
+			want: []string{
+				`testdata/rule8_multi_on_deterministic.yaml: step "a": rule 8: multi: is only valid on kind: human; remove it`,
+			},
+		},
+		{
+			name: "rule8: chosen: route with no writes:",
+			file: "rule8_chosen_no_writes.yaml",
+			want: []string{
+				`testdata/rule8_chosen_no_writes.yaml: step "h": rule 8: outcomes: {chosen: ...} requires writes: with exactly one key (found 0); add writes: [<key>] naming the key that receives the answer`,
+			},
+		},
+		{
+			name: "rule8: chosen: route with writes: of more than one key",
+			file: "rule8_chosen_two_writes.yaml",
+			want: []string{
+				`testdata/rule8_chosen_two_writes.yaml: step "h": rule 8: outcomes: {chosen: ...} requires writes: with exactly one key (found 2); add writes: [<key>] naming the key that receives the answer`,
+			},
+		},
+		{
+			name: "rule8: options_from: without writes:",
+			file: "rule8_options_from_no_writes.yaml",
+			want: []string{
+				`testdata/rule8_options_from_no_writes.yaml: step "h": rule 8: options_from: requires writes: with exactly one key (found 0); add writes: [<key>] naming the key that receives the answer`,
+			},
+		},
+		{
+			name: "rule8: multi: true without writes:",
+			file: "rule8_multi_true_no_writes.yaml",
+			want: []string{
+				`testdata/rule8_multi_true_no_writes.yaml: step "h": rule 8: multi: true requires writes: with exactly one key (found 0); add writes: [<key>] naming the key that receives the answer`,
+			},
+		},
+		{
 			name: "R3: wait is now implemented and validates clean",
 			file: "r3_wait_not_implemented.yaml",
 			want: nil,
-		},
-		{
-			name: "R3: human is not implemented in this build",
-			file: "r3_human_not_implemented.yaml",
-			want: []string{
-				`testdata/r3_human_not_implemented.yaml: step "h": kind "human" is not implemented in this build (milestone 1 MVP covers deterministic, agentic, wait and parallel)`,
-			},
 		},
 		{
 			name: "parallel: branches: requires at least 2 entries",
@@ -393,7 +459,7 @@ func TestValidate_GoldenMessages(t *testing.T) {
 }
 
 func TestValidate_ValidWorkflowsHaveZeroErrors(t *testing.T) {
-	for _, file := range []string{"tidy.yaml", "valid.yaml", "parallel_ok.yaml"} {
+	for _, file := range []string{"tidy.yaml", "valid.yaml", "parallel_ok.yaml", "human_next_valid.yaml", "human_valid_static.yaml", "human_valid_options_from.yaml"} {
 		t.Run(file, func(t *testing.T) {
 			w, err := Load(filepath.Join("testdata", file))
 			if err != nil {

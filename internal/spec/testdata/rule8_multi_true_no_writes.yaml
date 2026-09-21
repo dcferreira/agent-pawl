@@ -1,0 +1,11 @@
+workflow: rule8multinowrites
+start: h
+steps:
+  - id: h
+    kind: human
+    question: "Pick many"
+    options: [alice, bob]
+    multi: true
+    timeout: 1h
+    next: done
+terminal: {done: {status: ok}}

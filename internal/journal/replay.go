@@ -243,6 +243,13 @@ func Replay(events []Event) (*RunState, error) {
 			if !e.ViaCatch && lastPostconditionOKByStep[e.Step] {
 				delete(rs.Attempts, AttemptRef{e.Step, lastKeyByStep[e.Step]})
 			}
+		case KindHumanAsked:
+			// No RunState field to update: the deadline check lives in
+			// engine.SubmitHuman, which re-reads this exact event's own Time
+			// off the journal directly (Replay carries no per-event
+			// timestamps forward). This case exists purely so an unknown
+			// Kind never trips Replay's own defensive "corrupt or malformed"
+			// error below — a HUMAN_ASKED event is neither.
 		case KindRunEnd:
 			rs.Ended = true
 			rs.EndStatus = e.Status

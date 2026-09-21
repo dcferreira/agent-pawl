@@ -1,0 +1,9 @@
+workflow: rule8none
+start: h
+steps:
+  - id: h
+    kind: human
+    question: "Who?"
+    timeout: 1h
+    next: done
+terminal: {done: {status: ok}}

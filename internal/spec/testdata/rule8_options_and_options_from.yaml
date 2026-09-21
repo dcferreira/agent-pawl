@@ -1,0 +1,17 @@
+workflow: rule8both
+start: h
+state:
+  reviewer: {type: string}
+steps:
+  - id: h
+    kind: human
+    question: "Who?"
+    options: [alice, bob]
+    options_from: reviewer
+    timeout: 1h
+    writes: [reviewer]
+    outcomes:
+      alice: done
+      bob: done
+      timeout: done
+terminal: {done: {status: ok}}

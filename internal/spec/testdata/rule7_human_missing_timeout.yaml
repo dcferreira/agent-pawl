@@ -1,0 +1,11 @@
+workflow: rule7human
+start: h
+steps:
+  - id: h
+    kind: human
+    question: "Who reviews?"
+    options: [alice, bob]
+    outcomes:
+      alice: done
+      bob: done
+terminal: {done: {status: ok}}

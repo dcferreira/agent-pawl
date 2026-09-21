@@ -1,0 +1,9 @@
+workflow: rule7wait
+start: w
+steps:
+  - id: w
+    kind: wait
+    poll: echo CLEAN
+    outcomes:
+      CLEAN: done
+terminal: {done: {status: ok}}
