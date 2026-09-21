@@ -1,0 +1,17 @@
+workflow: human-valid-options-from
+start: pick
+state:
+  choices: {type: json}
+  picked: {type: json}
+steps:
+  - id: pick
+    kind: human
+    question: "Pick from ${choices}"
+    options_from: choices
+    multi: true
+    timeout: 24h
+    writes: [picked]
+    outcomes:
+      chosen: done
+      timeout: done
+terminal: {done: {status: ok}}

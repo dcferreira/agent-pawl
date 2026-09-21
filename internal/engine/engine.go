@@ -185,6 +185,8 @@ func (e *Engine) Resume(runID string, force bool) (Instruction, error) {
 	switch step.Kind {
 	case "agentic":
 		return e.dispatchAgentic(dir, log, runID, step, rs.Cursor, true)
+	case "human":
+		return e.dispatchHuman(dir, log, runID, step, rs.Cursor, true)
 	case "deterministic":
 		instr, next, err := e.advanceDeterministic(dir, log, runID, rs.Cursor)
 		if err != nil {
@@ -277,6 +279,8 @@ func (e *Engine) runFrom(dir string, log *journal.Log, runID string, cur journal
 			return e.dispatchParallel(dir, log, runID, step, cur, false)
 		case "wait":
 			return e.parkWait(dir, log, runID, step, cur, false)
+		case "human":
+			return e.dispatchHuman(dir, log, runID, step, cur, false)
 		default:
 			return nil, fmt.Errorf("engine: step %q: kind %q is not implemented in this build (milestone 1 MVP covers deterministic, agentic, wait and parallel)", step.ID, step.Kind)
 		}

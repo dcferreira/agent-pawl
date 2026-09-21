@@ -1,0 +1,12 @@
+workflow: rule8optionsfromnowrites
+start: h
+state:
+  choices: {type: json}
+steps:
+  - id: h
+    kind: human
+    question: "Pick one"
+    options_from: choices
+    timeout: 1h
+    next: done
+terminal: {done: {status: ok}}

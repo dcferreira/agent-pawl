@@ -32,11 +32,13 @@ func (r *Report) SoftPercent() float64 {
 
 // Validate runs the static checks against w and returns a Report. The
 // checks implemented are design/format-spec.md §H rules 1, 2, 3, 3b, 4, 5,
-// 6, 7, 9, 9b, 10, 11, 12, 13, 14 (Ruling R4), plus the R3 kind rejection
-// (human), the R8 guards:/invariants: rejection, and the kind: parallel
-// branches: validation (checkParallelBranches). wait's own required fields
-// (poll:, timeout:) and duration parsing (every:, timeout:) are checked
-// alongside rule 7. Rules 8, 15, 16 and the two warnings are deferred per R4.
+// 6, 7, 8, 9, 9b, 10, 11, 12, 13, 14 (Ruling R4), plus the R8
+// guards:/invariants: rejection and the kind: parallel branches: validation
+// (checkParallelBranches). deterministic, agentic, wait, human and parallel
+// are all supported (Ruling R3); wait's own required fields (poll:) and
+// duration parsing (every:, timeout:) are checked alongside rule 7, and
+// human's own required fields and options routing are checked by rule 8.
+// Rules 15, 16 and the two warnings are deferred per R4.
 func Validate(w *Workflow) (*Report, error) {
 	if w == nil {
 		return nil, fmt.Errorf("spec: Validate: nil workflow")
@@ -73,6 +75,8 @@ func Validate(w *Workflow) (*Report, error) {
 	checkRule6(w, &errs)
 	checkRule7(w, &errs)
 	checkWaitDurations(w, &errs)
+	checkRule8(w, &errs)
+	checkRule8Multi(w, &errs)
 	checkRule9(w, &errs)
 	checkRule9b(w, &errs)
 	checkRule10(w, &errs)
@@ -136,17 +140,15 @@ func checkRetry(w *Workflow, errs *[]string) {
 }
 
 // checkKindSupport rejects kinds this build does not execute (Ruling R3).
-// wait was added to the supported set once its own validation (poll:,
-// timeout:, duration parsing, outcome-routing completeness) landed; human
-// remains rejected here unchanged.
+// deterministic, agentic, wait, human and parallel are all implemented now
+// (wait's own validation — poll:, timeout:, duration parsing,
+// outcome-routing completeness — and human's own validation — §H rules 7
+// and 8 — both landed); only unknown kinds are rejected here as a typo.
 func checkKindSupport(w *Workflow, errs *[]string) {
 	for _, s := range w.Steps {
 		switch s.Kind {
-		case "deterministic", "agentic", "wait", "parallel":
+		case "deterministic", "agentic", "wait", "human", "parallel":
 			// supported
-		case "human":
-			*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
-				"kind %q is not implemented in this build (milestone 1 MVP covers deterministic, agentic, wait and parallel)", s.Kind)))
 		default:
 			*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
 				"kind %q is not one of deterministic, agentic, wait, human, parallel; fix the typo", s.Kind)))
@@ -713,6 +715,70 @@ func checkWaitDurations(w *Workflow, errs *[]string) {
 				*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
 					"timeout: %q is not a valid duration; use Go duration syntax, e.g. \"5m\", \"1h\"", s.Timeout)))
 			}
+		}
+	}
+}
+
+// checkRule8 implements §H rule 8's human-scoped sub-conditions (§B.5):
+// exactly one of options:/options_from:; every static option: routed in
+// outcomes: whenever outcomes: is used at all; and writes: with exactly one
+// key required whenever a chosen: route, options_from:, or multi: true is
+// in play. The multi:-on-a-non-human-kind sub-condition is not scoped to
+// human — see checkRule8Multi.
+func checkRule8(w *Workflow, errs *[]string) {
+	for _, s := range w.Steps {
+		if s.Kind != "human" {
+			continue
+		}
+
+		hasOptions := len(s.Options) > 0
+		hasOptionsFrom := s.OptionsFrom != ""
+		switch {
+		case hasOptions && hasOptionsFrom:
+			*errs = append(*errs, stepErr(w, s.ID,
+				"rule 8: kind: human sets both options: and options_from:; keep only one"))
+		case !hasOptions && !hasOptionsFrom:
+			*errs = append(*errs, stepErr(w, s.ID,
+				"rule 8: kind: human requires exactly one of options: or options_from:; add one"))
+		}
+
+		if hasOptions && !hasOptionsFrom && len(s.Outcomes) > 0 {
+			for _, opt := range s.Options {
+				if _, ok := s.Outcomes[opt]; !ok {
+					*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
+						"rule 8: options: %q has no route in outcomes:; add outcomes: {%s: <step-or-terminal>, ...}", opt, opt)))
+				}
+			}
+		}
+
+		var reasons []string
+		if _, ok := s.Outcomes["chosen"]; ok {
+			reasons = append(reasons, "outcomes: {chosen: ...}")
+		}
+		if hasOptionsFrom {
+			reasons = append(reasons, "options_from:")
+		}
+		if s.Multi {
+			reasons = append(reasons, "multi: true")
+		}
+		if len(reasons) > 0 && len(s.Writes.Keys) != 1 {
+			*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
+				"rule 8: %s requires writes: with exactly one key (found %d); add writes: [<key>] naming the key that receives the answer",
+				strings.Join(reasons, " and "), len(s.Writes.Keys))))
+		}
+	}
+}
+
+// checkRule8Multi implements §H rule 8's "multi: on any kind other than
+// human" sub-condition. multi: parses on Step regardless of kind (step.go),
+// so it is not scoped to the human branch in checkRule8. Step.Multi has no
+// declared-vs-default tracking (unlike Postcondition.Soft), so multi: false
+// on a non-human step is treated as equivalent to "not declared" and only
+// multi: true is flagged.
+func checkRule8Multi(w *Workflow, errs *[]string) {
+	for _, s := range w.Steps {
+		if s.Kind != "human" && s.Multi {
+			*errs = append(*errs, stepErr(w, s.ID, "rule 8: multi: is only valid on kind: human; remove it"))
 		}
 	}
 }

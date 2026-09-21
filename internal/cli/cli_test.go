@@ -163,6 +163,78 @@ END DISPATCH %[1]s greet
 	}
 }
 
+const humanApprovalWorkflow = `workflow: human-approval-cli
+start: ask
+state:
+  reviewer: {type: string, default: ""}
+steps:
+  - id: ask
+    kind: human
+    question: "Approve ${reviewer}?"
+    options: [approve, revise]
+    timeout: 1h
+    writes: [reviewer]
+    outcomes:
+      approve: done
+      revise: blocked
+      timeout: blocked
+terminal:
+  done:    {status: ok, message: "recorded: ${reviewer}"}
+  blocked: {status: blocked}
+`
+
+// TestRun_AskThenSubmitHuman is the end-to-end CLI test for kind: human
+// (design/format-spec.md §B.5): pawl run prints ASK for a static-options
+// step, and pawl submit --json '{"selected": [...]}' — the same CLI surface
+// as an agentic answer, no new subcommand (point 7) — resolves it and
+// prints the resulting TERMINAL.
+func TestRun_AskThenSubmitHuman(t *testing.T) {
+	root := setupWorkingCopy(t)
+	writeWorkflow(t, root, "human-approval-cli", humanApprovalWorkflow)
+
+	stdout, stderr, code := runCLI(t, []string{"pawl", "run", "human-approval-cli"})
+	if code != 0 {
+		t.Fatalf("pawl run: exit %d, stderr = %q", code, stderr)
+	}
+	runID := ""
+	for _, l := range strings.Split(stdout, "\n") {
+		if strings.HasPrefix(l, "ASK ") {
+			runID = extractRunID(t, l)
+		}
+	}
+	if runID == "" {
+		t.Fatalf("no ASK line in pawl run output:\n%s", stdout)
+	}
+
+	wantAsk := `ASK RUNID ask
+question:
+  Approve ?
+options:
+  [1] approve
+  [2] revise
+multi: false
+submit with: pawl submit --run RUNID --step ask --json '{"selected": ["<option label>"], "other": "<free text, if any>"}'
+END ASK RUNID ask
+`
+	gotAsk := normaliseRunID(stdout)
+	wantAskGolden := fmt.Sprintf(`workflow: %s/.claude/workflows/human-approval-cli.yaml (repo-local)
+enforcement: off (milestone 1)
+soft: 0/1 steps (0.0%%): (none)
+%s`, root, wantAsk)
+	if gotAsk != wantAskGolden {
+		t.Errorf("ASK block mismatch:\n--- got ---\n%s\n--- want ---\n%s", gotAsk, wantAskGolden)
+	}
+
+	stdout2, stderr2, code2 := runCLI(t, []string{"pawl", "submit", "--run", runID, "--step", "ask", "--json", `{"selected":["approve"]}`})
+	if code2 != 0 {
+		t.Fatalf("pawl submit: exit %d, stderr = %q", code2, stderr2)
+	}
+	wantTerminal := fmt.Sprintf("TERMINAL %[1]s ok\nmessage:\n  recorded: approve\nEND TERMINAL %[1]s ok\n", runID)
+	if stdout2 != wantTerminal {
+		t.Errorf("TERMINAL mismatch:\n--- got ---\n%s\n--- want ---\n%s", stdout2, wantTerminal)
+	}
+}
+
 // TestFormatDispatch_ColumnZeroInjectionIsUnspoofable is the C3 regression
 // test: a description or a previous-attempt failure text containing a
 // column-0 line that looks like an instruction (an ordinary risk on a

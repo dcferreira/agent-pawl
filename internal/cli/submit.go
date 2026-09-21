@@ -11,10 +11,14 @@ import (
 
 // cmdSubmit implements pawl submit --run <id> --step <id> --json '<result>'
 // (DESIGN.md §2): an internal command the /pawl skill calls after a subagent
-// returns, never written by an author. The attempt number is not a flag —
-// it is read off the run's own journal, since the model has no reason to
-// track it and the engine refuses any (run, step, attempt) triple but the
-// one it is actually waiting on.
+// returns, or after a person answers an ASK block's question, never written
+// by an author. Same CLI surface either way — pawl submit does not gain a
+// new subcommand for a human answer; it dispatches on the target step's
+// kind, once resolved from the pinned workflow, to Engine.SubmitHuman
+// (design/format-spec.md §I only documents one pawl submit command). The
+// attempt number is not a flag — it is read off the run's own journal,
+// since the model has no reason to track it and the engine refuses any
+// (run, step, attempt) triple but the one it is actually waiting on.
 func cmdSubmit(args []string, cwd string, stdout, stderr io.Writer) int {
 	var runID, stepID string
 	var result string
@@ -81,9 +85,15 @@ func cmdSubmit(args []string, cwd string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	w := pinned.Workflow
+	step := w.StepByID(stepID)
 
 	e := engine.New(w, root)
-	instr, err := e.Submit(runID, stepID, ref.State.Cursor.Attempt, json.RawMessage(result))
+	var instr engine.Instruction
+	if step != nil && step.Kind == "human" {
+		instr, err = e.SubmitHuman(runID, stepID, ref.State.Cursor.Attempt, json.RawMessage(result))
+	} else {
+		instr, err = e.Submit(runID, stepID, ref.State.Cursor.Attempt, json.RawMessage(result))
+	}
 	if err != nil {
 		printLine(stderr, "pawl submit:", err.Error())
 		return 1

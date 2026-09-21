@@ -22,3 +22,10 @@ var errTimeout = errors.New("engine: command exceeded the wall-clock ceiling")
 // package: finding N2 was this same wedge class reintroduced at a new site
 // by A1's fix, and it must be routed, not thrown, for the same reason.
 var errContextUnavailable = errors.New("engine: context entry unavailable")
+
+// errOptionsUnavailable marks a `human` step's options_from: state key that
+// could not be resolved into a usable option list at ask time (missing,
+// empty, or not a list of strings) — an authoring bug discovered only at
+// dispatch time, handled the same way errContextUnavailable is on agentic
+// (N2's precedent): routed via the reserved "failure" outcome, never thrown.
+var errOptionsUnavailable = errors.New("engine: options_from: state key unavailable")

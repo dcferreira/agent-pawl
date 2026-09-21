@@ -113,6 +113,23 @@ resume the model simply runs `pawl poll` again — a wait asks about the present
 and submits the answer. The question and its deadline are journal records, so an unanswered question
 survives a crash and is re-asked.
 
+Implementation notes: `pawl submit --run … --step … --json '<answer>'` is the one CLI surface for a
+human answer too — no new subcommand — dispatching on the target step's kind to
+`Engine.SubmitHuman`. The submitted JSON is `{"selected": ["Option Label", …], "other": "free text"}`:
+`selected` names the picked static/dynamic option(s) verbatim, `other` carries free text (possibly
+alongside `selected` on a multi-select mixing a listed pick with free text). If the step declares a
+`writes:` key, the engine writes the person's answer into it on every non-`timeout` path — including a
+plain static pick with no `chosen:` route at all (the `choose_reviewer` example in §E: `writes:
+[reviewer]`, no `chosen:`, and a normal option pick still writes that option's label) — never only on
+the free-text/`chosen:` path. `timeout:` is enforced at `pawl submit` time, not by a background poller
+(unlike `wait`): the engine journals a `HUMAN_ASKED` event when it asks, and `SubmitHuman` compares
+`now` against that event's own recorded time plus the parsed `timeout:` duration; past the deadline the
+outcome is unconditionally `timeout` and nothing is written, regardless of what was submitted. A
+submitted answer that fails validation (an unmatched `selected` entry, a malformed payload, …) is a
+hard, non-retryable error — `human` has no `attempts:` — routed the same way a deterministic step's
+unintelligible stdout is (a journalled diagnostic, then the reserved `failure` outcome, catch-or-default
+routable regardless of whether `human`'s own outcome table names `failure`).
+
 ## 4. State, the journal, and resume
 
 A run directory, keyed `(working_copy_root, workflow_id, run_id)`:

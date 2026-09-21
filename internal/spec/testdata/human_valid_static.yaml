@@ -1,0 +1,22 @@
+workflow: human-valid-static
+start: choose_reviewer
+state:
+  reviewer: {type: string}
+steps:
+  - id: choose_reviewer
+    kind: human
+    question: "Who reviews this?"
+    options: [alice, bob, skip]
+    timeout: 24h
+    writes: [reviewer]
+    outcomes:
+      alice: assign
+      bob: assign
+      skip: done
+      chosen: assign
+      timeout: done
+  - id: assign
+    kind: deterministic
+    run: echo "assigning to ${reviewer}"
+    next: done
+terminal: {done: {status: ok}}

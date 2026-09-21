@@ -1,0 +1,51 @@
+workflow: human-approval
+description: >
+  Summarize a doc with an agent, then ask a person to approve the summary
+  before recording it. Exercises agentic, human (static options via
+  outcomes:, with writes: capturing the choice), and deterministic.
+start: summarize
+
+args:
+  doc_path: {type: string, default: "notes.md"}
+
+state:
+  summary:  {type: string, default: ""}
+  decision: {type: string, default: ""}
+
+steps:
+  - id: summarize
+    kind: agentic
+    description: |
+      Read ${doc_path} and write a two-sentence summary of what it covers.
+    context:
+      - ${doc_path}
+    writes: {summary: {type: string}}
+    subagent_args: {model: haiku}
+    postcondition: "true"
+    soft: true
+    next: ask_approval
+
+  - id: ask_approval
+    kind: human
+    question: |
+      Summary of ${doc_path}:
+
+      ${summary}
+
+      Approve this summary?
+    options: [approve, revise]
+    timeout: 1h
+    writes: [decision]
+    outcomes:
+      approve: record
+      revise: blocked
+      timeout: blocked
+
+  - id: record
+    kind: deterministic
+    run: 'echo "approved: ${decision}"'
+    next: done
+
+terminal:
+  done:    {status: ok,      message: "Approved: ${decision}"}
+  blocked: {status: blocked, message: "Needs revision or timed out: ${blocked_reason}"}

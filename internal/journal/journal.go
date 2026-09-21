@@ -11,8 +11,7 @@ package journal
 
 import "time"
 
-// Kind names one of the journal's event kinds (DESIGN.md §4). HUMAN_ASKED is
-// out of scope for this build (no `human` kind exists).
+// Kind names one of the journal's event kinds (DESIGN.md §4).
 type Kind string
 
 // The event kinds in scope for this build.
@@ -23,7 +22,14 @@ const (
 	KindWrites        Kind = "WRITES"
 	KindPostcondition Kind = "POSTCONDITION"
 	KindTransition    Kind = "TRANSITION"
-	KindRunEnd        Kind = "RUN_END"
+	// KindHumanAsked marks the moment a `human` step's question was asked
+	// (DESIGN.md §4): its own Time is the deadline anchor `SubmitHuman`
+	// measures `timeout:` against, since a `human` step has no background
+	// poller the way `wait` does — the session is already blocked inside its
+	// own AskUserQuestion call, so the deadline can only be enforced when the
+	// answer is finally submitted.
+	KindHumanAsked Kind = "HUMAN_ASKED"
+	KindRunEnd     Kind = "RUN_END"
 )
 
 // Event is one line of events.jsonl. Every event carries RunID, Seq, Time,

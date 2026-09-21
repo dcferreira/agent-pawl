@@ -200,6 +200,8 @@ func formatInstruction(instr engine.Instruction, w *spec.Workflow, root string) 
 		return formatBranchRecorded(v)
 	case engine.Wait:
 		return formatWait(v)
+	case engine.Ask:
+		return formatAsk(v)
 	case engine.Terminal:
 		detail := ""
 		if v.Status == "blocked" {
@@ -383,6 +385,41 @@ func formatPollIteration(it engine.PollIteration) string {
 	default:
 		w.line(0, head, it.Line, "→ no routed outcome; polling again in", it.Next.String())
 	}
+	return w.String()
+}
+
+// formatAsk renders the ASK block (design/format-spec.md §B.5, DESIGN.md §3:
+// "the question and its deadline are journal records"), modeled tightly on
+// formatDispatch: question: (via w.field, matching how description: is
+// printed on DISPATCH), options: (a numbered list, matching how context:
+// entries are numbered), a multi: line, and a submit with: line — a literal
+// example of the JSON answer shape (design/format-spec.md §B.5's new
+// paragraph documenting it), not filled in, since unlike Dispatch's return:
+// schema the actual answer is free-form input from a person, not a value the
+// engine already has in hand. Every value goes through blockWriter for the
+// same reason formatDispatch's do (see its own doc comment) — a question:
+// can carry a subagent-written state key verbatim, exactly like an agentic
+// description: can. The block ends with an "END ASK <run> <step>" sentinel
+// (finding C3's convention, applied here too).
+func formatAsk(a engine.Ask) string {
+	w := &blockWriter{}
+	w.line(0, "ASK", a.RunID, a.Step)
+
+	w.field(0, "question", a.Question)
+
+	if len(a.Options) == 0 {
+		w.line(0, "options:", "(none — free text only)")
+	} else {
+		w.line(0, "options:")
+		for i, opt := range a.Options {
+			w.line(1, fmt.Sprintf("[%d]", i+1), opt)
+		}
+	}
+
+	w.line(0, "multi:", strconv.FormatBool(a.Multi))
+
+	w.line(0, "submit with:", fmt.Sprintf(`pawl submit --run %s --step %s --json '{"selected": ["<option label>"], "other": "<free text, if any>"}'`, a.RunID, a.Step))
+	w.line(0, "END", "ASK", a.RunID, a.Step)
 	return w.String()
 }
 

@@ -130,6 +130,17 @@ Milestone 1.
   key, typed `string` for a single free-text/static answer or `json` when the value can be a list.
   Branch on the written value from a following `deterministic` router step (§B.6).
 - `timeout:` is **required**, and `timeout` is a reserved outcome. On `timeout` nothing is written.
+- **The answer, on the wire.** `pawl submit` (the same command as for `agentic`, no new subcommand)
+  accepts a JSON object `{"selected": ["Option Label", …], "other": "free text"}`: `selected` is the
+  picked static/dynamic option label(s), verbatim; `other` is present whenever a free-text "Other"
+  answer was given, and may sit alongside a non-empty `selected` on a `multi: true` step mixing a
+  listed pick with free text. On a plain static single-select with no `chosen:` route (e.g. the
+  `choose_reviewer` example in §E: `writes: [reviewer]`, no `chosen:` at all), a normal option pick
+  still writes that option's label into `writes:` if one is declared — `writes:` is populated on every
+  non-`timeout` path a declared key exists for, not only via the free-text/`chosen:` route.
+  `timeout:` itself is enforced at `pawl submit` time (there is no background poller for `human`, unlike
+  `wait`): the deadline is the `HUMAN_ASKED` journal event's own recorded time plus the parsed
+  `timeout:` duration.
 
 ### 6. `agentic` steps yield only `success` / `failure`
 

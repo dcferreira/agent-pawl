@@ -21,8 +21,8 @@ type ContextItem struct {
 }
 
 // Instruction is what the engine hands back to its caller: exactly one of
-// Dispatch or Terminal. Formatting the instruction for a human or a session
-// belongs to internal/cli (Task 7), not here.
+// Dispatch, Ask or Terminal. Formatting the instruction for a human or a
+// session belongs to internal/cli (Task 7), not here.
 type Instruction interface {
 	isInstruction()
 }
@@ -122,3 +122,30 @@ type Terminal struct {
 }
 
 func (Terminal) isInstruction() {}
+
+// Ask instructs the caller to put a question to a person with
+// AskUserQuestion (design/format-spec.md §B.5: "`human` steps map 1:1 onto
+// AskUserQuestion") and then call SubmitHuman with what they answer. Like
+// Dispatch, it carries everything already resolved — Options is the step's
+// static list, or (for options_from:) the state key's list resolved at ask
+// time, in order — so the caller never has to re-read run state itself.
+type Ask struct {
+	RunID   string
+	Step    string
+	Attempt int
+
+	// Question is the step's question:, ${key}-substituted.
+	Question string
+	// Options is the resolved option list, in order: the step's static
+	// options: as authored, or — for options_from: — the named state key's
+	// list of strings as it stood at ask time (design/format-spec.md §B.5:
+	// "resolved at ask time"). "Other" free text is always available in
+	// addition and is never itself a member of Options.
+	Options []string
+	// Multi is the step's multi: (design/format-spec.md §D); true forces
+	// the outcome to the reserved token "chosen" regardless of what was
+	// picked.
+	Multi bool
+}
+
+func (Ask) isInstruction() {}
