@@ -979,3 +979,201 @@ func TestWholeOutput_AncillaryCommandsAlsoGuarded(t *testing.T) {
 		assertOnlyExpectedInstructionLines(t, "pawl abandon stderr", stderr2)
 	})
 }
+
+// TestFormatDispatchParallel_TwoAgenticBranches is a unit-level golden-file
+// test of formatDispatchParallel against a literal engine.DispatchParallel
+// with two agentic branches: the DISPATCH_PARALLEL header, each branch's own
+// nested DISPATCH block (built from the same body-rendering formatDispatch
+// itself uses, one indent level deeper) with its own END DISPATCH sentinel,
+// and the closing END DISPATCH_PARALLEL sentinel.
+func TestFormatDispatchParallel_TwoAgenticBranches(t *testing.T) {
+	d := engine.DispatchParallel{
+		RunID: "b758", Step: "p", Attempt: 1,
+		Agentic: []engine.Dispatch{
+			{
+				RunID: "b758", Step: "b1", Attempt: 1,
+				Description:  "do b1",
+				WritesKeys:   []string{"r1"},
+				WritesTypes:  map[string]string{"r1": "string"},
+				SubagentArgs: nil,
+			},
+			{
+				RunID: "b758", Step: "b2", Attempt: 1,
+				Description:  "do b2",
+				WritesKeys:   []string{"r2"},
+				WritesTypes:  map[string]string{"r2": "string"},
+				SubagentArgs: nil,
+			},
+		},
+	}
+
+	got := formatDispatchParallel(d, map[string]int{"b1": 1, "b2": 2})
+	want := `DISPATCH_PARALLEL b758 p
+  DISPATCH b758 b1
+  attempt: 1 of 1
+  description:
+    do b1
+  context: (none)
+  return: a JSON object with exactly these keys (key order does not matter)
+    r1: string
+  subagent_args: (none)
+  submit with: pawl submit --run b758 --step b1 --json '<the object above>'
+  END DISPATCH b758 b1
+  DISPATCH b758 b2
+  attempt: 1 of 2
+  description:
+    do b2
+  context: (none)
+  return: a JSON object with exactly these keys (key order does not matter)
+    r2: string
+  subagent_args: (none)
+  submit with: pawl submit --run b758 --step b2 --json '<the object above>'
+  END DISPATCH b758 b2
+END DISPATCH_PARALLEL b758 p
+`
+	if got != want {
+		t.Errorf("formatDispatchParallel mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+// TestFormatDispatchParallel_Interrupted asserts the Interrupted-aware
+// phrasing (DESIGN.md §4 step 7), mirroring formatDispatch's own convention,
+// is carried at the DISPATCH_PARALLEL level rather than on each branch
+// (engine.DispatchParallel's doc comment: Interrupted lives on the group,
+// never on an individual branch Dispatch).
+func TestFormatDispatchParallel_Interrupted(t *testing.T) {
+	d := engine.DispatchParallel{
+		RunID: "b758", Step: "p", Attempt: 1, Interrupted: true,
+		Agentic: []engine.Dispatch{
+			{RunID: "b758", Step: "b2", Attempt: 1, Description: "do b2"},
+		},
+	}
+	got := formatDispatchParallel(d, map[string]int{"b2": 1})
+	if !strings.Contains(got, "interrupted:\n  a previous attempt on this step did not finish") {
+		t.Errorf("formatDispatchParallel missing interrupted phrasing:\n%s", got)
+	}
+	if strings.Count(got, "DISPATCH_PARALLEL b758 p") != 2 {
+		t.Errorf("want exactly the header + END sentinel:\n%s", got)
+	}
+}
+
+// TestFormatBranchRecorded is a unit-level golden-file test of
+// formatBranchRecorded: a single "~"-prefixed interstitial line, never a
+// column-0 DISPATCH|ASK|WAIT|TERMINAL instruction (engine.BranchRecorded's
+// doc comment: not a new instruction for the session to act on).
+func TestFormatBranchRecorded(t *testing.T) {
+	b := engine.BranchRecorded{RunID: "b758", ParallelStep: "p", BranchStep: "b1", Remaining: []string{"b2", "b3"}}
+	got := formatBranchRecorded(b)
+	want := "~ branch b1 recorded (parallel p: waiting on: b2, b3)\n"
+	if got != want {
+		t.Errorf("formatBranchRecorded mismatch:\n--- got ---\n%q\n--- want ---\n%q", got, want)
+	}
+}
+
+// parallelJoinWorkflow is the end-to-end fixture: a parallel step with three
+// branches (one deterministic, two agentic) feeding a join step, so a real
+// pawl run/pawl submit sequence exercises DISPATCH_PARALLEL, BranchRecorded
+// (the first agentic branch to report while its sibling is still
+// outstanding) and the real next instruction once the group resolves.
+const parallelJoinWorkflow = `workflow: parallel-join
+start: p
+state:
+  r1:
+    type: string
+    default: ""
+  r2:
+    type: string
+    default: ""
+steps:
+  - id: p
+    kind: parallel
+    branches: [bdet, b1, b2]
+    next: join
+  - id: bdet
+    kind: deterministic
+    run: "echo hi"
+  - id: b1
+    kind: agentic
+    description: "do b1"
+    writes: {r1: {type: string}}
+    postcondition: {all_set: [r1]}
+  - id: b2
+    kind: agentic
+    description: "do b2"
+    writes: {r2: {type: string}}
+    postcondition: {all_set: [r2]}
+  - id: join
+    kind: deterministic
+    run: "echo done"
+    next: done
+terminal:
+  done: {status: ok, message: "joined ${r1} ${r2}"}
+`
+
+// TestRun_ParallelDispatchAndJoin drives pawl run → DISPATCH_PARALLEL →
+// pawl submit branch 1 → BranchRecorded → pawl submit branch 2 → the real
+// next instruction (here, TERMINAL via join) end to end via the actual CLI
+// commands — task 3 already covered the engine layer itself
+// (internal/engine/parallel_test.go); this is the CLI formatting layer on
+// top of it.
+func TestRun_ParallelDispatchAndJoin(t *testing.T) {
+	root := setupWorkingCopy(t)
+	writeWorkflow(t, root, "parallel-join", parallelJoinWorkflow)
+
+	stdout, stderr, code := runCLI(t, []string{"pawl", "run", "parallel-join"})
+	if code != 0 {
+		t.Fatalf("pawl run: exit %d, stderr = %q", code, stderr)
+	}
+	if !strings.HasPrefix(stdout, "workflow:") {
+		t.Fatalf("pawl run stdout = %q", stdout)
+	}
+	lines := strings.Split(strings.TrimRight(stdout, "\n"), "\n")
+	dpLine := ""
+	for _, l := range lines {
+		if strings.HasPrefix(l, "DISPATCH_PARALLEL ") {
+			dpLine = l
+		}
+	}
+	if dpLine == "" {
+		t.Fatalf("no DISPATCH_PARALLEL line in pawl run output:\n%s", stdout)
+	}
+	fields := strings.Fields(dpLine)
+	if len(fields) != 3 || fields[2] != "p" {
+		t.Fatalf("DISPATCH_PARALLEL line = %q, want step p", dpLine)
+	}
+	runID := fields[1]
+
+	if !strings.Contains(stdout, "  DISPATCH "+runID+" b1\n") || !strings.Contains(stdout, "  DISPATCH "+runID+" b2\n") {
+		t.Errorf("expected nested DISPATCH blocks for both agentic branches:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "END DISPATCH_PARALLEL "+runID+" p\n") {
+		t.Errorf("expected closing END DISPATCH_PARALLEL sentinel:\n%s", stdout)
+	}
+	// bdet already ran in-process; only b1 and b2 are outstanding, so no
+	// nested block for bdet.
+	if strings.Contains(stdout, "DISPATCH "+runID+" bdet") {
+		t.Errorf("deterministic branch bdet should not appear as a nested DISPATCH:\n%s", stdout)
+	}
+
+	// Submit the first agentic branch: its sibling b2 is still outstanding,
+	// so the engine reports BranchRecorded, not a new instruction.
+	stdout2, stderr2, code2 := runCLI(t, []string{"pawl", "submit", "--run", runID, "--step", "b1", "--json", `{"r1":"x"}`})
+	if code2 != 0 {
+		t.Fatalf("pawl submit b1: exit %d, stderr = %q", code2, stderr2)
+	}
+	wantBR := "~ branch b1 recorded (parallel p: waiting on: b2)\n"
+	if stdout2 != wantBR {
+		t.Errorf("BranchRecorded mismatch:\n--- got ---\n%q\n--- want ---\n%q", stdout2, wantBR)
+	}
+
+	// Submit the second: the group resolves, join runs, and the real next
+	// instruction (TERMINAL, here) is printed.
+	stdout3, stderr3, code3 := runCLI(t, []string{"pawl", "submit", "--run", runID, "--step", "b2", "--json", `{"r2":"y"}`})
+	if code3 != 0 {
+		t.Fatalf("pawl submit b2: exit %d, stderr = %q", code3, stderr3)
+	}
+	wantTerminal := fmt.Sprintf("TERMINAL %[1]s ok\nmessage:\n  joined x y\nEND TERMINAL %[1]s ok\n", runID)
+	if stdout3 != wantTerminal {
+		t.Errorf("TERMINAL mismatch:\n--- got ---\n%s\n--- want ---\n%s", stdout3, wantTerminal)
+	}
+}

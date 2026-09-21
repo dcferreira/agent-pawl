@@ -1,7 +1,0 @@
-workflow: r3parallel
-start: p
-steps:
-  - id: p
-    kind: parallel
-    next: done
-terminal: {done: {status: ok}}

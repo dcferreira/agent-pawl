@@ -10,6 +10,96 @@ import (
 	"github.com/dcferreira/agent-pawl/internal/spec"
 )
 
+// deterministicAttempt is the result of executing and evaluating one
+// attempt of a deterministic step's body (run: through postcondition:),
+// stopping short of any routing decision.
+type deterministicAttempt struct {
+	// hardFailed is true once this attempt's own failure diagnostic has
+	// already been journaled (I1/I3, or a timeout): the caller must treat
+	// the step as failed with outcome "failure" and must not evaluate (or
+	// act on) a postcondition.
+	hardFailed bool
+	// outcome is the exec result's own success/failure outcome (emit),
+	// valid only when hardFailed is false.
+	outcome string
+	// cr is the postcondition result, valid only when hardFailed is false.
+	cr checkResult
+}
+
+// runDeterministicAttempt executes step's run: once at the given attempt
+// (STEP_ENTER must already be journaled by the caller), journals its WRITES
+// and any hard-failure diagnostic, and evaluates its postcondition —
+// everything advanceDeterministic's loop body does up to (but not
+// including) the routing decision, factored out so a kind: parallel
+// branch (execBranchDeterministic, parallel.go) can reuse the exact same
+// exec/journal/evaluate machinery for its own single, no-retry pass — a
+// branch owns no routing or retry budget of its own (task 1's validation
+// forbids next:/outcomes:/attempts: on one).
+//
+// It returns the possibly-updated RunState (refreshed after a WRITES
+// journal, exactly as advanceDeterministic's loop already did inline)
+// alongside the attempt result, since the caller needs post-write state for
+// whatever it does next.
+func (e *Engine) runDeterministicAttempt(dir string, log *journal.Log, runID string, step *spec.Step, attempt int, rs *journal.RunState) (deterministicAttempt, *journal.RunState, error) {
+	vals := buildValues(e.Workflow, rs, runID, step.ID, attempt, rs.Visits[step.ID])
+
+	result, timedOut, stdout, stderr, execErr := e.execDeterministic(step, vals)
+	e.writeStepOutput(dir, step.ID, attempt, stdout, stderr)
+
+	if execErr != nil {
+		if errors.Is(execErr, emit.ErrParse) {
+			// I3: unintelligible stdout is an authoring bug, not a Go error
+			// to throw out of the run loop — see the caller for why this is
+			// routed, not thrown.
+			if derr := e.journalFailureDiagnostic(log, runID, step.ID, attempt, execErr.Error()); derr != nil {
+				return deterministicAttempt{}, rs, derr
+			}
+			return deterministicAttempt{hardFailed: true}, rs, nil
+		}
+		return deterministicAttempt{}, rs, execErr
+	}
+	if timedOut {
+		text := fmt.Sprintf("step %q exceeded the wall-clock ceiling of %s", step.ID, e.Timeout)
+		if derr := e.journalFailureDiagnostic(log, runID, step.ID, attempt, text); derr != nil {
+			return deterministicAttempt{}, rs, derr
+		}
+		return deterministicAttempt{hardFailed: true}, rs, nil
+	}
+	if result.Writes != nil {
+		if _, err := log.Append(journal.Event{
+			Kind: journal.KindWrites, RunID: runID, Step: step.ID,
+			Attempt: attempt, Writes: result.Writes,
+		}); err != nil {
+			return deterministicAttempt{}, rs, err
+		}
+		var err error
+		rs, err = replayDir(dir)
+		if err != nil {
+			return deterministicAttempt{}, rs, err
+		}
+		vals = buildValues(e.Workflow, rs, runID, step.ID, attempt, rs.Visits[step.ID])
+	}
+	if result.Outcome == "failure" {
+		// I1: a non-zero exit never runs a postcondition, so nothing would
+		// otherwise set last_error for it (DESIGN.md §3 requires it set
+		// here).
+		text := strings.TrimSpace(stderr)
+		if text == "" {
+			text = strings.TrimSpace(stdout)
+		}
+		if derr := e.journalFailureDiagnostic(log, runID, step.ID, attempt, text); derr != nil {
+			return deterministicAttempt{}, rs, derr
+		}
+		return deterministicAttempt{hardFailed: true}, rs, nil
+	}
+
+	cr, err := e.evaluatePostcondition(step, combinedRaw(e.Workflow, rs), vals)
+	if err != nil {
+		return deterministicAttempt{}, rs, err
+	}
+	return deterministicAttempt{outcome: result.Outcome, cr: cr}, rs, nil
+}
+
 // advanceDeterministic runs one "visit" of a deterministic step to
 // completion: the cap check, the full attempt-retry loop (re-exec on
 // postcondition failure, fix-forward, up to attempts:), and the eventual
@@ -45,63 +135,15 @@ func (e *Engine) advanceDeterministic(dir string, log *journal.Log, runID string
 		if err != nil {
 			return nil, nil, err
 		}
-		vals = buildValues(e.Workflow, rs, runID, step.ID, attempt, rs.Visits[step.ID])
 
-		result, timedOut, stdout, stderr, execErr := e.execDeterministic(step, vals)
-		e.writeStepOutput(dir, step.ID, attempt, stdout, stderr)
-
-		if execErr != nil {
-			if errors.Is(execErr, emit.ErrParse) {
-				// I3: unintelligible stdout is an authoring bug, not a Go
-				// error to throw out of the run loop — throwing it left a
-				// dangling STEP_ENTER with no TRANSITION/RUN_END, wedging
-				// the run so Resume just re-entered and died identically.
-				// Route it exactly like any other hard failure instead.
-				if derr := e.journalFailureDiagnostic(log, runID, step.ID, attempt, execErr.Error()); derr != nil {
-					return nil, nil, derr
-				}
-				return e.routeReserved(dir, log, runID, step, "failure", attempt)
-			}
-			return nil, nil, execErr
-		}
-		if timedOut {
-			text := fmt.Sprintf("step %q exceeded the wall-clock ceiling of %s", step.ID, e.Timeout)
-			if derr := e.journalFailureDiagnostic(log, runID, step.ID, attempt, text); derr != nil {
-				return nil, nil, derr
-			}
-			return e.routeReserved(dir, log, runID, step, "failure", attempt)
-		}
-		if result.Writes != nil {
-			if _, err := log.Append(journal.Event{
-				Kind: journal.KindWrites, RunID: runID, Step: step.ID,
-				Attempt: attempt, Writes: result.Writes,
-			}); err != nil {
-				return nil, nil, err
-			}
-			rs, err = replayDir(dir)
-			if err != nil {
-				return nil, nil, err
-			}
-			vals = buildValues(e.Workflow, rs, runID, step.ID, attempt, rs.Visits[step.ID])
-		}
-		if result.Outcome == "failure" {
-			// I1: a non-zero exit never runs a postcondition, so nothing
-			// would otherwise set last_error for it (DESIGN.md §3 requires
-			// it set here).
-			text := strings.TrimSpace(stderr)
-			if text == "" {
-				text = strings.TrimSpace(stdout)
-			}
-			if derr := e.journalFailureDiagnostic(log, runID, step.ID, attempt, text); derr != nil {
-				return nil, nil, derr
-			}
-			return e.routeReserved(dir, log, runID, step, "failure", attempt)
-		}
-
-		cr, err := e.evaluatePostcondition(step, combinedRaw(e.Workflow, rs), vals)
+		at, _, err := e.runDeterministicAttempt(dir, log, runID, step, attempt, rs)
 		if err != nil {
 			return nil, nil, err
 		}
+		if at.hardFailed {
+			return e.routeReserved(dir, log, runID, step, "failure", attempt)
+		}
+		cr := at.cr
 
 		if cr.OK {
 			if step.Postcondition != nil {
@@ -112,17 +154,17 @@ func (e *Engine) advanceDeterministic(dir string, log *journal.Log, runID string
 					return nil, nil, err
 				}
 			}
-			target, viaCatch, err := resolveTarget(step, result.Outcome)
+			target, viaCatch, err := resolveTarget(step, at.outcome)
 			if err != nil {
 				return nil, nil, err
 			}
 			if _, err := log.Append(journal.Event{
 				Kind: journal.KindTransition, RunID: runID, Step: step.ID, Attempt: attempt,
-				Target: target, Outcome: result.Outcome, ViaCatch: viaCatch,
+				Target: target, Outcome: at.outcome, ViaCatch: viaCatch,
 			}); err != nil {
 				return nil, nil, err
 			}
-			return e.afterTransition(dir, log, runID, step.ID, result.Outcome, target)
+			return e.afterTransition(dir, log, runID, step.ID, at.outcome, target)
 		}
 
 		nextKey := key

@@ -1,0 +1,14 @@
+workflow: parallel-branch-is-start
+start: b1
+steps:
+  - id: b1
+    kind: deterministic
+    run: echo hi
+  - id: p
+    kind: parallel
+    branches: [b1, b2]
+    next: done
+  - id: b2
+    kind: deterministic
+    run: echo hi2
+terminal: {done: {status: ok}}

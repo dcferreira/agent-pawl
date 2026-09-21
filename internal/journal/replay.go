@@ -60,6 +60,18 @@ type RunState struct {
 	// Cursor is where a resumed run continues, per DESIGN.md §4 step 4.
 	Cursor Cursor
 
+	// PendingBranches is, per in-flight kind: parallel step id, the set of
+	// its branch step ids not yet transitioned (present with value true
+	// while outstanding; deleted once the branch's TRANSITION is replayed).
+	// Populated only from events carrying Event.Group — the parallel step's
+	// own (ungrouped) STEP_ENTER/TRANSITION never touches it, and never
+	// touches Cursor either (see Replay).
+	PendingBranches map[string]map[string]bool
+	// BranchOutcome is, per branch step id, the Outcome of its resolving
+	// TRANSITION, once replayed. Like PendingBranches, populated only from
+	// grouped (Event.Group != "") events.
+	BranchOutcome map[string]string
+
 	// Ended is true once a RUN_END event has been replayed.
 	Ended bool
 	// EndStatus, EndReason and EndNote are the most recent RUN_END's
@@ -117,10 +129,12 @@ func (rs *RunState) Terminal() bool {
 // resurrect a finished run into a Live() listing.
 func Replay(events []Event) (*RunState, error) {
 	rs := &RunState{
-		Args:     map[string]any{},
-		State:    map[string]any{},
-		Attempts: map[AttemptRef]int{},
-		Visits:   map[string]int{},
+		Args:            map[string]any{},
+		State:           map[string]any{},
+		Attempts:        map[AttemptRef]int{},
+		Visits:          map[string]int{},
+		PendingBranches: map[string]map[string]bool{},
+		BranchOutcome:   map[string]string{},
 	}
 
 	var lastEnter Cursor
@@ -166,6 +180,17 @@ func Replay(events []Event) (*RunState, error) {
 				rs.EndStatus = ""
 			}
 		case KindStepEnter:
+			if e.Group != "" {
+				// A grouped STEP_ENTER is a parallel step's branch entering:
+				// it must never touch lastEnter/haveEnter/transitionedSince
+				// Enter/rs.Cursor, which stay parked on the parallel step's
+				// own ungrouped events.
+				if rs.PendingBranches[e.Group] == nil {
+					rs.PendingBranches[e.Group] = map[string]bool{}
+				}
+				rs.PendingBranches[e.Group][e.Step] = true
+				break
+			}
 			lastEnter = Cursor{Step: e.Step, Attempt: e.Attempt, AttemptKey: e.AttemptKey}
 			haveEnter = true
 			transitionedSinceEnter = false
@@ -187,6 +212,18 @@ func Replay(events []Event) (*RunState, error) {
 				rs.LastError = e.Text
 			}
 		case KindTransition:
+			if e.Group != "" {
+				// A grouped TRANSITION resolves one branch: record its
+				// outcome and clear it from the pending set, without
+				// touching transitionedSinceEnter/lastTarget/rs.Cursor,
+				// which track only the parallel step's own ungrouped
+				// TRANSITION.
+				if rs.PendingBranches[e.Group] != nil {
+					delete(rs.PendingBranches[e.Group], e.Step)
+				}
+				rs.BranchOutcome[e.Step] = e.Outcome
+				break
+			}
 			transitionedSinceEnter = true
 			lastTarget = e.Target
 			// The §B.4 clearing rule as stated is a conjunction: cleared

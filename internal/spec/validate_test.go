@@ -158,10 +158,62 @@ func TestValidate_GoldenMessages(t *testing.T) {
 			},
 		},
 		{
-			name: "R3: parallel is reserved for Milestone 3",
-			file: "r3_parallel_reserved.yaml",
+			name: "parallel: branches: requires at least 2 entries",
+			file: "parallel_branches_too_few.yaml",
 			want: []string{
-				`testdata/r3_parallel_reserved.yaml: step "p": kind: parallel is reserved for Milestone 3`,
+				`testdata/parallel_branches_too_few.yaml: step "p": kind: parallel requires branches: with at least 2 entries`,
+			},
+		},
+		{
+			name: "parallel: branch does not name a declared step",
+			file: "parallel_branch_undeclared.yaml",
+			want: []string{
+				`testdata/parallel_branch_undeclared.yaml: step "p": branches[1]: "nope" does not name a declared step`,
+			},
+		},
+		{
+			name: "parallel: branch has a kind that is not deterministic or agentic",
+			file: "parallel_branch_wrong_kind.yaml",
+			want: []string{
+				`testdata/parallel_branch_wrong_kind.yaml: step "w": kind "wait" is not implemented in this build (milestone 1 MVP covers deterministic and agentic)`,
+				`testdata/parallel_branch_wrong_kind.yaml: step "p": branches[1]: step "w" has kind "wait", but a parallel branch must be deterministic or agentic (no nesting)`,
+			},
+		},
+		{
+			name: "parallel: branch listed more than once",
+			file: "parallel_branch_duplicate.yaml",
+			want: []string{
+				`testdata/parallel_branch_duplicate.yaml: step "p": branches[1]: step "b1" is listed more than once`,
+			},
+		},
+		{
+			name: "parallel: branch claimed by two parallel steps",
+			file: "parallel_branch_double_owned.yaml",
+			want: []string{
+				`testdata/parallel_branch_double_owned.yaml: step "p2": branches[0]: step "b1" is already claimed as a branch by parallel step "p1"; a step may be a branch of only one parallel step`,
+			},
+		},
+		{
+			name: "parallel: branch is the workflow's start step",
+			file: "parallel_branch_is_start.yaml",
+			want: []string{
+				`testdata/parallel_branch_is_start.yaml: step "p": branches[0]: step "b1" is start:, but a parallel branch may not be the workflow's start step`,
+				`testdata/parallel_branch_is_start.yaml: step "p": rule 2: is unreachable from start: "b1"; add an edge to it or remove it`,
+				`testdata/parallel_branch_is_start.yaml: step "b2": rule 2: is unreachable from start: "b1"; add an edge to it or remove it`,
+			},
+		},
+		{
+			name: "parallel: branch declares next:",
+			file: "parallel_branch_has_next.yaml",
+			want: []string{
+				`testdata/parallel_branch_has_next.yaml: step "b1": declares next:, but it is a branch of parallel step "p", which owns routing and retry for the whole group; remove next:`,
+			},
+		},
+		{
+			name: "parallel: branch declares attempts:",
+			file: "parallel_branch_has_attempts.yaml",
+			want: []string{
+				`testdata/parallel_branch_has_attempts.yaml: step "b1": declares attempts:, but it is a branch of parallel step "p", which owns routing and retry for the whole group; remove attempts:`,
 			},
 		},
 		{
@@ -307,7 +359,7 @@ func TestValidate_GoldenMessages(t *testing.T) {
 }
 
 func TestValidate_ValidWorkflowsHaveZeroErrors(t *testing.T) {
-	for _, file := range []string{"tidy.yaml", "valid.yaml"} {
+	for _, file := range []string{"tidy.yaml", "valid.yaml", "parallel_ok.yaml"} {
 		t.Run(file, func(t *testing.T) {
 			w, err := Load(filepath.Join("testdata", file))
 			if err != nil {

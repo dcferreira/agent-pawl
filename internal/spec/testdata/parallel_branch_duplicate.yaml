@@ -1,0 +1,15 @@
+workflow: parallel-duplicate
+start: p
+steps:
+  - id: p
+    kind: parallel
+    branches: [b1, b1]
+    next: join
+  - id: b1
+    kind: deterministic
+    run: echo hi
+  - id: join
+    kind: deterministic
+    run: echo done
+    next: done
+terminal: {done: {status: ok}}

@@ -233,31 +233,31 @@ func ref(step, key string) AttemptRef { return AttemptRef{Step: step, Key: key} 
 func wantCompletedRunStates() map[int]*RunState {
 	return map[int]*RunState{
 		0: {Args: map[string]any{}, State: map[string]any{}, Attempts: map[AttemptRef]int{}, Visits: map[string]int{},
-			Cursor: Cursor{}},
+			PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{}, Cursor: Cursor{}},
 		1: {Args: map[string]any{"branch": "feat/x"}, State: map[string]any{}, Attempts: map[AttemptRef]int{}, Visits: map[string]int{},
-			Cursor: Cursor{}},
+			PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{}, Cursor: Cursor{}},
 		2: {Args: map[string]any{"branch": "feat/x"}, State: map[string]any{}, Visits: map[string]int{"build": 1},
-			Attempts: map[AttemptRef]int{ref("build", ""): 1}, Cursor: Cursor{Step: "build", Attempt: 1}},
+			Attempts: map[AttemptRef]int{ref("build", ""): 1}, PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{}, Cursor: Cursor{Step: "build", Attempt: 1}},
 		3: {Args: map[string]any{"branch": "feat/x"}, State: map[string]any{"artifact": "a.bin"}, Visits: map[string]int{"build": 1},
-			Attempts: map[AttemptRef]int{ref("build", ""): 1}, Cursor: Cursor{Step: "build", Attempt: 1}},
+			Attempts: map[AttemptRef]int{ref("build", ""): 1}, PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{}, Cursor: Cursor{Step: "build", Attempt: 1}},
 		4: {Args: map[string]any{"branch": "feat/x"}, State: map[string]any{"artifact": "a.bin"}, Visits: map[string]int{"build": 1},
-			Attempts: map[AttemptRef]int{ref("build", ""): 1}, Cursor: Cursor{Step: "build", Attempt: 1}},
+			Attempts: map[AttemptRef]int{ref("build", ""): 1}, PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{}, Cursor: Cursor{Step: "build", Attempt: 1}},
 		5: {Args: map[string]any{"branch": "feat/x"}, State: map[string]any{"artifact": "a.bin"}, Visits: map[string]int{"build": 1},
-			Attempts: map[AttemptRef]int{}, Cursor: Cursor{Step: "test", Attempt: 1}},
+			Attempts: map[AttemptRef]int{}, PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{}, Cursor: Cursor{Step: "test", Attempt: 1}},
 		6: {Args: map[string]any{"branch": "feat/x"}, State: map[string]any{"artifact": "a.bin"}, Visits: map[string]int{"build": 1, "test": 1},
-			Attempts: map[AttemptRef]int{ref("test", ""): 1}, Cursor: Cursor{Step: "test", Attempt: 1}},
+			Attempts: map[AttemptRef]int{ref("test", ""): 1}, PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{}, Cursor: Cursor{Step: "test", Attempt: 1}},
 		7: {Args: map[string]any{"branch": "feat/x"}, State: map[string]any{"artifact": "a.bin"}, Visits: map[string]int{"build": 1, "test": 1},
-			Attempts: map[AttemptRef]int{ref("test", ""): 1}, Cursor: Cursor{Step: "test", Attempt: 1}, LastError: "1 failure"},
+			Attempts: map[AttemptRef]int{ref("test", ""): 1}, PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{}, Cursor: Cursor{Step: "test", Attempt: 1}, LastError: "1 failure"},
 		8: {Args: map[string]any{"branch": "feat/x"}, State: map[string]any{"artifact": "a.bin"}, Visits: map[string]int{"build": 1, "test": 1},
-			Attempts: map[AttemptRef]int{ref("test", ""): 1, ref("test", "h1"): 2}, Cursor: Cursor{Step: "test", Attempt: 2, AttemptKey: "h1"}, LastError: "1 failure"},
+			Attempts: map[AttemptRef]int{ref("test", ""): 1, ref("test", "h1"): 2}, PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{}, Cursor: Cursor{Step: "test", Attempt: 2, AttemptKey: "h1"}, LastError: "1 failure"},
 		9: {Args: map[string]any{"branch": "feat/x"}, State: map[string]any{"artifact": "a.bin", "tests_passed": true}, Visits: map[string]int{"build": 1, "test": 1},
-			Attempts: map[AttemptRef]int{ref("test", ""): 1, ref("test", "h1"): 2}, Cursor: Cursor{Step: "test", Attempt: 2, AttemptKey: "h1"}, LastError: "1 failure"},
+			Attempts: map[AttemptRef]int{ref("test", ""): 1, ref("test", "h1"): 2}, PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{}, Cursor: Cursor{Step: "test", Attempt: 2, AttemptKey: "h1"}, LastError: "1 failure"},
 		10: {Args: map[string]any{"branch": "feat/x"}, State: map[string]any{"artifact": "a.bin", "tests_passed": true}, Visits: map[string]int{"build": 1, "test": 1},
-			Attempts: map[AttemptRef]int{ref("test", ""): 1, ref("test", "h1"): 2}, Cursor: Cursor{Step: "test", Attempt: 2, AttemptKey: "h1"}, LastError: ""},
+			Attempts: map[AttemptRef]int{ref("test", ""): 1, ref("test", "h1"): 2}, PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{}, Cursor: Cursor{Step: "test", Attempt: 2, AttemptKey: "h1"}, LastError: ""},
 		11: {Args: map[string]any{"branch": "feat/x"}, State: map[string]any{"artifact": "a.bin", "tests_passed": true}, Visits: map[string]int{"build": 1, "test": 1},
-			Attempts: map[AttemptRef]int{ref("test", ""): 1}, Cursor: Cursor{Step: "done", Attempt: 1}, LastError: ""},
+			Attempts: map[AttemptRef]int{ref("test", ""): 1}, PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{}, Cursor: Cursor{Step: "done", Attempt: 1}, LastError: ""},
 		12: {Args: map[string]any{"branch": "feat/x"}, State: map[string]any{"artifact": "a.bin", "tests_passed": true}, Visits: map[string]int{"build": 1, "test": 1},
-			Attempts: map[AttemptRef]int{ref("test", ""): 1}, Cursor: Cursor{Step: "done", Attempt: 1}, LastError: "",
+			Attempts: map[AttemptRef]int{ref("test", ""): 1}, PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{}, Cursor: Cursor{Step: "done", Attempt: 1}, LastError: "",
 			Ended: true, EndStatus: "ok"},
 	}
 }
@@ -265,17 +265,17 @@ func wantCompletedRunStates() map[int]*RunState {
 func wantBlockedRunStates() map[int]*RunState {
 	return map[int]*RunState{
 		0: {Args: map[string]any{}, State: map[string]any{}, Attempts: map[AttemptRef]int{}, Visits: map[string]int{},
-			Cursor: Cursor{}},
+			PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{}, Cursor: Cursor{}},
 		1: {Args: map[string]any{}, State: map[string]any{}, Attempts: map[AttemptRef]int{}, Visits: map[string]int{},
-			Cursor: Cursor{}},
+			PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{}, Cursor: Cursor{}},
 		2: {Args: map[string]any{}, State: map[string]any{}, Visits: map[string]int{"deploy": 1},
-			Attempts: map[AttemptRef]int{ref("deploy", ""): 1}, Cursor: Cursor{Step: "deploy", Attempt: 1}},
+			Attempts: map[AttemptRef]int{ref("deploy", ""): 1}, PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{}, Cursor: Cursor{Step: "deploy", Attempt: 1}},
 		3: {Args: map[string]any{}, State: map[string]any{"url": "https://x"}, Visits: map[string]int{"deploy": 1},
-			Attempts: map[AttemptRef]int{ref("deploy", ""): 1}, Cursor: Cursor{Step: "deploy", Attempt: 1}},
+			Attempts: map[AttemptRef]int{ref("deploy", ""): 1}, PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{}, Cursor: Cursor{Step: "deploy", Attempt: 1}},
 		4: {Args: map[string]any{}, State: map[string]any{"url": "https://x"}, Visits: map[string]int{"deploy": 1},
-			Attempts: map[AttemptRef]int{ref("deploy", ""): 1}, Cursor: Cursor{Step: "deploy", Attempt: 1}},
+			Attempts: map[AttemptRef]int{ref("deploy", ""): 1}, PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{}, Cursor: Cursor{Step: "deploy", Attempt: 1}},
 		5: {Args: map[string]any{}, State: map[string]any{"url": "https://x"}, Visits: map[string]int{"deploy": 1},
-			Attempts: map[AttemptRef]int{ref("deploy", ""): 1}, Cursor: Cursor{Step: "deploy", Attempt: 1}, BlockedReason: "vcs-mutated-outside-guard",
+			Attempts: map[AttemptRef]int{ref("deploy", ""): 1}, PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{}, Cursor: Cursor{Step: "deploy", Attempt: 1}, BlockedReason: "vcs-mutated-outside-guard",
 			Ended: true, EndStatus: "blocked", EndReason: "vcs-mutated-outside-guard"},
 	}
 }
@@ -328,6 +328,7 @@ func naiveReplay(events []Event) (*RunState, error) {
 	rs := &RunState{
 		Args: map[string]any{}, State: map[string]any{},
 		Attempts: map[AttemptRef]int{}, Visits: map[string]int{},
+		PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{},
 	}
 
 	for _, e := range events {

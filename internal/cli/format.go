@@ -185,6 +185,18 @@ func formatInstruction(instr engine.Instruction, w *spec.Workflow, root string) 
 			maxAttempts = step.Attempts
 		}
 		return formatDispatch(v, maxAttempts)
+	case engine.DispatchParallel:
+		maxAttempts := make(map[string]int, len(v.Agentic))
+		for _, branch := range v.Agentic {
+			n := 1
+			if step := w.StepByID(branch.Step); step != nil {
+				n = step.Attempts
+			}
+			maxAttempts[branch.Step] = n
+		}
+		return formatDispatchParallel(v, maxAttempts)
+	case engine.BranchRecorded:
+		return formatBranchRecorded(v)
 	case engine.Terminal:
 		detail := ""
 		if v.Status == "blocked" {
@@ -219,40 +231,103 @@ func formatInstruction(instr engine.Instruction, w *spec.Workflow, root string) 
 func formatDispatch(d engine.Dispatch, maxAttempts int) string {
 	w := &blockWriter{}
 	w.line(0, "DISPATCH", d.RunID, d.Step)
-	w.line(0, "attempt:", fmt.Sprintf("%d of %d", d.Attempt, maxAttempts))
+	writeDispatchBody(w, 0, d, maxAttempts)
+	w.line(0, "submit with:", fmt.Sprintf("pawl submit --run %s --step %s --json '<the object above>'", d.RunID, d.Step))
+	w.line(0, "END", "DISPATCH", d.RunID, d.Step)
+	return w.String()
+}
 
-	w.field(0, "description", d.Description)
+// writeDispatchBody writes the body shared by a standalone DISPATCH block
+// (formatDispatch) and each branch's nested DISPATCH block inside a
+// DISPATCH_PARALLEL block (formatDispatchParallel) — attempt, description,
+// context, return, subagent_args, and (on retry) the previous attempt's
+// postcondition failure — at indent, so the same rendering logic produces
+// either a column-0 block or a one-level-deeper nested one. It deliberately
+// excludes the "submit with:" line and the opening DISPATCH/closing END
+// sentinel: those are written by the caller, since a branch's own "submit
+// with:" line and END sentinel are printed inside its nested block by
+// formatDispatchParallel, not here (see that function).
+func writeDispatchBody(w *blockWriter, indent int, d engine.Dispatch, maxAttempts int) {
+	w.line(indent, "attempt:", fmt.Sprintf("%d of %d", d.Attempt, maxAttempts))
+
+	w.field(indent, "description", d.Description)
 
 	if len(d.Context) == 0 {
-		w.line(0, "context:", "(none)")
+		w.line(indent, "context:", "(none)")
 	} else {
-		w.line(0, "context:")
+		w.line(indent, "context:")
 		for i, c := range d.Context {
-			w.line(1, fmt.Sprintf("[%d]", i+1), c.Source, fmt.Sprintf("(%d bytes)", len(c.Value)))
-			w.body(1, c.Value)
+			w.line(indent+1, fmt.Sprintf("[%d]", i+1), c.Source, fmt.Sprintf("(%d bytes)", len(c.Value)))
+			w.body(indent+1, c.Value)
 		}
 	}
 
 	if len(d.WritesKeys) == 0 {
-		w.line(0, "return:", "(none)")
+		w.line(indent, "return:", "(none)")
 	} else {
-		w.line(0, "return: a JSON object with exactly these keys (key order does not matter)")
+		w.line(indent, "return: a JSON object with exactly these keys (key order does not matter)")
 		for _, k := range d.WritesKeys {
-			w.line(1, k+":", d.WritesTypes[k])
+			w.line(indent+1, k+":", d.WritesTypes[k])
 		}
 	}
 
-	w.line(0, "subagent_args:", formatVerbatim(d.SubagentArgs))
+	w.line(indent, "subagent_args:", formatVerbatim(d.SubagentArgs))
 
 	if d.Attempt >= 2 {
-		w.field(0, fmt.Sprintf("previous attempt failed (attempt %d of this step, postcondition output)", d.Attempt-1), d.PreviousFailure)
+		w.field(indent, fmt.Sprintf("previous attempt failed (attempt %d of this step, postcondition output)", d.Attempt-1), d.PreviousFailure)
 	}
+	if d.Interrupted {
+		w.field(indent, "interrupted", "a previous attempt on this step did not finish (a crash, or a person intervened after a block); inspect current state before acting.")
+	}
+}
+
+// formatDispatchParallel renders the DISPATCH_PARALLEL block (DESIGN.md §2,
+// §3): a header line naming the run and the parallel step itself, then one
+// nested DISPATCH block per outstanding agentic branch — built by
+// writeDispatchBody at indent 1, the same body-rendering formatDispatch uses
+// for a standalone DISPATCH, so the two never drift apart — each closed by
+// its own "END DISPATCH <run> <branch-step-id>" sentinel (branch step ids
+// are globally unique, spec/validate.go's task-1 rule, so that id alone
+// still disambiguates which branch a submit answers). The whole block closes
+// with "END DISPATCH_PARALLEL <run> <step>". Interrupted mirrors
+// formatDispatch's own convention (DESIGN.md §4 step 7) at the parallel
+// level, since DispatchParallel — not each individual branch Dispatch —
+// carries it (engine.DispatchParallel's doc comment: never re-dispatching a
+// branch that already transitioned).
+func formatDispatchParallel(d engine.DispatchParallel, maxAttempts map[string]int) string {
+	w := &blockWriter{}
+	w.line(0, "DISPATCH_PARALLEL", d.RunID, d.Step)
 	if d.Interrupted {
 		w.field(0, "interrupted", "a previous attempt on this step did not finish (a crash, or a person intervened after a block); inspect current state before acting.")
 	}
+	for _, branch := range d.Agentic {
+		w.line(1, "DISPATCH", branch.RunID, branch.Step)
+		writeDispatchBody(w, 1, branch, maxAttempts[branch.Step])
+		w.line(1, "submit with:", fmt.Sprintf("pawl submit --run %s --step %s --json '<the object above>'", branch.RunID, branch.Step))
+		w.line(1, "END", "DISPATCH", branch.RunID, branch.Step)
+	}
+	w.line(0, "END", "DISPATCH_PARALLEL", d.RunID, d.Step)
+	return w.String()
+}
 
-	w.line(0, "submit with:", fmt.Sprintf("pawl submit --run %s --step %s --json '<the object above>'", d.RunID, d.Step))
-	w.line(0, "END", "DISPATCH", d.RunID, d.Step)
+// formatBranchRecorded renders the single interstitial "~"-prefixed status
+// line for a branch report that leaves siblings still outstanding
+// (engine.BranchRecorded's doc comment: not a new instruction for the
+// session to act on — every agentic branch was already dispatched up front
+// in one DISPATCH_PARALLEL). It follows DESIGN.md §2's "~ step → target
+// outcome" precedent for a non-instruction status line: prefixed but not
+// column-0-instruction-shaped, so a session scanning for
+// DISPATCH|ASK|WAIT|TERMINAL never mistakes it for one, and still built
+// through blockWriter like every other line this package prints, since
+// Remaining holds other author-declared branch step ids with no format
+// validator of their own.
+func formatBranchRecorded(b engine.BranchRecorded) string {
+	w := &blockWriter{}
+	remaining := "(none)"
+	if len(b.Remaining) > 0 {
+		remaining = strings.Join(b.Remaining, ", ")
+	}
+	w.line(0, fmt.Sprintf("~ branch %s recorded (parallel %s: waiting on: %s)", b.BranchStep, b.ParallelStep, remaining))
 	return w.String()
 }
 

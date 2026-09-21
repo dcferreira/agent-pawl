@@ -18,7 +18,7 @@ import (
 // field, whether it belongs in digestWorkflow/digestStep too.
 const (
 	wantSpecWorkflowFieldCount = 12
-	wantSpecStepFieldCount     = 26
+	wantSpecStepFieldCount     = 27
 )
 
 func TestDigestProjection_PinnedAgainstSpecFieldCount(t *testing.T) {

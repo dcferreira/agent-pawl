@@ -1,0 +1,29 @@
+workflow: parallel-double-owned
+start: p1
+steps:
+  - id: p1
+    kind: parallel
+    branches: [b1, b2]
+    next: join1
+  - id: join1
+    kind: deterministic
+    run: echo join1
+    next: p2
+  - id: p2
+    kind: parallel
+    branches: [b1, b3]
+    next: join2
+  - id: join2
+    kind: deterministic
+    run: echo join2
+    next: done
+  - id: b1
+    kind: deterministic
+    run: echo hi
+  - id: b2
+    kind: deterministic
+    run: echo hi2
+  - id: b3
+    kind: deterministic
+    run: echo hi3
+terminal: {done: {status: ok}}

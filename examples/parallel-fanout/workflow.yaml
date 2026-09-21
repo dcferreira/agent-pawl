@@ -1,0 +1,84 @@
+workflow: parallel-fanout
+description: >
+  kind: parallel example: a deterministic setup step fans out into three
+  branches — one deterministic, two agentic — that must all finish before a
+  join step proceeds (the engine's all-or-nothing parallel join). The two
+  agentic branches are dispatched together in a single DISPATCH_PARALLEL
+  block, proving genuine concurrent subagent dispatch, not just sequential
+  fan-out. See NOTES.md for what this demonstrates.
+start: setup
+
+state:
+  branch_a_result: {type: string, default: ""}
+  summary_b:       {type: string, default: ""}
+  summary_c:       {type: string, default: ""}
+
+steps:
+  - id: setup
+    kind: deterministic
+    run: echo "setup ok"                # nothing to verify yet; just enters the group
+    next: fanout
+
+  - id: fanout
+    kind: parallel
+    branches: [branch_a, branch_b, branch_c]
+    next: join
+
+  # ── BRANCH A (deterministic) ────────────────────────────────────────────
+  - id: branch_a
+    kind: deterministic
+    run: echo "branch_a_result=$(wc -l < README.md | tr -d ' ')"   # counts
+                                        # this repo's own README.md lines —
+                                        # small, real, verifiable work
+    emits: pairs
+    writes: [branch_a_result]
+    postcondition: {all_set: [branch_a_result]}
+
+  # ── BRANCH B (agentic) ──────────────────────────────────────────────────
+  - id: branch_b
+    kind: agentic
+    description: |
+      Read this repository's README.md. Write a single, one-sentence
+      summary of its first paragraph (the text before the first blank line)
+      into `summary_b`. Be concise and accurate — do not invent claims the
+      paragraph doesn't make.
+    context:
+      - !cmd "sed -n '1,5p' README.md"
+    subagent_args: {tools: [Read], model: haiku}
+    writes: {summary_b: {type: string}}
+    postcondition: {all_set: [summary_b]}
+
+  # ── BRANCH C (agentic) ──────────────────────────────────────────────────
+  # A second, independent agentic branch — dispatched in the SAME
+  # DISPATCH_PARALLEL block as branch_b, so a driving session must fire two
+  # real subagents concurrently (not one after another) to complete this
+  # workflow. This is what actually proves kind: parallel dispatches in
+  # parallel, rather than just joining a mix of already-resolved branches.
+  - id: branch_c
+    kind: agentic
+    description: |
+      Read this repository's DESIGN.md. Write a single, one-sentence
+      summary of its "Purpose" section (§1) into `summary_c`. Be concise
+      and accurate — do not invent claims the section doesn't make.
+    context:
+      - !cmd "sed -n '/^## 1. Purpose/,/^## 2/p' DESIGN.md"
+    subagent_args: {tools: [Read], model: haiku}
+    writes: {summary_c: {type: string}}
+    postcondition: {all_set: [summary_c]}
+
+  # ── JOIN ─────────────────────────────────────────────────────────────
+  - id: join
+    kind: deterministic
+    run: echo "join ok"
+    postcondition: {all_set: [branch_a_result, summary_b, summary_c]}   # the
+                                        # engine's own all-or-nothing
+                                        # parallel join already guarantees
+                                        # all three branches completed
+                                        # before join is entered; this
+                                        # postcondition is the belt to that
+                                        # braces, re-observing that every
+                                        # writes: actually landed in state
+    next: done
+
+terminal:
+  done: {status: ok, message: "fan-out complete — README.md is ${branch_a_result} lines; branch_b: ${summary_b}; branch_c: ${summary_c}"}
