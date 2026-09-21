@@ -43,6 +43,17 @@ func (e *Engine) Submit(runID, stepID string, attempt int, result json.RawMessag
 		return nil, fmt.Errorf("%w: run %q ended %s", ErrAlreadyTerminal, runID, rs.EndStatus)
 	}
 	step := e.Workflow.StepByID(stepID)
+	if step != nil && step.Kind == "wait" {
+		// DESIGN.md §3, stated as a rule: "The model never runs pawl submit
+		// for a wait result." design/format-spec.md §13 says why — pawl poll
+		// submits on its own behalf, internally, so a model-issued submit
+		// here would race the poller and route an outcome the poller never
+		// observed. The generic "not an agentic step" refusal below would
+		// also stop it, but it would leave the caller with no idea what to
+		// run instead, which for the one command the /pawl skill is
+		// explicitly told not to use is the whole point of the message.
+		return nil, fmt.Errorf("engine: step %q is a wait step: its result is submitted by the poller, not by you — run `pawl poll --run %s --step %s` (DESIGN.md §3: the model never runs pawl submit for a wait result)", stepID, runID, stepID)
+	}
 	if step == nil {
 		return nil, fmt.Errorf("engine: step %q is not an agentic step awaiting submission", stepID)
 	}

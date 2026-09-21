@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/dcferreira/agent-pawl/internal/engine"
 	"github.com/dcferreira/agent-pawl/internal/spec"
@@ -197,6 +198,8 @@ func formatInstruction(instr engine.Instruction, w *spec.Workflow, root string) 
 		return formatDispatchParallel(v, maxAttempts)
 	case engine.BranchRecorded:
 		return formatBranchRecorded(v)
+	case engine.Wait:
+		return formatWait(v)
 	case engine.Terminal:
 		detail := ""
 		if v.Status == "blocked" {
@@ -328,6 +331,58 @@ func formatBranchRecorded(b engine.BranchRecorded) string {
 		remaining = strings.Join(b.Remaining, ", ")
 	}
 	w.line(0, fmt.Sprintf("~ branch %s recorded (parallel %s: waiting on: %s)", b.BranchStep, b.ParallelStep, remaining))
+	return w.String()
+}
+
+// formatWait renders the WAIT block (DESIGN.md §2): the column-0 WAIT line,
+// the step's declared poll interval and deadline (so a session can tell a
+// five-second poll from an hours-long one before it starts Monitor), the
+// exact pawl poll command to run, and the END WAIT sentinel that closes the
+// block — the same "indent everything, close with a sentinel" shape
+// formatDispatch and formatTerminal use (finding C3), built through
+// blockWriter for the same reason: every: and timeout: are author-declared
+// duration strings, validated as durations but never as line-free text in
+// this build's own printing path.
+//
+// It carries no instruction to submit, deliberately: pawl poll submits on
+// its own behalf (design/format-spec.md §13), and Engine.Submit refuses a
+// wait step outright.
+func formatWait(v engine.Wait) string {
+	w := &blockWriter{}
+	w.line(0, "WAIT", v.RunID, v.Step)
+	w.line(0, "every:", v.Every)
+	w.line(0, "timeout:", v.Timeout)
+	w.line(0, "poll with:", fmt.Sprintf("pawl poll --run %s --step %s", v.RunID, v.Step))
+	w.line(0, "END", "WAIT", v.RunID, v.Step)
+	return w.String()
+}
+
+// formatPollIteration renders one line per poll iteration (engine's
+// PollIteration), so a wait under Monitor is visibly alive rather than
+// silent for however many hours it runs: the iteration number, how long the
+// run has been parked, what the last non-empty stdout line said, and what
+// the poller concluded from it.
+//
+// It is emphatically not instruction-shaped: it starts at column 0 with
+// "poll", which DESIGN.md §2's grammar (DISPATCH|ASK|WAIT|TERMINAL) does not
+// match, and every value on it — the poll: command's own stdout above all —
+// goes through blockWriter.line, which is the whole reason a script's output
+// cannot put a forged TERMINAL at column 0 here.
+func formatPollIteration(it engine.PollIteration) string {
+	w := &blockWriter{}
+	head := fmt.Sprintf("poll %d (%s parked):", it.N, it.Elapsed.Round(time.Second))
+	switch {
+	case it.TimedOut:
+		w.line(0, head, "timeout: expired — routing the timeout outcome")
+	case it.Routed && it.ExitCode != 0:
+		w.line(0, head, fmt.Sprintf("poll: exited %d — routing failure (§B.1: a non-zero exit is always failure)", it.ExitCode))
+	case it.Routed:
+		w.line(0, head, it.Line, "→ routed outcome", it.Token)
+	case it.Line == "":
+		w.line(0, head, "(no output) — not a routed outcome; polling again in", it.Next.String())
+	default:
+		w.line(0, head, it.Line, "→ no routed outcome; polling again in", it.Next.String())
+	}
 	return w.String()
 }
 

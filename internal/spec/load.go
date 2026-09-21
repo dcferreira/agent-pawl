@@ -26,6 +26,10 @@ const DefaultAttempts = 1
 // (design/format-spec.md §D).
 const DefaultEmits = "json"
 
+// DefaultEvery is the poll interval assumed when every: is omitted on a
+// wait step (design/format-spec.md §D).
+const DefaultEvery = "60s"
+
 // Load reads path, parses it as a workflow file and applies the
 // design/format-spec.md §D defaults, so that no later package has to
 // interpret a zero value.
@@ -87,6 +91,10 @@ func applyDefaults(w *Workflow) {
 
 		if s.Emits == "" {
 			s.Emits = DefaultEmits
+		}
+
+		if s.Kind == "wait" && s.Every == "" {
+			s.Every = DefaultEvery
 		}
 	}
 }

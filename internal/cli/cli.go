@@ -35,6 +35,9 @@ Commands:
   pawl submit --run <id> --step <id> --json '<result>'
         internal: submit an agentic step's result (the /pawl skill calls this;
         an author never writes it)
+  pawl poll --run <id> --step <name>
+        internal: poll a wait step until it resolves, then submit for itself
+        (the /pawl skill runs this under Monitor; an author never writes it)
   pawl version
         print the pawl version
 `
@@ -57,6 +60,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return cmdRun(args[2:], cwd, stdout, stderr)
 	case "submit":
 		return cmdSubmit(args[2:], cwd, stdout, stderr)
+	case "poll":
+		return cmdPoll(args[2:], cwd, stdout, stderr)
 	case "status":
 		return cmdStatus(args[2:], cwd, stdout, stderr)
 	case "abandon":

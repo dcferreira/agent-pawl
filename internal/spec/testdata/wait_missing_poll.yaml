@@ -1,0 +1,8 @@
+workflow: wait-missing-poll
+start: w
+steps:
+  - id: w
+    kind: wait
+    timeout: 5m
+    next: done
+terminal: {done: {status: ok}}

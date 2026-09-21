@@ -72,7 +72,7 @@ func Parse(stdout string, exitCode int, step *spec.Step, decls map[string]spec.S
 		return Result{Outcome: "failure"}, nil
 	}
 
-	line := lastNonEmptyLine(stdout)
+	line := LastNonEmptyLine(stdout)
 	named := hasAuthorNamedOutcomes(step)
 
 	var token, payload string
@@ -101,6 +101,41 @@ func Parse(stdout string, exitCode int, step *spec.Step, decls map[string]spec.S
 	}
 
 	return Result{Outcome: outcome, Writes: writes}, nil
+}
+
+// Routed reads a command's captured stdout exactly as Parse does — the same
+// last-non-empty-line rule, the same TOKEN split, the same routable set —
+// and reports the token it found and whether that token is one the step
+// actually routes. It exists for the `wait` kind, whose polling loop needs to
+// ask "is this iteration's line a *routed* token?" (DESIGN.md §3,
+// design/format-spec.md §13) before deciding whether to end the loop.
+//
+// Parse cannot answer that question, and deliberately so: a deterministic
+// step has no "not yet" — an unrouted token there is unintelligible stdout
+// (ErrParse), because the step has already finished and there is no third
+// thing for the engine to do with it. A wait step's every: tick *is* that
+// third thing, so the identical line is a normal, expected non-event there.
+// Routed therefore returns (token, false) rather than an error for that case;
+// the caller polls again. Once routed is true, the caller hands the very same
+// stdout to Parse for the payload, so exactly one parser implements §B.1.
+//
+// Non-zero exitCode is "failure" whatever was printed (§B.1) — a reserved
+// outcome that always routes (via catch:, or the engine-wide default), so
+// Routed reports it as routed with token "failure" and never inspects stdout.
+// A step declaring no author-named outcomes expects no TOKEN at all, so exit
+// 0 is the routed reserved outcome "success".
+func Routed(stdout string, exitCode int, step *spec.Step) (token string, routed bool) {
+	if exitCode != 0 {
+		return "failure", true
+	}
+	if !hasAuthorNamedOutcomes(step) {
+		return "success", true
+	}
+	token, _ = splitToken(LastNonEmptyLine(stdout))
+	if token == "" {
+		return "", false
+	}
+	return token, isRoutableToken(step, token)
 }
 
 // hasAuthorNamedOutcomes reports whether step declares any outcome name
@@ -151,11 +186,11 @@ func sortedRoutableNames(step *spec.Step) string {
 	return strings.Join(names, ", ")
 }
 
-// lastNonEmptyLine returns the last line of stdout that is non-empty after
+// LastNonEmptyLine returns the last line of stdout that is non-empty after
 // trimming trailing whitespace (a line of only spaces counts as empty), with
 // that trailing whitespace (including a CRLF's "\r") trimmed off. It returns
 // "" if stdout has no non-empty line.
-func lastNonEmptyLine(stdout string) string {
+func LastNonEmptyLine(stdout string) string {
 	lines := strings.Split(stdout, "\n")
 	for i := len(lines) - 1; i >= 0; i-- {
 		line := strings.TrimRight(lines[i], " \t\r")

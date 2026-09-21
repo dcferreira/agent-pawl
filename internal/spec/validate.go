@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/dcferreira/agent-pawl/internal/render"
 )
@@ -31,10 +32,11 @@ func (r *Report) SoftPercent() float64 {
 
 // Validate runs the static checks against w and returns a Report. The
 // checks implemented are design/format-spec.md §H rules 1, 2, 3, 3b, 4, 5,
-// 6, 9, 9b, 10, 11, 12, 13, 14 (Ruling R4), plus the R3 kind rejections
-// (wait, human), the R8 guards:/invariants: rejection, and the kind:
-// parallel branches: validation (checkParallelBranches). Rules 7, 8, 15, 16
-// and the two warnings are deferred per R4.
+// 6, 7, 9, 9b, 10, 11, 12, 13, 14 (Ruling R4), plus the R3 kind rejection
+// (human), the R8 guards:/invariants: rejection, and the kind: parallel
+// branches: validation (checkParallelBranches). wait's own required fields
+// (poll:, timeout:) and duration parsing (every:, timeout:) are checked
+// alongside rule 7. Rules 8, 15, 16 and the two warnings are deferred per R4.
 func Validate(w *Workflow) (*Report, error) {
 	if w == nil {
 		return nil, fmt.Errorf("spec: Validate: nil workflow")
@@ -69,6 +71,8 @@ func Validate(w *Workflow) (*Report, error) {
 	checkRule4(w, &errs)
 	checkRule5(w, &errs)
 	checkRule6(w, &errs)
+	checkRule7(w, &errs)
+	checkWaitDurations(w, &errs)
 	checkRule9(w, &errs)
 	checkRule9b(w, &errs)
 	checkRule10(w, &errs)
@@ -132,14 +136,17 @@ func checkRetry(w *Workflow, errs *[]string) {
 }
 
 // checkKindSupport rejects kinds this build does not execute (Ruling R3).
+// wait was added to the supported set once its own validation (poll:,
+// timeout:, duration parsing, outcome-routing completeness) landed; human
+// remains rejected here unchanged.
 func checkKindSupport(w *Workflow, errs *[]string) {
 	for _, s := range w.Steps {
 		switch s.Kind {
-		case "deterministic", "agentic", "parallel":
+		case "deterministic", "agentic", "wait", "parallel":
 			// supported
-		case "wait", "human":
+		case "human":
 			*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
-				"kind %q is not implemented in this build (milestone 1 MVP covers deterministic and agentic)", s.Kind)))
+				"kind %q is not implemented in this build (milestone 1 MVP covers deterministic, agentic, wait and parallel)", s.Kind)))
 		default:
 			*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
 				"kind %q is not one of deterministic, agentic, wait, human, parallel; fix the typo", s.Kind)))
@@ -315,6 +322,10 @@ func checkKindRequiredFields(w *Workflow, errs *[]string) {
 		case "agentic":
 			if s.Description == "" {
 				*errs = append(*errs, stepErr(w, s.ID, "kind: agentic requires description:; add a description: of the intent, constraints and definition of done"))
+			}
+		case "wait":
+			if s.Poll == "" {
+				*errs = append(*errs, stepErr(w, s.ID, "kind: wait requires poll:; add a poll: command"))
 			}
 		}
 	}
@@ -658,6 +669,50 @@ func checkRule6(w *Workflow, errs *[]string) {
 	for _, s := range w.Steps {
 		if s.Kind == "agentic" && s.Postcondition == nil {
 			*errs = append(*errs, stepErr(w, s.ID, "rule 6: kind: agentic requires postcondition: (soft: true is not an exemption from declaring one); add a postcondition:"))
+		}
+	}
+}
+
+// checkRule7 implements the first half of §H rule 7: a wait or human step
+// with no timeout:. (The second half — no route for the timeout outcome —
+// is covered by rule 3b via requiredOutcomesFor, since a wait/human step's
+// producible token universe is exactly its outcomes: map's own keys plus
+// the reserved timeout token, mirrored from how deterministic's own
+// author-named tokens are just its outcomes: map's keys.)
+func checkRule7(w *Workflow, errs *[]string) {
+	for _, s := range w.Steps {
+		if s.Kind != "wait" && s.Kind != "human" {
+			continue
+		}
+		if s.Timeout == "" {
+			*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
+				"rule 7: kind: %s requires timeout:; add a timeout: duration (e.g. \"5m\", \"1h\")", s.Kind)))
+		}
+	}
+}
+
+// checkWaitDurations validates that a wait step's every:/timeout: parse as
+// Go durations (§D's "duration" type column). No §H rule number covers a
+// field's type shape directly — like rule 10's emits: enum check, this is a
+// type check the field table implies but §H does not enumerate by number —
+// so it is reported without a "rule N:" prefix, the same convention
+// checkKindRequiredFields uses for its own un-numbered findings.
+func checkWaitDurations(w *Workflow, errs *[]string) {
+	for _, s := range w.Steps {
+		if s.Kind != "wait" {
+			continue
+		}
+		if s.Every != "" {
+			if _, err := time.ParseDuration(s.Every); err != nil {
+				*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
+					"every: %q is not a valid duration; use Go duration syntax, e.g. \"60s\", \"5m\"", s.Every)))
+			}
+		}
+		if s.Timeout != "" {
+			if _, err := time.ParseDuration(s.Timeout); err != nil {
+				*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
+					"timeout: %q is not a valid duration; use Go duration syntax, e.g. \"5m\", \"1h\"", s.Timeout)))
+			}
 		}
 	}
 }

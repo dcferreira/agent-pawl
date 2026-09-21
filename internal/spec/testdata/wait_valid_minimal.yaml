@@ -1,0 +1,11 @@
+workflow: wait-valid-minimal
+start: w
+steps:
+  - id: w
+    kind: wait
+    poll: echo CLEAN
+    timeout: 5m
+    outcomes:
+      CLEAN: done
+      timeout: blocked
+terminal: {done: {status: ok}, blocked: {status: blocked}}

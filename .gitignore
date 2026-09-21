@@ -1,2 +1,3 @@
 dist/
 /pawl
+examples/wait-for-build/.run/

@@ -223,6 +223,23 @@ func TestValidate_InvalidAttemptsClamped(t *testing.T) {
 	}
 }
 
+// TestLoad_WaitEveryDefault is the wait-kind analogue of the Emits default:
+// a wait step with no every: gets DefaultEvery ("60s"), applied by
+// applyDefaults the same way Attempts/MaxVisits/Emits already are.
+func TestLoad_WaitEveryDefault(t *testing.T) {
+	w, err := Load("testdata/wait_valid_next.yaml")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	step := w.StepByID("w")
+	if step == nil {
+		t.Fatalf("step %q not found", "w")
+	}
+	if step.Every != DefaultEvery {
+		t.Fatalf("Every = %q, want default %q", step.Every, DefaultEvery)
+	}
+}
+
 func TestLoad_ExplicitOverridesDefault(t *testing.T) {
 	w, err := Load("testdata/valid.yaml")
 	if err != nil {

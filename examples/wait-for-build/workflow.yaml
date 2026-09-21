@@ -1,0 +1,78 @@
+workflow: wait-for-build
+description: >
+  Kick off an async build in the background, poll for it to finish, and
+  hand a short human-readable summary to an agentic step once it passes.
+  Exercises deterministic → wait → agentic in sequence. See NOTES.md for
+  what this example exercises and the judgment calls made while authoring
+  it (`wait` is not yet accepted by the engine — this is spec-writing
+  ahead of implementation).
+start: kick_off_build
+max_steps: 20                          # backstop; this workflow has no cycles
+
+args:                                  # pawl run wait-for-build force_result=FAILED
+  force_result: {type: string, default: "PASSED"}   # PASSED | FAILED — lets the
+                                                      # failure path be exercised
+                                                      # on demand without editing
+                                                      # the workflow (§B.9)
+
+state:
+  build_started_at: {type: string, default: ""}
+  build_status:      {type: string, default: ""}
+  summary:           {type: string, default: ""}
+
+steps:
+  - id: kick_off_build
+    kind: deterministic
+    run: scripts/kick_off_build.sh examples/wait-for-build/.run/status ${force_result}
+    # ${force_result} carries no quotes of its own: design/format-spec.md §B.2
+    # substitutes a value in a shell context as *one shell-quoted token*
+    # already, so wrapping it in "…" here handed the script the literal
+    # characters 'FAILED', quotes included — which simulate_build.sh's
+    # PASSED|FAILED case does not match, so it fell back to PASSED and the
+    # FAILED route could never be exercised at all (found by running it).
+    # kick_off_build.sh truncates the status file, backgrounds
+    # simulate_build.sh (so this step returns immediately — DESIGN.md §3
+    # notes the engine-wide wall-clock ceiling on deterministic steps, and
+    # the simulated build takes ~15-20s, close enough to want it off the
+    # foreground path on principle), and prints
+    # {"build_started_at": "..."} on its last stdout line (emits: json,
+    # the default — no outcomes: here, so no TOKEN per §B.1).
+    writes: [build_started_at]
+    postcondition: "[ -f examples/wait-for-build/.run/status ]"   # the effect
+                                        # that matters: the marker/status file
+                                        # exists for wait_for_build to poll
+    next: wait_for_build
+
+  - id: wait_for_build
+    kind: wait
+    poll: scripts/check_build.sh examples/wait-for-build/.run/status
+    every: 5s
+    timeout: 5m
+    emits: pairs                       # routed lines: "PASSED build_status=PASSED"
+                                        # / "FAILED build_status=FAILED" (§B.1)
+    writes: {build_status: {type: string}}
+    outcomes:
+      PASSED:  summarize_build
+      FAILED:  blocked                 # build genuinely failed — a person looks
+      timeout: blocked                 # the build never reported in 5m — stuck CI
+
+  - id: summarize_build
+    kind: agentic
+    description: |
+      A build was kicked off at ${build_started_at} and finished with status
+      ${build_status}. Write a short (2-4 sentence) human-readable summary of
+      this build for a status update: when it started, that it passed, and
+      one plausible, honest sentence of what a real summary would cover here
+      (e.g. what changed, how long it took) given you have no other signal
+      to go on beyond the timestamps above — say so if you have nothing more
+      specific to report rather than inventing detail.
+    writes: {summary: {type: string}}
+    postcondition: "[ -n \"${summary}\" ] && [ \"$(printf '%s' \"${summary}\" | wc -c)\" -ge 10 ]"   # wrote
+                                        # something, not just an empty/trivial
+                                        # string (required on agentic — §B.7)
+    attempts: 2
+    next: done
+
+terminal:
+  done:    {status: ok,      message: "Build passed. Summary: ${summary}"}
+  blocked: {status: blocked, message: "Paused for review: ${blocked_reason}"}
