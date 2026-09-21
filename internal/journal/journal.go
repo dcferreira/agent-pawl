@@ -65,6 +65,22 @@ type Event struct {
 	// did before this field was added.
 	Retry bool `json:"retry,omitempty"`
 
+	// Group names the id of the parallel step that owns this event's Step,
+	// when Step is one of that parallel step's branches: set on a
+	// STEP_ENTER or TRANSITION for a BRANCH step, empty ("") for every
+	// other event — including the parallel step's own (ungrouped)
+	// STEP_ENTER/TRANSITION. Replay uses it to fold branch progress into
+	// RunState.PendingBranches/BranchOutcome without disturbing the
+	// singular lastEnter/transitionedSinceEnter/Cursor tracking, which
+	// keeps following only the parallel step's own ungrouped events exactly
+	// as before this field existed.
+	//
+	// Additive and backward-compatible: an event recorded before this field
+	// existed decodes with Group "" (its JSON zero value), so it is never
+	// mistaken for a branch event and Replay behaves exactly as it did
+	// before this field was added.
+	Group string `json:"group,omitempty"`
+
 	// RUN_START
 	Args         map[string]any `json:"args,omitempty"`
 	Digest       string         `json:"digest,omitempty"`
