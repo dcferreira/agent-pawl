@@ -163,6 +163,8 @@ func (e *Engine) Resume(runID string, force bool) (Instruction, error) {
 			return e.runFrom(dir, log, runID, *next)
 		}
 		return instr, nil
+	case "parallel":
+		return e.resumeParallel(dir, log, runID, step, rs)
 	default:
 		return nil, fmt.Errorf("engine: step %q: kind %q is not implemented in this build (milestone 1 MVP covers deterministic and agentic)", step.ID, step.Kind)
 	}
@@ -235,6 +237,8 @@ func (e *Engine) runFrom(dir string, log *journal.Log, runID string, cur journal
 			return instr, nil
 		case "agentic":
 			return e.dispatchAgentic(dir, log, runID, step, cur, false)
+		case "parallel":
+			return e.dispatchParallel(dir, log, runID, step, cur, false)
 		default:
 			return nil, fmt.Errorf("engine: step %q: kind %q is not implemented in this build (milestone 1 MVP covers deterministic and agentic)", step.ID, step.Kind)
 		}

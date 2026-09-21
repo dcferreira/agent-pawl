@@ -42,13 +42,35 @@ func (e *Engine) Submit(runID, stepID string, attempt int, result json.RawMessag
 	if rs.Terminal() {
 		return nil, fmt.Errorf("%w: run %q ended %s", ErrAlreadyTerminal, runID, rs.EndStatus)
 	}
-	if rs.Cursor.Step != stepID || rs.Cursor.Attempt != attempt {
+	step := e.Workflow.StepByID(stepID)
+	if step == nil {
+		return nil, fmt.Errorf("engine: step %q is not an agentic step awaiting submission", stepID)
+	}
+
+	// branchOf is set when stepID names a still-outstanding branch of the
+	// kind: parallel step the run's cursor is actually parked on — the
+	// second acceptance path Submit understands, alongside the ordinary
+	// "cursor is parked directly on this agentic step" path. The cursor
+	// itself never moves onto a branch (journal.Replay parks it on the
+	// parallel step throughout — see RunState.PendingBranches), so a
+	// branch submission is recognised by membership in
+	// rs.PendingBranches[rs.Cursor.Step], not by matching the cursor.
+	var branchOf string
+	switch {
+	case rs.Cursor.Step == stepID && rs.Cursor.Attempt == attempt:
+		if step.Kind != "agentic" {
+			return nil, fmt.Errorf("engine: step %q is not an agentic step awaiting submission", stepID)
+		}
+	case rs.PendingBranches[rs.Cursor.Step][stepID]:
+		parallelStep := e.Workflow.StepByID(rs.Cursor.Step)
+		if parallelStep == nil || parallelStep.Kind != "parallel" || step.Kind != "agentic" {
+			return nil, fmt.Errorf("engine: refusing submit for %s/attempt %d: the run is waiting on %s/attempt %d",
+				stepID, attempt, rs.Cursor.Step, rs.Cursor.Attempt)
+		}
+		branchOf = rs.Cursor.Step
+	default:
 		return nil, fmt.Errorf("engine: refusing submit for %s/attempt %d: the run is waiting on %s/attempt %d",
 			stepID, attempt, rs.Cursor.Step, rs.Cursor.Attempt)
-	}
-	step := e.Workflow.StepByID(stepID)
-	if step == nil || step.Kind != "agentic" {
-		return nil, fmt.Errorf("engine: step %q is not an agentic step awaiting submission", stepID)
 	}
 	key := rs.Cursor.AttemptKey
 
@@ -81,6 +103,10 @@ func (e *Engine) Submit(runID, stepID string, attempt int, result json.RawMessag
 				return nil, err
 			}
 		}
+	}
+
+	if branchOf != "" {
+		return e.submitBranch(dir, log, runID, branchOf, step, attempt, cr)
 	}
 
 	if cr.OK {
@@ -147,6 +173,61 @@ func (e *Engine) Submit(runID, stepID string, attempt int, result json.RawMessag
 		return e.routeAgentic(dir, log, runID, step, "failure", nextAttempt)
 	}
 	return instr, nil
+}
+
+// submitBranch journals an agentic branch's resolving report: its
+// postcondition-if-declared (reusing the same OK/not-OK POSTCONDITION shape
+// Submit's ordinary path journals, minus AttemptKey — a branch carries no
+// attempt budget of its own) and its synthetic grouped TRANSITION (the
+// "(joined)" marker; see journalBranchTransition). A branch never retries:
+// cr.OK false here means the branch itself resolved to outcome "failure",
+// full stop — not a redispatch.
+//
+// Once journaled, it checks whether any sibling branch is still pending
+// (this package's all-or-nothing rule: a dispatched agentic branch can never
+// be un-dispatched, so nothing here fails fast on the first failing branch —
+// see routeParallel). If so, it returns BranchRecorded rather than acting
+// further; once every branch has reported, it calls routeParallel to resolve
+// the group and continue the run.
+func (e *Engine) submitBranch(dir string, log *journal.Log, runID, parallelID string, step *spec.Step, attempt int, cr checkResult) (Instruction, error) {
+	outcome := "success"
+	if cr.OK {
+		if step.Postcondition != nil {
+			if _, err := log.Append(journal.Event{
+				Kind: journal.KindPostcondition, RunID: runID, Step: step.ID,
+				Attempt: attempt, OK: true, Soft: cr.Soft,
+			}); err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		outcome = "failure"
+		if _, err := log.Append(journal.Event{
+			Kind: journal.KindPostcondition, RunID: runID, Step: step.ID, Attempt: attempt,
+			OK: false, Text: cr.Text, Soft: cr.Soft,
+		}); err != nil {
+			return nil, err
+		}
+	}
+	if err := journalBranchTransition(log, runID, parallelID, step.ID, attempt, outcome); err != nil {
+		return nil, err
+	}
+
+	rs, err := replayDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	if pending := rs.PendingBranches[parallelID]; len(pending) > 0 {
+		return BranchRecorded{
+			RunID: runID, ParallelStep: parallelID, BranchStep: step.ID,
+			Remaining: sortedKeys(pending),
+		}, nil
+	}
+	parallelStep := e.Workflow.StepByID(parallelID)
+	if parallelStep == nil {
+		return nil, fmt.Errorf("engine: internal error: parallel step %q not found", parallelID)
+	}
+	return e.routeParallel(dir, log, runID, parallelStep, rs.Cursor.Attempt)
 }
 
 // validateAgenticWrites validates parsed against step's writes: schema

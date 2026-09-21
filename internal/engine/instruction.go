@@ -58,6 +58,36 @@ type Dispatch struct {
 
 func (Dispatch) isInstruction() {}
 
+// DispatchParallel instructs the caller to dispatch every entry in Agentic
+// as a subagent — in parallel, as separate Agent tool calls in one message —
+// and call Submit once per branch as each returns. Deterministic branches
+// have already executed in-process before this is returned (same rule as
+// the engine executing consecutive deterministic steps itself); their
+// results are already journaled and are not repeated here.
+type DispatchParallel struct {
+	RunID, Step string // Step is the PARALLEL step's id
+	Attempt     int
+	Agentic     []Dispatch // each Dispatch.Step is a BRANCH's own id
+
+	// Interrupted mirrors Dispatch.Interrupted: true when this
+	// DispatchParallel is a crash-resume redispatch of the branches that
+	// were still outstanding (never re-dispatching a branch that already
+	// transitioned).
+	Interrupted bool
+}
+
+func (DispatchParallel) isInstruction() {}
+
+// BranchRecorded is returned by Submit for a branch report that leaves
+// siblings still outstanding — not a new instruction for the session to
+// act on (every agentic branch was already dispatched up front).
+type BranchRecorded struct {
+	RunID, ParallelStep, BranchStep string
+	Remaining                       []string // other branch step ids still pending, sorted
+}
+
+func (BranchRecorded) isInstruction() {}
+
 // Terminal instructs the caller that the run is over (Status "ok") or
 // paused for review (Status "blocked" — DESIGN.md §4 is explicit that this
 // is not a dead end).
