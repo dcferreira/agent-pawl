@@ -37,10 +37,9 @@ func TestValidate_GoldenMessages(t *testing.T) {
 			},
 		},
 		{
-			name: "rule3b: wait missing timeout route (plus kind rejection)",
+			name: "rule3b: wait missing timeout route",
 			file: "rule3b_wait_missing_timeout_route.yaml",
 			want: []string{
-				`testdata/rule3b_wait_missing_timeout_route.yaml: step "w": kind "wait" is not implemented in this build (milestone 1 MVP covers deterministic and agentic)`,
 				`testdata/rule3b_wait_missing_timeout_route.yaml: step "w": rule 3b: has no route for outcome "timeout"; add outcomes: {timeout: <step-or-terminal>, ...}`,
 			},
 		},
@@ -144,17 +143,15 @@ func TestValidate_GoldenMessages(t *testing.T) {
 			},
 		},
 		{
-			name: "R3: wait is not implemented in this build",
+			name: "R3: wait is now implemented and validates clean",
 			file: "r3_wait_not_implemented.yaml",
-			want: []string{
-				`testdata/r3_wait_not_implemented.yaml: step "w": kind "wait" is not implemented in this build (milestone 1 MVP covers deterministic and agentic)`,
-			},
+			want: nil,
 		},
 		{
 			name: "R3: human is not implemented in this build",
 			file: "r3_human_not_implemented.yaml",
 			want: []string{
-				`testdata/r3_human_not_implemented.yaml: step "h": kind "human" is not implemented in this build (milestone 1 MVP covers deterministic and agentic)`,
+				`testdata/r3_human_not_implemented.yaml: step "h": kind "human" is not implemented in this build (milestone 1 MVP covers deterministic, agentic, wait and parallel)`,
 			},
 		},
 		{
@@ -175,7 +172,6 @@ func TestValidate_GoldenMessages(t *testing.T) {
 			name: "parallel: branch has a kind that is not deterministic or agentic",
 			file: "parallel_branch_wrong_kind.yaml",
 			want: []string{
-				`testdata/parallel_branch_wrong_kind.yaml: step "w": kind "wait" is not implemented in this build (milestone 1 MVP covers deterministic and agentic)`,
 				`testdata/parallel_branch_wrong_kind.yaml: step "p": branches[1]: step "w" has kind "wait", but a parallel branch must be deterministic or agentic (no nesting)`,
 			},
 		},
@@ -337,6 +333,44 @@ func TestValidate_GoldenMessages(t *testing.T) {
 			file: "f7_agentic_no_type_declared.yaml",
 			want: []string{
 				`testdata/f7_agentic_no_type_declared.yaml: step "a": kind: agentic requires a typed writes: map — it is the subagent's return schema; add writes: {<key>: {type: string|integer|json}} declaring each key the subagent returns`,
+			},
+		},
+		{
+			name: "wait: minimal valid step (outcomes: form) validates clean",
+			file: "wait_valid_minimal.yaml",
+			want: nil,
+		},
+		{
+			name: "wait: minimal valid step (next: form) validates clean",
+			file: "wait_valid_next.yaml",
+			want: nil,
+		},
+		{
+			name: "wait: missing poll:",
+			file: "wait_missing_poll.yaml",
+			want: []string{
+				`testdata/wait_missing_poll.yaml: step "w": kind: wait requires poll:; add a poll: command`,
+			},
+		},
+		{
+			name: "wait: missing timeout:",
+			file: "wait_missing_timeout.yaml",
+			want: []string{
+				`testdata/wait_missing_timeout.yaml: step "w": rule 7: kind: wait requires timeout:; add a timeout: duration (e.g. "5m", "1h")`,
+			},
+		},
+		{
+			name: "wait: every: is not a valid duration",
+			file: "wait_bad_every.yaml",
+			want: []string{
+				`testdata/wait_bad_every.yaml: step "w": every: "soon" is not a valid duration; use Go duration syntax, e.g. "60s", "5m"`,
+			},
+		},
+		{
+			name: "wait: timeout: is not a valid duration",
+			file: "wait_bad_timeout.yaml",
+			want: []string{
+				`testdata/wait_bad_timeout.yaml: step "w": timeout: "forever" is not a valid duration; use Go duration syntax, e.g. "5m", "1h"`,
 			},
 		},
 	}

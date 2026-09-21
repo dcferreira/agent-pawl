@@ -1,0 +1,8 @@
+workflow: wait-missing-timeout
+start: w
+steps:
+  - id: w
+    kind: wait
+    poll: echo ok
+    next: done
+terminal: {done: {status: ok}}

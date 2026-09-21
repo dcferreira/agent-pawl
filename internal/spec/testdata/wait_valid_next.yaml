@@ -1,0 +1,9 @@
+workflow: wait-valid-next
+start: w
+steps:
+  - id: w
+    kind: wait
+    poll: echo ok
+    timeout: 5m
+    next: done
+terminal: {done: {status: ok}}

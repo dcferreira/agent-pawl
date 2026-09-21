@@ -36,12 +36,43 @@ type Engine struct {
 	Root string
 	// Timeout is the one engine-wide wall-clock ceiling (DESIGN.md §3).
 	Timeout time.Duration
+
+	// Now and Sleep are the engine's only two clock reads, injectable so a
+	// test can drive a 5m timeout: at a 5s every: without costing five real
+	// minutes. Nothing else in this package reads the clock: the journal
+	// stamps its own event times (journal.Log.Append), and execShell's
+	// wall-clock ceiling is a real timer against a real subprocess, which a
+	// fake clock has no business moving. Both are set by New; a zero value
+	// falls back to the real clock (see now/sleep), so an Engine built as a
+	// struct literal still works.
+	Now   func() time.Time
+	Sleep func(time.Duration)
+}
+
+// now reads the (possibly injected) clock.
+func (e *Engine) now() time.Time {
+	if e.Now != nil {
+		return e.Now()
+	}
+	return time.Now()
+}
+
+// sleep waits d on the (possibly injected) clock.
+func (e *Engine) sleep(d time.Duration) {
+	if e.Sleep != nil {
+		e.Sleep(d)
+		return
+	}
+	time.Sleep(d)
 }
 
 // New constructs an Engine for w rooted at root, with the default wall-clock
 // ceiling. Callers needing a shorter ceiling (tests) set Timeout directly.
 func New(w *spec.Workflow, root string) *Engine {
-	return &Engine{Workflow: w, Root: root, Timeout: DefaultTimeout}
+	return &Engine{
+		Workflow: w, Root: root, Timeout: DefaultTimeout,
+		Now: time.Now, Sleep: time.Sleep,
+	}
 }
 
 // Start begins a new run: it creates the run directory, acquires the lock,
@@ -165,8 +196,13 @@ func (e *Engine) Resume(runID string, force bool) (Instruction, error) {
 		return instr, nil
 	case "parallel":
 		return e.resumeParallel(dir, log, runID, step, rs)
+	case "wait":
+		// An idempotent re-print: the run is parked, the engine did no work
+		// while parked, and the session's answer is the same as it was —
+		// run pawl poll (DESIGN.md §3). See parkWait's reentry parameter.
+		return e.parkWait(dir, log, runID, step, rs.Cursor, true)
 	default:
-		return nil, fmt.Errorf("engine: step %q: kind %q is not implemented in this build (milestone 1 MVP covers deterministic and agentic)", step.ID, step.Kind)
+		return nil, fmt.Errorf("engine: step %q: kind %q is not implemented in this build (milestone 1 MVP covers deterministic, agentic, wait and parallel)", step.ID, step.Kind)
 	}
 }
 
@@ -239,8 +275,10 @@ func (e *Engine) runFrom(dir string, log *journal.Log, runID string, cur journal
 			return e.dispatchAgentic(dir, log, runID, step, cur, false)
 		case "parallel":
 			return e.dispatchParallel(dir, log, runID, step, cur, false)
+		case "wait":
+			return e.parkWait(dir, log, runID, step, cur, false)
 		default:
-			return nil, fmt.Errorf("engine: step %q: kind %q is not implemented in this build (milestone 1 MVP covers deterministic and agentic)", step.ID, step.Kind)
+			return nil, fmt.Errorf("engine: step %q: kind %q is not implemented in this build (milestone 1 MVP covers deterministic, agentic, wait and parallel)", step.ID, step.Kind)
 		}
 	}
 }

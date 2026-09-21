@@ -88,6 +88,28 @@ type BranchRecorded struct {
 
 func (BranchRecorded) isInstruction() {}
 
+// Wait instructs the caller that the run has parked at a kind: wait step
+// (DESIGN.md §2's WAIT line, §3's wait paragraph). The engine deliberately
+// does *no* work here — in particular it never runs the step's poll:, not
+// even once: the polling loop is pawl poll's job, which the session runs
+// under Monitor because Claude's Bash tool ceiling is minutes and a CI wait
+// is hours. pawl poll then submits on its own behalf; the model never runs
+// pawl submit for a wait result (design/format-spec.md §13), which
+// Engine.Submit enforces.
+//
+// Every and Timeout are the step's declared poll interval (defaulted to
+// spec.DefaultEvery at load) and hard deadline, carried so the caller can
+// print them alongside the poll command without re-reading the workflow.
+type Wait struct {
+	RunID string
+	Step  string
+
+	Every   string
+	Timeout string
+}
+
+func (Wait) isInstruction() {}
+
 // Terminal instructs the caller that the run is over (Status "ok") or
 // paused for review (Status "blocked" — DESIGN.md §4 is explicit that this
 // is not a dead end).

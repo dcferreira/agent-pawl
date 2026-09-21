@@ -1,0 +1,9 @@
+workflow: wait-bad-timeout
+start: w
+steps:
+  - id: w
+    kind: wait
+    poll: echo ok
+    timeout: forever
+    next: done
+terminal: {done: {status: ok}}

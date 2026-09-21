@@ -1,0 +1,10 @@
+workflow: wait-bad-every
+start: w
+steps:
+  - id: w
+    kind: wait
+    poll: echo ok
+    every: soon
+    timeout: 5m
+    next: done
+terminal: {done: {status: ok}}
