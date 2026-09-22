@@ -1,4 +1,4 @@
-.PHONY: build test test-race install fmt fmt-check vet staticcheck check
+.PHONY: build test test-race install fmt fmt-check vet staticcheck test-install check
 
 # Output goes to dist/, not bin/: bin/ is a committed plugin directory
 # (bin/pawl is the plugin's wrapper script), so a compiled binary must not
@@ -31,4 +31,10 @@ vet:
 staticcheck:
 	go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...
 
-check: fmt vet test
+# Unit-tests install.sh's pure logic (OS/arch detection, asset naming,
+# version handling, checksum parsing) by sourcing it — no network, no
+# bats or other extra tooling, just plain shell assertions.
+test-install:
+	bash scripts/test-install.sh
+
+check: fmt vet test test-install

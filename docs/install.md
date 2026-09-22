@@ -1,11 +1,42 @@
 # Install
 
-**This build has no `install.sh` and no release binaries.** DESIGN.md §9 describes a fuller Claude
-Code plugin story (self-installing a pinned release binary via two static hooks) as the intended
-end state; none of that exists yet. What exists today is a Go module you build yourself, and a
-Claude Code plugin (see the README's Installation section) that ships the `/agent-pawl:pawl` skill
-— the plugin does not and cannot ship the `pawl` binary itself, so you still build or `go install`
-it separately, as below.
+**`install.sh` and tagged release binaries exist as of this build** (`.goreleaser.yaml`,
+`.github/workflows/release.yml`), but no tag has been pushed to this repo yet, so there is
+currently nothing for `install.sh` to fetch — until a release is cut, build from source as below.
+DESIGN.md §9 describes a fuller Claude Code plugin story (self-installing a pinned release binary
+via two static hooks) as the intended end state; that hook-based auto-install is still not built —
+what exists is the plain `install.sh` / GitHub Releases pair below, plus a Claude Code plugin (see
+the README's Installation section) that ships the `/agent-pawl:pawl` skill — the plugin does not
+and cannot ship the `pawl` binary itself, so you still install it separately, with either
+`install.sh` or `go install`.
+
+## Install via install.sh
+
+Once a release is tagged:
+
+```
+curl -fsSL https://raw.githubusercontent.com/dcferreira/agent-pawl/main/install.sh | sh
+```
+
+This detects your OS (linux/darwin) and architecture (amd64/arm64), downloads the matching
+`pawl_<version>_<os>_<arch>.tar.gz` and `checksums.txt` from the latest GitHub Release, verifies
+the archive's sha256 against `checksums.txt` before extracting anything, and installs `pawl` to
+`$HOME/.local/bin` (override with `INSTALL_DIR=...`). It prints a `PATH` reminder if that
+directory isn't already on your `PATH`.
+
+Env vars:
+
+- `PAWL_VERSION` — install a specific version (e.g. `v0.1.0` or `0.1.0`) instead of latest.
+- `INSTALL_DIR` — install location, default `$HOME/.local/bin`.
+
+It has no dependency on the Go toolchain — only `curl` or `wget`, `tar`, and `sha256sum` or
+`shasum` (whichever your OS ships). It fails with an explicit, actionable message on any OS other
+than Linux/macOS or any architecture other than amd64/arm64 (e.g. Windows, 32-bit x86), rather
+than silently doing the wrong thing.
+
+The pure parts of `install.sh` (OS/arch detection, asset naming, version resolution, checksum-line
+parsing) are unit-tested without touching the network in `scripts/test-install.sh` — run via
+`make test-install`.
 
 ## Build and install the binary
 
@@ -40,10 +71,11 @@ make build
 pawl version
 ```
 
-prints `pawl dev` — every build from source prints `dev`, because nothing in this build sets the
-`-ldflags "-X main.Version=..."` that `cmd/pawl/main.go` supports; there is no version-numbering or
-release process yet, so `pawl dev` is what installing correctly looks like, not a symptom of a bad
-build.
+prints `pawl dev` for anything built from source with plain `go build`/`go install`/`make
+install`/`make build`, because those don't set the `-ldflags "-X main.Version=..."` that
+`cmd/pawl/main.go` supports — `pawl dev` is what building from source correctly looks like, not a
+symptom of a bad build. A binary installed via `install.sh` prints the tagged version instead
+(e.g. `pawl v0.1.0`), since `.goreleaser.yaml` sets that ldflag when building release archives.
 
 ```
 pawl
@@ -64,14 +96,21 @@ with no arguments prints the command list — `run`, `validate`, `status`, `aban
 make check
 ```
 
-runs `go fmt ./...`, `go vet ./...`, then `go test ./...`. This is the same check a change to this
-repo is expected to pass; running it after `make install` is a reasonable sanity check that your
-Go toolchain and checkout are in order, though it is not required just to use the binary.
+runs `go fmt ./...`, `go vet ./...`, `go test ./...`, and `scripts/test-install.sh` (install.sh's
+unit tests). This is the same check a change to this repo is expected to pass; running it after
+`make install` is a reasonable sanity check that your Go toolchain and checkout are in order,
+though it is not required just to use the binary.
 
 ## Uninstall
 
 ```
 rm $(go env GOPATH)/bin/pawl
+```
+
+or, if installed via `install.sh`:
+
+```
+rm "${INSTALL_DIR:-$HOME/.local/bin}/pawl"
 ```
 
 There is no other installed state to remove: no plugin directory, no `~/.claude/pawl/`, no global

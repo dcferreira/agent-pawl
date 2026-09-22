@@ -1,0 +1,55 @@
+# goreleaser config for release binaries, consumed by install.sh and
+# .github/workflows/release.yml. Only the `pawl` binary is built and
+# archived; the plugin (.claude-plugin/, skills/) is not goreleaser's
+# concern — it's installed separately via `claude plugin marketplace add`,
+# per README.md.
+version: 2
+
+before:
+  hooks:
+    # Keeps go.mod/go.sum honest before a release build, mirroring the
+    # `go mod tidy` check in ci.yml's lint job.
+    - go mod tidy
+
+builds:
+  - id: pawl
+    main: ./cmd/pawl
+    binary: pawl
+    # No CGO anywhere: cmd/pawl and its internal packages are pure Go, and
+    # disabling CGO is what makes the darwin/arm64 and linux/arm64 cross
+    # builds possible from a single amd64 Linux runner without a C
+    # cross-compiler toolchain.
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    # Matches cmd/pawl/main.go's `var Version = "dev"` build-time override.
+    ldflags:
+      - -s -w -X main.Version={{.Version}}
+
+archives:
+  - id: pawl
+    formats: [tar.gz]
+    # pawl_<version>_<os>_<arch>.tar.gz, as install.sh expects.
+    name_template: >-
+      pawl_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      # The archive ships only the binary — no README/LICENSE — since
+      # install.sh's job is to extract and place one file.
+      - none*
+
+checksum:
+  name_template: checksums.txt
+
+# No changelog section override: goreleaser's default (commits since the
+# previous tag, grouped) is fine here — there's no changelog tooling
+# elsewhere in this repo to stay consistent with.
+
+release:
+  # Draft off: release.yml only runs on a real `v*` tag push, so publishing
+  # immediately is correct — there's no separate promotion step in this repo.
+  draft: false
