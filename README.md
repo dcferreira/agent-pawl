@@ -25,10 +25,13 @@ describe:
   not implemented. `pawl run` prints `enforcement: off (milestone 1)` instead of refusing to start —
   nothing stops a session from walking away from a live run. See
   [docs/dogfood.md](docs/dogfood.md) for what that means in practice.
-- There is no `install.sh` and no release binaries. The `pawl` binary itself is always installed
-  with `make install` / `go install ./cmd/pawl` — see [docs/install.md](docs/install.md). There is a
-  Claude Code plugin (see Installation below) that ships the `/agent-pawl:pawl` skill, but a
-  plugin cannot ship a compiled Go binary, so it still depends on that separate binary install.
+- `install.sh` and the release pipeline behind it exist (`.goreleaser.yaml`,
+  `.github/workflows/release.yml`, cross-compiling `pawl` for linux/darwin ×
+  amd64/arm64), but no tag has been pushed yet, so there are no release binaries on GitHub for it
+  to fetch today. Until a tag is pushed, install with `make install` / `go install ./cmd/pawl` —
+  see [docs/install.md](docs/install.md). There is also a Claude Code plugin (see Installation
+  below) that ships the `/agent-pawl:pawl` skill, but a plugin cannot ship a compiled Go binary, so
+  it still depends on one of the binary installs above.
 - `pawl poll --run … --step …` drives a `wait` step; `pawl hook pre|stop` still does not exist,
   because there is no enforcement layer to invoke it.
 
@@ -39,8 +42,20 @@ verified-runnable artefacts.
 
 ### The CLI
 
-The `pawl` binary is a normal Go build; nothing installs it for you automatically (see below for
-why the plugin can't):
+Once a release is tagged, the recommended install is `install.sh`, which fetches a prebuilt
+`pawl` binary from GitHub Releases — no Go toolchain required:
+
+```
+curl -fsSL https://raw.githubusercontent.com/dcferreira/agent-pawl/main/install.sh | sh
+```
+
+It installs to `$HOME/.local/bin` by default (override with `INSTALL_DIR`), verifies the download
+against the release's `checksums.txt`, and prints a `PATH` reminder if needed. See
+[docs/install.md](docs/install.md) for the full walkthrough, including pinning a version with
+`PAWL_VERSION`.
+
+Until a release exists, or if you'd rather build from source, the `pawl` binary is also a normal
+Go build:
 
 ```
 go install github.com/dcferreira/agent-pawl/cmd/pawl@latest

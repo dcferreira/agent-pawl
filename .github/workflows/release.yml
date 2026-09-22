@@ -1,0 +1,39 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  goreleaser:
+    name: goreleaser
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # goreleaser needs the full history and all tags to generate the
+          # changelog (commits since the previous tag) and resolve the
+          # current version from the pushed tag; a shallow checkout would
+          # only see the tagged commit itself.
+          fetch-depth: 0
+
+      - name: Install Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # Pinned to match the version verified locally (see .goreleaser.yaml
+      # and the packaging PR that introduced it), rather than floating on
+      # `latest`, for reproducibility — same rationale as pinning
+      # staticcheck's version in the Makefile.
+      - name: Run goreleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: v2.18.2
+          args: release --clean
+        env:
+          # Used by goreleaser to publish the GitHub release and upload
+          # archives/checksums.txt as its assets.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

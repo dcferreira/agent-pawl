@@ -96,3 +96,9 @@ jobs:
       # modes.
       - name: Test (race detector)
         run: make test-race
+
+      # install.sh's pure logic (OS/arch detection, asset naming, version
+      # handling, checksum parsing) is unit-tested by sourcing it, with no
+      # network access — see scripts/test-install.sh.
+      - name: Test install.sh
+        run: make test-install
