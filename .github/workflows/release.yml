@@ -9,6 +9,13 @@ jobs:
   goreleaser:
     name: goreleaser
     runs-on: ubuntu-latest
+    # The default GITHUB_TOKEN is read-only content access on this repo,
+    # which makes goreleaser's release-publish step fail with "403 Resource
+    # not accessible by integration". contents: write is what lets it
+    # create the GitHub Release and upload archives/checksums.txt as
+    # assets.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
         with:
