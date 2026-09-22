@@ -1,0 +1,150 @@
+workflow: review-pr
+description: >
+  Local, interactive review of an already-open GitHub PR: pick any number of
+  reviewers (a Claude subagent, codex, and/or custom local commands) to run
+  concurrently, fix what they find, loop through CI, repeat until clean.
+  Not a CI check — this is a tool Daniel runs on his own machine, with a
+  human step where his judgement is the point. Never posts a GitHub
+  approval or review decision; it only fixes and pushes.
+start: fetch_pr
+max_steps: 100
+
+args:
+  pr_number: {type: string}
+
+state:
+  vcs: {type: string}
+  pr_url: {type: string}
+  head_sha: {type: string}
+  base_branch: {type: string}
+  branch: {type: string}
+  title: {type: string}
+  reviewer_choices: {type: json, default: []}
+  findings_claude: {type: json, default: []}
+  findings_codex: {type: json, default: []}
+  findings_custom: {type: json, default: []}
+  findings: {type: json, default: []}
+  round: {type: integer, default: 0}
+
+steps:
+  - id: fetch_pr
+    kind: deterministic
+    run: scripts/fetch-pr.sh "${pr_number}"
+    writes: [vcs, pr_url, head_sha, base_branch, branch, title]
+    postcondition: {all_set: [pr_url, head_sha]}
+    next: choose_reviewers
+
+  - id: choose_reviewers          # the one human step that picks the engine(s)
+    kind: human
+    question: |
+      Reviewing "${title}" (${pr_url}). Pick any number of reviewers to run
+      concurrently. Type "Other" to add a custom shell command as a
+      reviewer — you can add more than one "Other" answer.
+    options: [claude_subagent, codex]
+    multi: true
+    timeout: 1h
+    writes: {reviewer_choices: {type: json}}
+    outcomes:                      # multi: true always resolves to chosen at
+      claude_subagent: fanout_review   # runtime, but the validator still
+      codex: fanout_review             # requires every listed option routed
+      chosen: fanout_review
+      timeout: blocked
+
+  - id: fanout_review
+    kind: parallel
+    branches: [ai_review_claude, ai_review_codex, ai_review_custom]
+    outcomes:
+      success: review_route
+      failure: blocked
+
+  # Every branch below is always dispatched (kind: parallel's branches: is a
+  # static list — there is no runtime-sized fan-out yet), so a branch not in
+  # reviewer_choices self-filters by returning [] immediately rather than
+  # doing real review work. Accepted tradeoff: a cheap, near-instant no-op
+  # subagent call per unselected engine, each round.
+  - id: ai_review_claude
+    kind: agentic
+    description: |
+      reviewer_choices is ${reviewer_choices}. If "claude_subagent" is not
+      in it, immediately return findings_claude: [] and stop. Otherwise:
+      adversarially review this PR's diff against ${base_branch}. Cold (you
+      did not write this change) and read-only (analysis only, never edit
+      files). Return findings as a JSON array of
+      {file, line, category, description, fix}, category one of:
+      bug | missing-test | other | performance | security |
+      standards-violation | type-annotation.
+    context: ["!gh pr diff ${pr_number}"]
+    subagent_args: {tools: [Read, "Bash(gh pr diff:*)", "Bash(gh pr view:*)"], model: opus}
+    writes: {findings_claude: {type: json}}
+    postcondition: "jq -e 'type==\"array\"' <<<\"${findings_claude}\" >/dev/null"
+
+  - id: ai_review_codex
+    kind: agentic
+    description: |
+      reviewer_choices is ${reviewer_choices}. If "codex" is not in it,
+      immediately return findings_codex: [] and stop. Otherwise: run
+      `codex review --base ${base_branch}` (Bash tool) against this PR and
+      normalize its output into the same findings shape as above
+      (file, line, category, description, fix).
+    subagent_args: {tools: [Read, "Bash(codex review:*)", "Bash(gh pr diff:*)"], model: haiku}
+    writes: {findings_codex: {type: json}}
+    postcondition: "jq -e 'type==\"array\"' <<<\"${findings_codex}\" >/dev/null"
+
+  - id: ai_review_custom
+    kind: agentic
+    description: |
+      reviewer_choices is ${reviewer_choices}. Any entry that is not
+      "claude_subagent" or "codex" is a custom shell command Daniel typed —
+      run each one (Bash tool) against this PR and normalize whatever it
+      prints into the same findings shape as above. If there are no such
+      entries, immediately return findings_custom: [] and stop.
+    subagent_args: {tools: [Read, Bash], model: haiku}
+    writes: {findings_custom: {type: json}}
+    postcondition: "jq -e 'type==\"array\"' <<<\"${findings_custom}\" >/dev/null"
+
+  - id: review_route
+    kind: deterministic
+    run: scripts/review-route.sh "${findings_claude}" "${findings_codex}" "${findings_custom}"
+    writes: [findings]
+    outcomes:
+      blocking: fix_issues
+      clean: done
+
+  - id: fix_issues
+    kind: agentic
+    description: |
+      findings is a JSON array of items to fix this round. Make the fix, run
+      the repo's own verify command (or its test suite) as your feedback
+      loop, and iterate until it passes or further local iteration clearly
+      won't help. Never commit or push — the next step does that. Report
+      each item's verify_status honestly.
+    subagent_args: {tools: [Read, Edit, Write, Bash]}
+    writes: {findings: {type: json}}
+    postcondition: "jq -e 'all(.[]; has(\"verify_status\"))' <<<\"${findings}\" >/dev/null"
+    soft: true                     # the agent's own claim, not independently re-verified here
+    attempts: 3
+    max_visits: 20
+    next: fix_push
+
+  - id: fix_push
+    kind: deterministic
+    run: scripts/fix-push.sh "${vcs}" "${branch}" "${round}"
+    emits: pairs                   # a bare integer — safe under the whitespace-split grammar
+    writes: [round]
+    postcondition: {all_set: [round]}
+    next: wait_for_ci
+
+  - id: wait_for_ci
+    kind: wait
+    poll: scripts/poll-ci.sh "${pr_number}"
+    every: 30s
+    timeout: 2h
+    max_visits: 20
+    outcomes:
+      SUCCESS: fanout_review       # loop straight back — reviewer_choices already in state
+      FAILURE: fanout_review
+      timeout: blocked
+
+terminal:
+  done: {status: ok, message: "Clean per ${reviewer_choices} — ${pr_url}"}
+  blocked: {status: blocked, message: "Paused: ${blocked_reason}"}
