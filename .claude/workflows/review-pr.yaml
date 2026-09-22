@@ -23,6 +23,7 @@ state:
   findings_claude: {type: json, default: []}
   findings_codex: {type: json, default: []}
   findings_custom: {type: json, default: []}
+  findings_docs: {type: json, default: []}
   findings: {type: json, default: []}
   round: {type: integer, default: 0}
 
@@ -52,14 +53,14 @@ steps:
 
   - id: fanout_review
     kind: parallel
-    branches: [ai_review_claude, ai_review_codex, ai_review_custom]
+    branches: [ai_review_claude, ai_review_codex, ai_review_custom, docs_review]
     outcomes:
       success: review_route
       failure: blocked
 
   # Every branch below is always dispatched (kind: parallel's branches: is a
-  # static list — there is no runtime-sized fan-out yet), so a branch not in
-  # reviewer_choices self-filters by returning [] immediately rather than
+  # static list — there is no runtime-sized fan-out yet), so a reviewer
+  # branch not in reviewer_choices self-filters by returning [] immediately rather than
   # doing real review work. Accepted tradeoff: a cheap, near-instant no-op
   # subagent call per unselected engine, each round.
   - id: ai_review_claude
@@ -102,9 +103,33 @@ steps:
     writes: {findings_custom: {type: json}}
     postcondition: "printf '%s' ${findings_custom} | jq -e 'type==\"array\"' >/dev/null"
 
+  # Always runs, whatever reviewers were picked, and again every round — a
+  # fix round can stale the docs as easily as the original change did.
+  - id: docs_review
+    kind: agentic
+    description: |
+      Check whether documentation that ALREADY EXISTS in this repo has been
+      made inaccurate by this PR's changes (diff in context, against
+      ${base_branch}). Look through the repo's docs — README, docs/,
+      AGENTS.md/CLAUDE.md, design docs, skill files, example NOTES — for
+      statements that were true before this change and are false or stale
+      after it: renamed commands or flags, changed behaviour, removed or
+      moved files, altered defaults, status claims the change invalidates.
+      Do NOT flag missing documentation for anything new the PR adds, and do
+      not suggest new sections — only existing text that is now wrong.
+      Read-only, never edit files. Return findings as a JSON array of
+      {file, line, category: "stale-docs", description, fix}: file/line
+      point at the stale doc text, description quotes the stale claim and
+      names the change that invalidated it, fix is the minimal edit to make
+      it true again. Return [] if nothing existing went stale.
+    context: ["!gh pr diff ${pr_number}"]
+    subagent_args: {tools: [Read, Grep, Glob, "Bash(gh pr diff:*)", "Bash(gh pr view:*)"], model: sonnet}
+    writes: {findings_docs: {type: json}}
+    postcondition: "printf '%s' ${findings_docs} | jq -e 'type==\"array\"' >/dev/null"
+
   - id: review_route
     kind: deterministic
-    run: scripts/review-route.sh ${findings_claude} ${findings_codex} ${findings_custom}
+    run: scripts/review-route.sh ${findings_claude} ${findings_codex} ${findings_custom} ${findings_docs}
     writes: [findings]
     outcomes:
       blocking: fix_issues
