@@ -74,7 +74,8 @@ steps:
       {file, line, category, description, fix}, category one of:
       bug | missing-test | other | performance | security |
       standards-violation | type-annotation.
-    context: ["!gh pr diff ${pr_number}"]
+    context:
+      - !cmd "gh pr diff ${pr_number}"   # the !cmd YAML tag, not a "!..." string — the engine reads that as a file path
     subagent_args: {tools: [Read, "Bash(gh pr diff:*)", "Bash(gh pr view:*)"], model: opus}
     writes: {findings_claude: {type: json}}
     postcondition: "printf '%s' ${findings_claude} | jq -e 'type==\"array\"' >/dev/null"
@@ -122,7 +123,8 @@ steps:
       point at the stale doc text, description quotes the stale claim and
       names the change that invalidated it, fix is the minimal edit to make
       it true again. Return [] if nothing existing went stale.
-    context: ["!gh pr diff ${pr_number}"]
+    context:
+      - !cmd "gh pr diff ${pr_number}"   # the !cmd YAML tag, not a "!..." string — the engine reads that as a file path
     subagent_args: {tools: [Read, Grep, Glob, "Bash(gh pr diff:*)", "Bash(gh pr view:*)"], model: sonnet}
     writes: {findings_docs: {type: json}}
     postcondition: "printf '%s' ${findings_docs} | jq -e 'type==\"array\"' >/dev/null"
