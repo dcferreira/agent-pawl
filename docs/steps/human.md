@@ -1,7 +1,7 @@
 # `human` steps
 
 Ask the person at the keyboard. One step, one question, mapped exactly onto Claude Code's
-`AskUserQuestion` tool. See [step-types.md](../step-types.md) for how the four kinds compare.
+`AskUserQuestion` tool. See [step-types.md](../step-types.md) for how the five kinds compare.
 
 ## Fields
 
@@ -60,4 +60,4 @@ Two shapes:
 - A dead option with no route and no fall-through — a validator error, and worse in the UI than no
   option at all.
 
-Back to [writing-workflows.md](../writing-workflows.md).
+Next: [parallel steps](parallel.md).

@@ -1,7 +1,7 @@
 # `deterministic` steps
 
 The engine runs a shell command itself. No model, no tokens, no handshake. See
-[step-types.md](../step-types.md) for how the four kinds compare.
+[step-types.md](../step-types.md) for how the five kinds compare.
 
 ## Fields
 

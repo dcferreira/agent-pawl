@@ -1,7 +1,7 @@
 # `agentic` steps
 
 A subagent does the work; the engine checks it. See [step-types.md](../step-types.md) for how
-the four kinds compare.
+the five kinds compare.
 
 ## Fields
 

@@ -16,10 +16,10 @@ for a real, captured transcript of that run.
 This is a milestone-1 build, and it is deliberately narrower than the design documents below
 describe:
 
-- Only two step kinds exist: `deterministic` and `agentic`. `kind: wait`, `kind: human`, and
-  `kind: parallel` all parse but are rejected by `pawl validate`/`pawl run` with a "not implemented in
-  this build" (or "reserved for Milestone 3") message — never a silent no-op.
-- Top-level `guards:`, `invariants:`, and a step's `retry:` are likewise parsed and rejected, not
+- All five step kinds are implemented: `deterministic`, `agentic`, `wait`, `human`, and `parallel`
+  (single-group, all-or-nothing `branches:` join — [design/format-spec.md](design/format-spec.md)
+  §B.15). `foreach:` fan-out with a *partial*-success join remains a later milestone.
+- Top-level `guards:`, `invariants:`, and a step's `retry:` are still parsed and rejected, not
   ignored.
 - **There is no enforcement layer.** DESIGN.md §5's two static hooks (`PreToolUse`, `Stop`) are
   not implemented. `pawl run` prints `enforcement: off (milestone 1)` instead of refusing to start —
@@ -29,8 +29,8 @@ describe:
   with `make install` / `go install ./cmd/pawl` — see [docs/install.md](docs/install.md). There is a
   Claude Code plugin (see Installation below) that ships the `/agent-pawl:pawl` skill, but a
   plugin cannot ship a compiled Go binary, so it still depends on that separate binary install.
-- `pawl poll` and `pawl hook` do not exist, because there is no `wait` step kind and no hooks to
-  invoke.
+- `pawl poll --run … --step …` drives a `wait` step; `pawl hook pre|stop` still does not exist,
+  because there is no enforcement layer to invoke it.
 
 The workflows under `examples/` beyond `green-tests` remain authoring exercises rather than
 verified-runnable artefacts.
@@ -89,7 +89,7 @@ development.
 3. **[skills/pawl/SKILL.md](skills/pawl/SKILL.md)** — the `/agent-pawl:pawl` skill a Claude Code
    session follows to drive a run.
 4. **`docs/README.md`** — the user guide written during design; describes the finished system
-   (all four step kinds, enforcement, distribution) rather than this build — read it for the
+   (enforcement, full distribution, `foreach:` fan-out) rather than this build — read it for the
    target shape, not for what runs today.
 5. **`DESIGN.md`** — the engine design: handshake, execution, journal and resume, enforcement,
    testing, distribution, open questions.

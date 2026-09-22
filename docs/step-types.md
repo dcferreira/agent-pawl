@@ -1,6 +1,6 @@
-# The four step kinds
+# The five step kinds
 
-Every step in a workflow is one of four kinds. Each pairs a body (who does the work) with the shape
+Every step in a workflow is one of five kinds. Each pairs a body (who does the work) with the shape
 of outcome it can produce. This page is the overview; [steps/*.md](steps/deterministic.md) hold the
 full field reference for each.
 
@@ -102,8 +102,27 @@ static list yields the reserved outcome `chosen`, which must be routed too if re
 
 **Use it for:** approving a merge, picking reviewers, choosing between two live options.
 
-`steps/deterministic.md`, `steps/agentic.md`, `steps/wait.md` and `steps/human.md` hold every field,
-its default, and the common mistakes for each kind.
+## `parallel`
+
+Fan two or more independent `deterministic`/`agentic` steps out together and join them
+all-or-nothing. Use it when the branches genuinely don't affect each other and you want them
+running concurrently, not to express a partial-success race.
+
+```yaml
+- id: fanout
+  kind: parallel
+  branches: [branch_a, branch_b]
+  next: join
+```
+
+**Checks:** the group's outcome is `success` iff every branch's own outcome was `success`,
+otherwise `failure` — no partial-success outcome, no author-named token of its own.
+
+**Use it for:** summarizing two unrelated files at once, running two independent scripts before a
+join step, anything genuinely parallelizable with no data dependency between the branches.
+
+`steps/deterministic.md`, `steps/agentic.md`, `steps/wait.md`, `steps/human.md` and
+`steps/parallel.md` hold every field, its default, and the common mistakes for each kind.
 
 ## Start agentic, harden later
 
