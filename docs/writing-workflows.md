@@ -234,5 +234,5 @@ mean something:
 Commit `.claude/workflows/` and the workflow is the team's: reviewable in a diff, validated in CI with
 `pawl validate`. Keep personal ones in `~/.claude/workflows/` — a repo-local file of the same name wins.
 
-Next: the four kinds — [deterministic](steps/deterministic.md), [agentic](steps/agentic.md),
-[wait](steps/wait.md), [human](steps/human.md).
+Next: the five kinds — [deterministic](steps/deterministic.md), [agentic](steps/agentic.md),
+[wait](steps/wait.md), [human](steps/human.md), [parallel](steps/parallel.md).

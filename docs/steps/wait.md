@@ -1,7 +1,7 @@
 # `wait` steps
 
 Wait on something outside the run: CI, a review, a build, a person doing a thing elsewhere. See
-[step-types.md](../step-types.md) for how the four kinds compare.
+[step-types.md](../step-types.md) for how the five kinds compare.
 
 ## Fields
 

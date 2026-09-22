@@ -80,11 +80,10 @@ There is no other installed state to remove: no plugin directory, no `~/.claude/
 
 ## Step kinds and validator scope in this build
 
-Only two step kinds are implemented: `deterministic` and `agentic`. A workflow that declares
-`kind: wait`, `kind: human`, or `kind: parallel` is rejected by both `pawl validate` and `pawl run`
-with a "not implemented in this build" (or, for `parallel`, "reserved for Milestone 3") message —
-it does not silently no-op. The same is true of top-level `guards:`, `invariants:`, and a step's
-`retry:` field: declaring any of them is a validation error, not a quietly-ignored field.
+All five step kinds are implemented: `deterministic`, `agentic`, `wait`, `human`, and `parallel`
+(single-group, all-or-nothing `branches:` join — [design/format-spec.md](../design/format-spec.md)
+§B.15). Top-level `guards:`, `invariants:`, and a step's `retry:` field remain unimplemented:
+declaring any of them is a validation error, not a quietly-ignored field.
 
 ---
 

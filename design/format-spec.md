@@ -13,7 +13,7 @@ only in `next:` / `outcomes:` / `catch:`. New to `pawl`? See `docs/README.md`.
 |---|---|
 | **Workflow** | One YAML file naming its `args:`, its state, a start step, its steps and its terminals. The unit you author, validate and run. |
 | **Step** | A named state that does one thing and is either running, satisfied, or failed. |
-| **Kind** | Which of **four** executors runs the step: `deterministic`, `agentic`, `wait`, `human` (§C). |
+| **Kind** | Which of **five** executors runs the step: `deterministic`, `agentic`, `wait`, `human`, `parallel` (§C). |
 | **Outcome** | A named result of a step that selects the next step. Which kinds produce which outcomes: §C. |
 | **State key** | A value the run carries, declared up front, read and written by steps: `string`/`integer`/`number`/`boolean`/`json`. `args:` are read-only state keys; a `default:` counts as a write. |
 | **Postcondition** | A command or predicate the **engine** evaluates before it will leave the step; `soft:` labels one judgement-bounded (§B.7). |
@@ -259,9 +259,54 @@ behalf (DESIGN.md §3).
 - **A non-blocking warning** is a `json` state key with `default: []`, appended to by whichever script
   noticed and rendered in the terminal `message:`; `default:` counts as a write, so it validates.
 
+### 15. `parallel` steps fan out and join all-or-nothing
+
+A `parallel` step names `branches: [step, step, …]` — at least 2, each a **declared, already-existing
+`deterministic` or `agentic` step** (no nesting: a branch cannot itself be `wait`, `human` or
+`parallel`). The parallel step owns routing and retry for the whole group; each branch owns none of
+its own — a branch step declares no `next:`, `outcomes:`, `catch:`, `attempts:`, `attempt_key:` or
+`max_visits:` (all rejected by the validator — §H). A branch may not be the workflow's `start:` step,
+may not be listed twice in the same `branches:`, and may be claimed by at most one `parallel` step in
+the whole file.
+
+```yaml
+- id: fanout
+  kind: parallel
+  branches: [branch_a, branch_b, branch_c]   # ≥ 2, each declared elsewhere, deterministic or agentic
+  next: join
+- id: branch_a
+  kind: deterministic
+  run: echo "branch_a_result=$(wc -l < README.md | tr -d ' ')"
+  emits: pairs
+  writes: [branch_a_result]
+  postcondition: {all_set: [branch_a_result]}
+  # no next:/outcomes: here — fanout owns routing for the whole group
+```
+
+**Dispatch.** Every branch is entered together, under the owning `parallel` step's own attempt/visit
+counters (branches carry no independent budget). A deterministic branch runs to completion
+in-process, immediately. Every agentic branch is rendered into the **same** `DISPATCH_PARALLEL` block
+(DESIGN.md §2–§3) — one dispatch naming all outstanding agentic branches at once, so the model fires
+them as genuinely concurrent subagent calls, not a sequential loop. `pawl submit --step <branch-id>`
+reports one branch's result; branch step ids are globally unique, so no new flag is needed to
+disambiguate which branch a submission belongs to.
+
+**Join, all-or-nothing.** The group's outcome resolves only once every branch has transitioned — a
+still-outstanding agentic branch always leaves the run parked, never abandoned. The outcome is
+**`success`** iff every branch's own resolved outcome was `success` (a branch's stdout TOKEN plays no
+role: with no `outcomes:` of its own, a branch resolves only to `success`/`failure`), otherwise
+**`failure`**. There is no partial-success outcome and no per-branch route — the `parallel` step
+itself produces exactly `success` / `failure`, routed by its own `next:` or an `outcomes: {success:
+…, failure: …}` map exactly like `deterministic`. If a decision needs to see which *branch* failed or
+what a branch wrote, route from a following `deterministic` step that reads the branches' `writes:`.
+
+This is the full extent of `kind: parallel` as shipped: one branch group, one join, all-or-nothing.
+`foreach:` fan-out over a runtime-discovered list, with per-item postconditions and a
+**partial**-success join, remains Milestone 3 (§I) — not this.
+
 ---
 
-## C. The four kinds
+## C. The five kinds
 
 | Kind | Body | Produces |
 |---|---|---|
@@ -269,11 +314,9 @@ behalf (DESIGN.md §3).
 | `agentic` | a subagent dispatch with `description:`, `context:`, `subagent_args:`, and `writes:` as its output schema | `success` / `failure` only |
 | `wait` | a `poll:` command re-run every `every:` until a routed token or `timeout:` | named outcomes, or `timeout` |
 | `human` | a question mapped onto `AskUserQuestion` — options and/or a runtime list, optional multi-select, always free-text "Other" | the chosen option (static single-select), or the reserved `chosen`, or `timeout` |
+| `parallel` | `branches:` naming ≥ 2 declared `deterministic`/`agentic` steps, dispatched together and joined all-or-nothing (§B.15) | `success` (every branch succeeded) / `failure` (any branch failed) only |
 
 Reserved outcome tokens, usable anywhere: `success`, `failure`, `timeout`, `exhausted`, `chosen`.
-
-`kind: parallel` is **reserved**: `pawl validate` rejects it with "reserved for Milestone 3", not
-"unknown kind". Its semantics are deliberately not fixed here.
 
 ---
 ## D. Field reference
@@ -291,7 +334,7 @@ Reserved outcome tokens, usable anywhere: `success`, `failure`, `timeout`, `exha
 | `steps` | yes | file | list | The graph, read top to bottom. | — |
 | `terminal` | no | file | map | `{status: ok\|blocked, message}` per terminal id (§B.12). | implicit |
 | `id` | yes | all | string | Unique step name; transition target. | — |
-| `kind` | yes | all | enum | `deterministic` \| `agentic` \| `wait` \| `human`. | — |
+| `kind` | yes | all | enum | `deterministic` \| `agentic` \| `wait` \| `human` \| `parallel`. | — |
 | `run` | yes | deterministic | string | A command. Exit 0 → token/`success`; non-zero → `failure`. | — |
 | `emits` | no | deterministic, wait | enum | Payload grammar: `json` \| `pairs`; the *maximum* payload shape (§B.1). | `json` |
 | `description` | **yes** | agentic | string | Inline, multi-line string: intent, constraints, definition of done; `${key}` substituted at dispatch time. Never handed to the subagent verbatim (§B.6). | — |
@@ -304,6 +347,7 @@ Reserved outcome tokens, usable anywhere: `success`, `failure`, `timeout`, `exha
 | `options` | one of `options`/`options_from` | human | list | Static option list (§B.5). | — |
 | `options_from` | one of `options`/`options_from` | human | state key | A `json` state key holding a list of strings, resolved at ask time. Outcome is always `chosen` (§B.5). | — |
 | `multi` | no | human | boolean | Multi-select. `true` forces the outcome to `chosen`. | `false` |
+| `branches` | **yes** | parallel | list | ≥ 2 declared `deterministic`/`agentic` step ids, dispatched and joined together (§B.15); a listed step may declare no `next:`/`outcomes:`/`catch:`/`attempts:`/`attempt_key:`/`max_visits:` of its own. | — |
 | `writes` | no | all | list/map | Keys produced. Typed map required on `agentic` — it is the output schema. On `human`, exactly one key, required whenever `options_from:`, `multi: true` or a `chosen:` route is used. | `[]` |
 | `postcondition` | **yes** on agentic | all | string/map | Shell string, `{command}`, `{all_set}`, or `{equals}`. Evaluated by the engine; optional on `deterministic` (exit 0 = success unless declared), `wait`, `human`. | — |
 | `soft` | no | all | boolean | Marks the check as judgement-bounded. Counted at validate *and* run time. | `false` |
@@ -447,7 +491,11 @@ work to an agent. See `docs/quickstart.md`.
 14. A `postcondition:` map uses a key other than `command` / `all_set` / `equals`.
 15. `guards[].only_in` names a step that does not exist.
 16. A referenced file (`context:`, `run:`, `poll:`, `check:`) does not exist or is not executable.
-17. `kind: parallel` — "reserved for Milestone 3".
+17. `kind: parallel` (§B.15, §H checkParallelBranches): `branches:` has fewer than 2 entries; a
+    branch name does not resolve to a declared step; a branch's kind is not `deterministic` or
+    `agentic`; a branch is listed more than once in the same `branches:`; a branch is claimed by more
+    than one `parallel` step; a branch is the workflow's `start:` step; or a branch declares
+    `next:`/`outcomes:`/`catch:`/`attempts:`/`attempt_key:`/`max_visits:` of its own.
 
 Plus two warnings: a key written and never read; a key read on some path before anything writes it.
 And one census, printed every time: the `soft:` count, percentage and list.
@@ -475,17 +523,19 @@ both. `--run <id>` is needed only to disambiguate when several runs resolve (§B
 commands, which the model calls and an author never writes: `pawl submit --run … --step … --json …`, `pawl poll --run …
 --step …` (§B.13), and `pawl hook pre|stop`.
 
-Milestone 1 covers the four kinds, `state:` and `args:`, the stdout grammar, `${…}` substitution,
-postconditions with `soft:`, the attempt and visit caps, `retry:`/`catch:`, guards and invariants,
-fix-forward, crash-safe resume, `human` steps in full, and `pawl validate`.
+Milestone 1 covers the five kinds (`kind: parallel`'s single-group, all-or-nothing `branches:`
+included — §B.15), `state:` and `args:`, the stdout grammar, `${…}` substitution, postconditions with
+`soft:`, the attempt and visit caps, `retry:`/`catch:`, guards and invariants, fix-forward,
+crash-safe resume, `human` steps in full, and `pawl validate`.
 
 **Milestone 2.** `pawl graph` (Mermaid from the parsed graph); `pawl validate --walk step=TOKEN,…`, printing
 the step sequence a given outcome assignment produces without executing anything; `pawl status --history`;
 `pawl run <name> --from <step>`; plugin-shipped workflows, "if free".
 
-**Milestone 3.** `kind: parallel`; `foreach:` fan-out over a runtime-discovered list, with per-item
-postconditions and a partial-success join; an `outcome:` member of the agentic return schema,
-constrained to a declared enum; a `when:` predicate.
+**Milestone 3.** `foreach:` fan-out over a runtime-discovered list, with per-item postconditions and a
+**partial**-success join (`kind: parallel` itself, single-group and all-or-nothing, already shipped in
+Milestone 1 — §B.15); an `outcome:` member of the agentic return schema, constrained to a declared
+enum; a `when:` predicate.
 
 Installation and distribution are in DESIGN.md §9.
 

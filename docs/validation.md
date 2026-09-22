@@ -69,7 +69,10 @@ means denied everywhere).
 **16 — missing or non-executable file.** A referenced script doesn't exist (relative to
 `.claude/workflows/`), or isn't `chmod +x`.
 
-**17 — reserved kind.** `kind: parallel` is reserved, not yet implemented.
+**17 — bad `kind: parallel` branch.** `branches:` needs ≥ 2 entries, each a declared
+`deterministic`/`agentic` step (no nesting), listed once, claimed by only one `parallel` step, not
+the workflow's `start:` step, and declaring none of `next:`/`outcomes:`/`catch:`/`attempts:`/
+`attempt_key:`/`max_visits:` itself — see [steps/parallel.md](steps/parallel.md).
 
 ## Warnings
 

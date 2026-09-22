@@ -14,19 +14,21 @@ to do what `pawl run`/`pawl submit` tells it and report back exactly what's aske
 
 ## Status: read this before trusting any design doc
 
-**`README.md`'s "Status" section is the authority on what actually runs.** `DESIGN.md` (opens
-"Status: design only") and `docs/README.md` describe the target system, not this build. As of now:
+**`README.md`'s "Status" section is the authority on what actually runs.** `docs/README.md`
+describes the target system (enforcement, full distribution, `foreach:` fan-out), not this build.
+`DESIGN.md` is mostly current — it opens with its own up-to-date status line — but its enforcement
+(§5) and distribution (§9) sections describe what is not yet built. As of now:
 
-- Only `deterministic` and `agentic` step kinds are implemented. `wait`, `human`, `parallel` parse
-  but `pawl validate`/`pawl run` reject them ("not implemented in this build" / "reserved for
-  Milestone 3") — never a silent no-op.
-- Top-level `guards:`, `invariants:`, and a step's `retry:` are likewise parsed and rejected, not
+- All five step kinds are implemented: `deterministic`, `agentic`, `wait`, `human`, `parallel`
+  (single-group, all-or-nothing `branches:` join — `design/format-spec.md` §B.15).
+- Top-level `guards:`, `invariants:`, and a step's `retry:` are still parsed and rejected, not
   ignored.
 - **There is no enforcement layer.** DESIGN.md §5's `PreToolUse`/`Stop` hooks don't exist.
   `pawl run` prints `enforcement: off (milestone 1)` and starts anyway — nothing stops a session
   from doing the work itself instead of dispatching, or walking away mid-run. See
   `docs/dogfood.md`.
-- `pawl poll` and `pawl hook` don't exist (no `wait` kind, no hooks to invoke).
+- `pawl poll --run … --step …` drives a `wait` step; `pawl hook` still doesn't exist (no
+  enforcement layer to invoke it).
 - No `install.sh`, no release binaries, no `-ldflags` version stamping — `pawl version` always
   prints `pawl dev`.
 - Only `examples/green-tests` is a verified-runnable artefact (covered by `e2e/`); the other
