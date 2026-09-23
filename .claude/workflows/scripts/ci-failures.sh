@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# ci-failures.sh <pr_number> <head_sha> <repo>
+# ci-failures.sh <pr_number> <head_sha> <repo> <fix_input_file>
 #
 # Body of the `ci_failure` deterministic step, reached when wait_for_ci saw a
 # failing check. Turns each failing check into a finding for fix_issues —
@@ -10,6 +10,13 @@
 # realistic failure mode that breaks the run, per the severity scale
 # review-route.sh's findings share (critical > major > medium > minor >
 # nitpick) — never a nitpick.
+#
+# Also overwrites <fix_input_file> (atomically) with the same findings
+# array — a snapshot of exactly what fix_issues is about to be asked to
+# fix, read back by check-fix-result.sh (fix_issues' postcondition) to
+# confirm nothing given to the fixer gets silently dropped from its
+# returned findings (see fetch-pr.sh, which creates the file, for why it's
+# a file and not another state key).
 #
 # Prints {"findings": [...], "ci_round": true, "fix_note": ""} on one line
 # (emits: json; `jq -c` keeps it on the one line the engine parses).
@@ -49,6 +56,7 @@ set -eu
 pr_number="${1:?ci-failures.sh: pr_number argument required}"
 head_sha="${2:?ci-failures.sh: head_sha argument required}"
 repo="${3:?ci-failures.sh: repo argument required}"
+fix_input_file="${4:?ci-failures.sh: fix_input_file argument required}"
 log_lines="${PAWL_CI_LOG_LINES:-200}"
 inline_bytes="${PAWL_CI_INLINE_BYTES:-2048}"
 inline_budget="${PAWL_CI_INLINE_BUDGET:-65536}"
@@ -164,4 +172,9 @@ if [ -z "$items" ]; then
   }')
 fi
 
-printf '%s\n' "$items" | jq -cs '{findings: ., ci_round: true, fix_note: ""}'
+findings=$(printf '%s\n' "$items" | jq -cs '.')
+
+printf '%s' "$findings" >"${fix_input_file}.tmp"
+mv "${fix_input_file}.tmp" "$fix_input_file"
+
+printf '%s' "$findings" | jq -c '{findings: ., ci_round: true, fix_note: ""}'

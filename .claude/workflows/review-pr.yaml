@@ -24,34 +24,57 @@ start: fetch_pr
 # fix_push's `unchanged` outcome (fix_issues left the tree untouched — only
 # declines, no real fixes) does not re-enter review_route (retrying
 # reviewers on an unchanged tree is pointless). It goes to unchanged_route,
-# which either resolves `stuck` (terminal — something the fixer could not
-# actually change is still outstanding, or this round's declines were
-# against a failing CI check that will stay red regardless) or, only on a
-# review round with no not-fixed/partially-fixed item left (declines, and
-# `fixed:` items that needed no change), `to_ci` (on to
-# wait_for_ci, the same as `pushed` would once CI is checked). `to_ci`
-# introduces one bounded extra cycle per full round: unchanged_route ->
-# wait_for_ci -> ci_failure -> fix_issues -> record_declined -> fix_push,
-# which either pushes (back to prepare_review, ending this round) or is
-# `unchanged` again — and by then ci_round is true, so unchanged_route
-# resolves `stuck` unconditionally and the run ends. So this extra cycle
-# fires at most once per full round, adding at most 6 entries
-# (unchanged_route, wait_for_ci, ci_failure, fix_issues, record_declined,
-# fix_push) beyond the round's base (up to 13 via the optional_only ->
-# take_optional path) — worst case 19 entries for one non-terminating round
-# (optional_only + take_optional, then unchanged + to_ci, then pushed).
+# which resolves `stuck` (terminal — a genuine not-fixed/partially-fixed
+# item is still outstanding, or this round's declines were against a
+# failing CI check that will stay red regardless), `ask` (nothing left
+# unresolved on a review round, but held minor/nitpick findings —
+# ${optional_findings} — were never asked about because this round never
+# reached ask_optional), or `to_ci` (nothing left unresolved AND nothing
+# held, on to wait_for_ci, the same as `pushed` would once CI is checked).
+# check-fix-result.sh (fix_issues' postcondition) guarantees a
+# `fixed:`/`partially-fixed:` claim can never reach unchanged_route on an
+# unchanged tree, so "nothing left unresolved" here always means "every
+# item was declined" — see unchanged-route.sh.
+#
+# Both `to_ci` and `ask` can introduce a bounded extra cycle beyond the
+# round's base, and — unlike before — they can now chain, since `ask` can
+# itself lead back through fix_issues to a second `unchanged` that then
+# takes the `to_ci`/`ci_failure` cycle:
+#   - `to_ci`: unchanged_route -> wait_for_ci -> ci_failure -> fix_issues ->
+#     record_declined -> fix_push, which either pushes (back to
+#     prepare_review, ending this round) or is `unchanged` again — and by
+#     then ci_round is true, so unchanged_route resolves `stuck`
+#     unconditionally.
+#   - `ask`: unchanged_route -> ask_optional -> skip_optional -> wait_for_ci
+#     (optional_findings emptied, same as `to_ci`'s target), or ->
+#     take_optional -> fix_issues -> record_declined -> fix_push, which
+#     either pushes (ending this round) or is `unchanged` again — and by
+#     then take_optional has emptied optional_findings, so this second
+#     unchanged_route entry can only resolve `stuck` or `to_ci` (never
+#     `ask` again).
+# The worst single round chains blocking -> fix_issues(1) unchanged ->
+# unchanged_route(1) `ask` -> take_optional -> fix_issues(2) unchanged ->
+# unchanged_route(2) `to_ci` -> wait_for_ci -> ci_failure -> fix_issues(3)
+# -> record_declined(3) -> fix_push(3) `pushed`: fix_issues/
+# record_declined/fix_push entered 3 times, unchanged_route 3 times, in one
+# non-terminating round — 23 entries total (8 for
+# prepare_review..review_route, 3x3 for fix_issues/record_declined/
+# fix_push, 3 for unchanged_route, 1 each for ask_optional/take_optional,
+# 1 each for wait_for_ci/ci_failure).
 #
 # Visit caps: most steps are entered at most once per full round and keep
 # the default max_visits (10), the same cap as prepare_review's round cap.
-# fix_issues, record_declined and fix_push are the exception: the to_ci
-# side-cycle above enters each of them a second time in the same round, so
-# they carry max_visits: 20 — otherwise they would hit `exhausted` after
-# ~5 such rounds, long before the documented 10-round cap. unchanged_route
-# gets 20 too: it is entered once per round plus once more on the `stuck`
-# exit. 10 rounds x 19 entries + 2 for fetch_pr and choose_reviewers (plus
-# check_reviewers, and any choose_reviewers re-asks it causes, each capped
-# at 10) is under 250, so max_steps is 250.
-max_steps: 250
+# fix_issues, record_declined, fix_push and unchanged_route are the
+# exception: the chained cycles above can enter each of them up to 3 times
+# in the same round, so they carry max_visits: 30 (3 x prepare_review's
+# 10-round cap) — otherwise they could hit `exhausted` well before the
+# documented 10-round cap. ask_optional/take_optional/skip_optional stay at
+# the default 10: each is reachable at most once per round (take_optional
+# always empties optional_findings, so a round can pass through
+# unchanged_route's `ask` at most once). 10 rounds x 23 entries + margin for
+# fetch_pr/choose_reviewers/check_reviewers (a choose_reviewers re-ask loop,
+# each capped at 10) is under 300, so max_steps is 300.
+max_steps: 300
 
 args:
   pr_number: {type: string}
@@ -98,6 +121,16 @@ state:
   # 128 KiB on Linux, so an unbounded list would eventually fail the step
   # with E2BIG. Steps read it with jq --slurpfile or as a context: file.
   declined_file: {type: string}
+  # Path of the JSON file snapshotting exactly what fix_issues was last
+  # asked to fix, created holding [] by fetch-pr.sh and kept current by
+  # whichever step sets `findings` right before fix_issues (review-route.sh's
+  # blocking branch, take-optional.sh, ci-failures.sh). A file for the same
+  # reason declined_file is one: check-fix-result.sh (fix_issues'
+  # postcondition) needs the input findings alongside the (possibly
+  # similarly large, up to ~64 KiB for CI) output findings, and a second
+  # copy of both on one `sh -c` argument could overflow the 128 KiB
+  # MAX_ARG_STRLEN cap.
+  fix_input_file: {type: string}
   # The git ref ai_review_codex diffs against (`origin/<base_branch>`,
   # freshly fetched by prepare-review.sh), or "" when codex was not picked
   # or cannot run in this working copy.
@@ -113,8 +146,8 @@ steps:
   - id: fetch_pr
     kind: deterministic
     run: scripts/fetch-pr.sh ${pr_number} ${run_id}
-    writes: [vcs, repo, declined_file, pr_url, head_sha, base_branch, branch, title]
-    postcondition: {all_set: [pr_url, head_sha, repo, declined_file]}
+    writes: [vcs, repo, declined_file, fix_input_file, pr_url, head_sha, base_branch, branch, title]
+    postcondition: {all_set: [pr_url, head_sha, repo, declined_file, fix_input_file]}
     next: choose_reviewers
 
   - id: choose_reviewers          # the one human step that picks the engine(s)
@@ -368,7 +401,7 @@ steps:
 
   - id: review_route
     kind: deterministic
-    run: scripts/review-route.sh ${findings_claude} ${findings_codex} ${findings_custom} ${findings_docs} ${optional_findings} ${declined_file}
+    run: scripts/review-route.sh ${findings_claude} ${findings_codex} ${findings_custom} ${findings_docs} ${optional_findings} ${declined_file} ${fix_input_file}
     writes: [findings, optional_findings]
     outcomes:
       blocking: fix_issues        # critical, major, or medium — plus missing/unrecognised severity (fail-safe)
@@ -405,7 +438,7 @@ steps:
   # instructions from ask_optional) is read by fix_issues itself, not here.
   - id: take_optional
     kind: deterministic
-    run: "jq -cn --argjson n ${optional_findings} '{findings: $n, optional_findings: []}'"
+    run: scripts/take-optional.sh ${fix_input_file} ${optional_findings}
     writes: [findings, optional_findings]
     postcondition: "printf '%s' ${findings} | jq -e 'type==\"array\"' >/dev/null"
     next: fix_issues
@@ -439,25 +472,36 @@ steps:
       (and say why) if it is wrong. Run the repo's own verify command (or
       its test suite) as your feedback loop, and iterate until it passes or
       further local iteration clearly won't help. Never commit or push —
-      the next step does that. Return findings: the same items, each with an
-      added verify_status, whose value must start with one of these four
+      the next step does that.
+
+      Return EVERY item you were given, in your findings — none may be
+      dropped, even if you address none of them (an empty [] is only valid
+      if you were given no items at all). Each item gets an added
+      verify_status, whose value must start with one of these four
       prefixes:
-        - `fixed:` — you made the change and verified it. If an item
-          needed no change (it was already resolved), report it as
-          `wont-fix: already resolved` instead.
-        - `partially-fixed:` — you made part of the change; say what's left.
+        - `fixed:` — you made a change to the tree and verified it. Only
+          valid if the working copy actually changed. If an item needed no
+          change (it was already resolved), report it as
+          `wont-fix: already resolved` instead — never `fixed:` with
+          nothing to show for it.
+        - `partially-fixed:` — you made part of the change (the tree
+          changed); say what's left.
         - `not-fixed:` — you tried and couldn't; it will be raised again
           next round, and that's intended.
         - `wont-fix: <reason>` — you're declining this finding: it's wrong,
-          not applicable, or out of scope for this repo. The reason is
-          mandatory and travels with the finding so reviewers don't re-raise
-          it without cause.
+          not applicable, already resolved, or out of scope for this repo.
+          The reason is mandatory and travels with the finding so reviewers
+          don't re-raise it without cause.
+      This is independently checked, not taken on your word: the working
+      copy's actual diff is inspected, and any `fixed:`/`partially-fixed:`
+      claim alongside no uncommitted changes at all is rejected — you will
+      be asked to correct it and resubmit.
     subagent_args: {tools: [Read, Edit, Write, Bash]}
     writes: {findings: {type: json}}
-    postcondition: "printf '%s' ${findings} | jq -e 'all(.[]; (.verify_status // \"\") | test(\"^(fixed|partially-fixed|not-fixed|wont-fix):\"))' >/dev/null"
-    soft: true                     # the agent's own claim, not independently re-verified here
+    postcondition: scripts/check-fix-result.sh ${vcs} ${findings} ${fix_input_file}
+    soft: true                     # the agent's own claim, not independently re-verified for *quality* — only checked for consistency (check-fix-result.sh)
     attempts: 3
-    max_visits: 20                 # entered twice in a round via the to_ci side-cycle (see top)
+    max_visits: 30                 # entered up to 3 times in a round via the ask/to_ci cycles (see top)
     next: record_declined
 
   # Carries forward every finding fix_issues just declined (verify_status
@@ -470,7 +514,7 @@ steps:
     kind: deterministic
     run: scripts/record-declined.sh ${declined_file} ${findings}
     postcondition: "jq -e 'type==\"array\"' ${declined_file} >/dev/null"
-    max_visits: 20                 # entered twice in a round via the to_ci side-cycle (see top)
+    max_visits: 30                 # entered up to 3 times in a round via the ask/to_ci cycles (see top)
     next: fix_push
 
   - id: fix_push
@@ -479,25 +523,28 @@ steps:
     emits: pairs                   # a bare integer — safe under the whitespace-split grammar
     writes: [round]
     postcondition: scripts/verify-pushed.sh ${vcs} ${branch} ${repo}
-    max_visits: 20                 # entered twice in a round via the to_ci side-cycle (see top)
+    max_visits: 30                 # entered up to 3 times in a round via the ask/to_ci cycles (see top)
     outcomes:
       pushed: prepare_review       # re-review the new head; CI runs meanwhile
       # The fixer changed nothing in the tree. That's expected when this
-      # round's only non-fixes were declines (wont-fix), since declining
-      # doesn't touch the tree — but retrying is pointless when nothing
-      # actually changed, so this no longer loops back to review_route:
-      # unchanged_route decides whether anything is left worth another
-      # round (`stuck`) or this was a review round with nothing left
-      # unresolved (declines, or `fixed:` items that needed no change),
-      # safe to send on to CI (`to_ci`).
+      # round's only non-fixes were declines (wont-fix — check-fix-result.sh
+      # rejects a fixed:/partially-fixed: claim on an unchanged tree, so
+      # that's the only way to get here), since declining doesn't touch the
+      # tree — but retrying is pointless when nothing actually changed, so
+      # this no longer loops back to review_route: unchanged_route decides
+      # whether anything is left worth another round (`stuck`), whether held
+      # optional findings still need asking about (`ask`), or this was a
+      # review round with nothing left unresolved and nothing held, safe to
+      # send on to CI (`to_ci`).
       unchanged: unchanged_route
 
   - id: unchanged_route
     kind: deterministic
-    run: scripts/unchanged-route.sh ${findings} ${ci_round}
-    max_visits: 20                 # once per round, plus once more on the `stuck` exit
+    run: scripts/unchanged-route.sh ${findings} ${ci_round} ${optional_findings}
+    max_visits: 30                 # entered up to 3 times in a round via the ask/to_ci cycles (see top)
     outcomes:
       to_ci: wait_for_ci
+      ask: ask_optional             # held minor/nitpick findings never asked about this round
       stuck: stuck
 
   - id: wait_for_ci
@@ -512,7 +559,7 @@ steps:
 
   - id: ci_failure
     kind: deterministic
-    run: scripts/ci-failures.sh ${pr_number} ${head_sha} ${repo}
+    run: scripts/ci-failures.sh ${pr_number} ${head_sha} ${repo} ${fix_input_file}
     # fix_note is reset to "": ask_optional's answer (e.g. "skip", or free
     # text) was about the held optional findings, not these CI failures.
     writes: [findings, ci_round, fix_note]

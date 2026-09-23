@@ -30,6 +30,10 @@
 # unbounded list there would eventually fail the step with E2BIG. The file
 # is under the user cache dir, next to prepare-review.sh's diff files,
 # outside the working copy so fix-push.sh never commits it.
+#
+# Also creates this run's fix-input snapshot file (holding `[]`, same
+# create-if-missing convention) and writes its path to state as
+# `fix_input_file` — see the comment above it below for what it's for.
 set -eu
 
 pr_number="${1:?fetch-pr.sh: pr_number argument required}"
@@ -119,10 +123,27 @@ if [ ! -e "$declined_file" ]; then
   mv "${declined_file}.tmp" "$declined_file"
 fi
 
-printf '%s' "$view" | jq -c --arg vcs "$vcs" --arg repo "$repo" --arg declined_file "$declined_file" '{
+# Snapshot of exactly what fix_issues was last asked to fix, kept current by
+# whichever step sets `findings` right before fix_issues (review-route.sh's
+# blocking branch, take-optional.sh, ci-failures.sh) and read back by
+# check-fix-result.sh (fix_issues' postcondition) to confirm nothing the
+# fixer was given got silently dropped. A file, not a state key, for the
+# same reason declined_file is: a state key a step reads is rendered into
+# its `sh -c` argument AND exported as PAWL_<KEY>, both capped at 128 KiB
+# (MAX_ARG_STRLEN) on Linux, and CI findings alone can already be ~64 KiB —
+# a second full copy on check-fix-result.sh's command line (input AND
+# output) could overflow that on its own.
+fix_input_file="${cache_dir}/run-${run_id}-fix-input.json"
+if [ ! -e "$fix_input_file" ]; then
+  printf '[]\n' >"${fix_input_file}.tmp"
+  mv "${fix_input_file}.tmp" "$fix_input_file"
+fi
+
+printf '%s' "$view" | jq -c --arg vcs "$vcs" --arg repo "$repo" --arg declined_file "$declined_file" --arg fix_input_file "$fix_input_file" '{
     vcs: $vcs,
     repo: $repo,
     declined_file: $declined_file,
+    fix_input_file: $fix_input_file,
     pr_url: .url,
     head_sha: .headRefOid,
     base_branch: .baseRefName,

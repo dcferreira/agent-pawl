@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# review-route.sh <findings_claude> <findings_codex> <findings_custom> <findings_docs> <optional_findings> <declined_file>
+# review-route.sh <findings_claude> <findings_codex> <findings_custom> <findings_docs> <optional_findings> <declined_file> <fix_input_file>
 #
 # Body of the `review_route` deterministic step: merges the four parallel
 # branches' findings arrays (a reviewer branch returns `[]` when its engine
@@ -44,6 +44,14 @@
 # <declined_file> is read with --slurpfile, never through argv (see
 # record-declined.sh for why the declined list is a file).
 #
+# On a `blocking` outcome, also overwrites <fix_input_file> (atomically)
+# with the `fixable` array — a snapshot of exactly what fix_issues is about
+# to be asked to fix, read back by check-fix-result.sh (fix_issues'
+# postcondition) to confirm nothing given to the fixer gets silently
+# dropped from its returned findings. Left untouched on `optional_only`/
+# `clean` (fix_issues isn't reached either way; take-optional.sh writes it
+# for the optional_only -> address path instead).
+#
 # Prints one of three routed lines (a TOKEN followed by a JSON payload,
 # emits: json — `jq -c` keeps it on the one line the engine parses,
 # format-spec §B.1):
@@ -58,6 +66,7 @@ findings_custom="${3:?review-route.sh: findings_custom argument required}"
 findings_docs="${4:?review-route.sh: findings_docs argument required}"
 held_optional="${5:?review-route.sh: optional_findings argument required}"
 declined_file="${6:?review-route.sh: declined_file argument required}"
+fix_input_file="${7:?review-route.sh: fix_input_file argument required}"
 
 result=$(jq -cn \
   --argjson a "$findings_claude" \
@@ -84,6 +93,8 @@ fixable_count=$(printf '%s' "$result" | jq '.fixable | length')
 optional_count=$(printf '%s' "$result" | jq '.optional | length')
 
 if [ "$fixable_count" -gt 0 ]; then
+  printf '%s' "$result" | jq -c '.fixable' >"${fix_input_file}.tmp"
+  mv "${fix_input_file}.tmp" "$fix_input_file"
   payload=$(printf '%s' "$result" | jq -c '{findings: .fixable, optional_findings: .optional}')
   printf 'blocking %s\n' "$payload"
 elif [ "$optional_count" -gt 0 ]; then
