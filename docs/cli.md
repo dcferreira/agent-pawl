@@ -14,8 +14,8 @@ the process exits with nothing driving it — deterministic-only workflows, or i
 ```
 pawl run <name> [key=value …] [--run <id>] [--fresh] [--force]
 pawl validate <name|path> [--strict]
-pawl status [--run <id>] [--all] [--json]
-pawl list [--json]
+pawl status [--run <id>] [--json]
+pawl list
 pawl abandon --run <id> [--reason <text>]
 pawl version
 ```
@@ -27,8 +27,8 @@ Every command uses the same table.
 | Code | Meaning |
 |---|---|
 | 0 | fine — incl. stopped at `DISPATCH`/`ASK`/`WAIT`, or ended `ok` |
-| 1 | usage error: bad flag, unknown workflow, missing required arg |
-| 2 | validation failed |
+| 1 | resolution error: unknown workflow, or another non-flag problem hit while resolving it |
+| 2 | usage error: bad/unrecognised flag, missing a flag's value, missing required arg, or validation failed |
 | 3 | run is `BLOCKED` — paused, resumable, not an error |
 | 4 | refused: lock held, version mismatch, file changed, submit for a non-current step |
 | 5 | engine error — a bug, or a broken run directory |
@@ -84,21 +84,52 @@ Exit 0 clean, 2 on any error. Full check list and messages: [validation.md](vali
 ## `pawl status` — human
 
 ```
-pawl status [--run <id>] [--all] [--json]
+pawl status [--run <id>] [--json]
 ```
 
-No flags: every live run for this working copy. `--run` narrows to one, `--all` covers the machine,
-`--json` prints the same fields machine-readably. Exit 0, or 3 if the selected run is `BLOCKED`. See
-[running.md#pawl-status](running.md#pawl-status).
+No flags: every live run for this working copy (exactly one live run prints it directly; more than
+one is a usage error — disambiguate with `--run <id>`). `--run` finds a run whether it's still live
+or already ended (e.g. an abandoned run, to see its `--reason`). `--json` prints the same fields
+machine-readably, always exit 0 on a successful lookup (see below; `--all` does not exist — every
+run for the machine isn't listable by this command).
+
+```json
+{
+  "root": "/path/to/working/copy",
+  "runs": [
+    {
+      "run_id": "a98d",
+      "workflow": "/path/.claude/workflows/sample.yaml",
+      "warning": "",
+      "status": "running",
+      "step": "greet",
+      "attempt": 1,
+      "visits": {"greet": 1},
+      "state_keys": ["greeting"],
+      "reason": "",
+      "soft": {"count": 0, "total": 2, "percent": 0, "step_ids": []}
+    }
+  ]
+}
+```
+
+`runs` is always an array so the "no live runs" case (`{"root": "...", "runs": []}`) and the
+one-run case share a shape; `pawl status` never actually prints more than one run itself (the
+multiple-live-runs case is a plain-text usage refusal on stderr, exit 1, `--json` included — not a
+multi-element `runs`). `warning` and `reason` are empty strings, not omitted, when there is nothing
+to say. Exit 0 on a successful lookup — including a `BLOCKED` run: despite the general exit-code
+table above, this build's `pawl status` has never implemented an exit-3 case for it.
+[running.md#pawl-status](running.md#pawl-status) has more on reading the output.
 
 ## `pawl list` — human
 
 ```
-pawl list [--json]
+pawl list
 ```
 
 Every workflow `pawl run` can resolve, and where it's from. Repo-local shadows user-level; the shadowed
-one is still shown, so you know why.
+one is still shown, so you know why. No `--json` — machine-readable output isn't implemented for this
+command.
 
 ```
 › pawl list

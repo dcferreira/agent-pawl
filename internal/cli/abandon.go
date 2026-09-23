@@ -15,7 +15,8 @@ import (
 // end a run, with status "abandoned" (anything but "blocked" is terminal
 // per journal.RunState.Terminal).
 func cmdAbandon(args []string, cwd string, stdout, stderr io.Writer) int {
-	var runID string
+	var runID, reason string
+	haveReason := false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--run":
@@ -25,14 +26,28 @@ func cmdAbandon(args []string, cwd string, stdout, stderr io.Writer) int {
 				return 2
 			}
 			runID = args[i]
+		case "--reason":
+			i++
+			if i >= len(args) {
+				fmt.Fprintln(stderr, "pawl abandon: --reason needs a value")
+				return 2
+			}
+			reason = args[i]
+			haveReason = true
 		default:
 			printLine(stderr, "pawl abandon: unrecognised argument", args[i])
 			return 2
 		}
 	}
 	if runID == "" {
-		fmt.Fprintln(stderr, "usage: pawl abandon --run <id>")
+		fmt.Fprintln(stderr, "usage: pawl abandon --run <id> [--reason <text>]")
 		return 2
+	}
+	// --reason is optional free text; omitting it (or passing "") keeps the
+	// journalled reason that existed before --reason was added, so an old
+	// journal reading this code's output back is unaffected either way.
+	if !haveReason || reason == "" {
+		reason = "abandoned by user"
 	}
 
 	root, err := journal.ResolveRoot(cwd)
@@ -65,7 +80,7 @@ func cmdAbandon(args []string, cwd string, stdout, stderr io.Writer) int {
 		RunID:  runID,
 		Step:   ref.State.Cursor.Step,
 		Status: "abandoned",
-		Reason: "abandoned by user",
+		Reason: reason,
 	}); err != nil {
 		printLine(stderr, "pawl abandon:", err.Error())
 		return 1

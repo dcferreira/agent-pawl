@@ -536,7 +536,7 @@ func formatTerminal(t engine.Terminal, detail string) string {
 // particular) that motivated fix round 4, and the round's own whole-output
 // property test drives pawl status as part of what it checks — so it is held
 // to the same guarantee for the same reason formatBanner is.
-func formatStatus(root, workflowPath, warning, runID, status, step string, attempt int, visits, state string, report *spec.Report) string {
+func formatStatus(root, workflowPath, warning, runID, status, step string, attempt int, visits, state, reason string, report *spec.Report) string {
 	w := &blockWriter{}
 	w.line(0, "root:", root)
 	w.line(0, "workflow:", workflowPath)
@@ -549,6 +549,111 @@ func formatStatus(root, workflowPath, warning, runID, status, step string, attem
 	w.line(0, "attempt:", strconv.Itoa(attempt))
 	w.line(0, "visits:", visits)
 	w.line(0, "state:", state)
+	if reason != "" {
+		w.line(0, "reason:", reason)
+	}
 	writeSoftCensus(w, report)
 	return w.String()
+}
+
+// statusJSON is pawl status --json's machine-readable shape (task B2):
+// snake_case keys, one object with a runs: array so the zero-runs and
+// one-run cases share a shape — pawl status never actually prints more than
+// one run at a time (ambiguity without --run is a plain-text usage refusal,
+// not JSON output), but "runs" being a list rather than a single object
+// keeps the shape honest about that possibility instead of overpromising a
+// singular result.
+type statusJSON struct {
+	Root string          `json:"root"`
+	Runs []statusRunJSON `json:"runs"`
+}
+
+type statusRunJSON struct {
+	RunID    string `json:"run_id"`
+	Workflow string `json:"workflow"`
+	// Warning and Reason are always present as "", never omitted (no
+	// omitempty): docs/cli.md's JSON contract promises every key is always
+	// there with the right type, so a consumer can read status.warning
+	// without first checking it exists — omitempty would make the key
+	// vanish exactly when there's nothing to say, which is the common case.
+	Warning   string         `json:"warning"`
+	Status    string         `json:"status"`
+	Step      string         `json:"step"`
+	Attempt   int            `json:"attempt"`
+	Visits    map[string]int `json:"visits"`
+	StateKeys []string       `json:"state_keys"`
+	Reason    string         `json:"reason"`
+	Soft      statusSoftJSON `json:"soft"`
+}
+
+type statusSoftJSON struct {
+	Count   int      `json:"count"`
+	Total   int      `json:"total"`
+	Percent float64  `json:"percent"`
+	StepIDs []string `json:"step_ids"`
+}
+
+// formatStatusJSONEmpty is the --json counterpart of pawl status's "no live
+// runs for this working copy" line: same root, an empty runs: array.
+func formatStatusJSONEmpty(root string) string {
+	return mustJSONLine(statusJSON{Root: root, Runs: []statusRunJSON{}})
+}
+
+// formatStatusJSON is --json's counterpart to formatStatus, carrying the
+// same fields (plus reason, when the run has ended) instead of the
+// blockWriter's guarded human text — json.Marshal itself is the escaping
+// here, so none of formatStatus's singleLine/blockWriter guarding applies
+// or is needed.
+func formatStatusJSON(root, workflowPath, warning, runID, status, step string, attempt int, visits map[string]int, state map[string]any, reason string, report *spec.Report) string {
+	stateKeys := make([]string, 0, len(state))
+	for k := range state {
+		stateKeys = append(stateKeys, k)
+	}
+	sort.Strings(stateKeys)
+
+	// make(..., 0, n) rather than append(nil, ...): an empty
+	// report.SoftStepIDs must still marshal as "[]", not "null" — the JSON
+	// contract in docs/cli.md promises soft.step_ids is always an array.
+	softIDs := make([]string, 0, len(report.SoftStepIDs))
+	softIDs = append(softIDs, report.SoftStepIDs...)
+	sort.Strings(softIDs)
+
+	visitsCopy := make(map[string]int, len(visits))
+	for k, v := range visits {
+		visitsCopy[k] = v
+	}
+
+	return mustJSONLine(statusJSON{
+		Root: root,
+		Runs: []statusRunJSON{{
+			RunID:     runID,
+			Workflow:  workflowPath,
+			Warning:   warning,
+			Status:    status,
+			Step:      step,
+			Attempt:   attempt,
+			Visits:    visitsCopy,
+			StateKeys: stateKeys,
+			Reason:    reason,
+			Soft: statusSoftJSON{
+				Count:   report.SoftCount,
+				Total:   report.TotalSteps,
+				Percent: report.SoftPercent(),
+				StepIDs: softIDs,
+			},
+		}},
+	})
+}
+
+// mustJSONLine marshals v and appends a trailing newline, matching the
+// blockWriter convention every other formatX helper in this file follows
+// (one line, or one block, always newline-terminated). json.Marshal cannot
+// fail on the fixed, already-typed shapes this file builds, so a failure
+// here would be a bug worth panicking on rather than silently swallowing.
+func mustJSONLine(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(fmt.Sprintf("cli: marshalling status JSON: %v", err))
+	}
+	return string(b) + "\n"
 }
