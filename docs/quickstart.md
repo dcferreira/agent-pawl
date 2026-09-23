@@ -24,7 +24,7 @@ start: greet
 steps:
   - id: greet
     kind: deterministic
-    run: echo "hello from ${name}" > hello.txt
+    run: echo hello from ${name} > hello.txt
     postcondition: test -s hello.txt
     next: count
   - id: count

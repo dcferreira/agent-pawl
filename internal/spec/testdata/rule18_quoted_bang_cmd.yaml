@@ -1,0 +1,13 @@
+workflow: rule18c
+start: a
+state:
+  out: {type: string, default: ""}
+steps:
+  - id: a
+    kind: agentic
+    description: Do the thing.
+    context: ["!cmd git diff main"]
+    postcondition: "true"
+    writes: {out: {type: string}}
+    next: done
+terminal: {done: {status: ok}}

@@ -90,6 +90,11 @@ shape an author might write it:
 - An *unquoted* entry starting with `!` (e.g. `!git diff main`) isn't even that literal text — YAML
   reads it as a custom tag `!git` applied to the scalar `diff main`. Any custom tag other than
   `!cmd` is rejected the same way.
+- A quoted string with `!cmd` *inside* the quotes (e.g. `"!cmd git diff main"`) is the same FILE
+  PATH mistake as the first case, just with a value that happens to start with `!cmd `. The tag has
+  to sit outside the quotes (`!cmd "git diff main"`) to take effect — the error names the corrected
+  form with `!cmd` stripped from the front of the value, not just the leading `!` (which would
+  otherwise suggest running a program literally called `cmd`).
 
 `pawl validate` rejects both and names the corrected `!cmd "..."` form. A real file whose name
 starts with `!` is not a case this rule can special-case away (there is no way to tell "this author

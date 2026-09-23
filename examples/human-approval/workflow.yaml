@@ -43,7 +43,7 @@ steps:
 
   - id: record
     kind: deterministic
-    run: 'echo "approved: ${decision}"'
+    run: 'echo approved: ${decision}'
     next: done
 
 terminal:

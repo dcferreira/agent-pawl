@@ -1001,6 +1001,20 @@ func checkRule18(w *Workflow, errs *[]string) {
 				if !strings.HasPrefix(c.Value, "!") {
 					continue
 				}
+				if c.Value == "!cmd" || strings.HasPrefix(c.Value, "!cmd ") {
+					// The author quoted the tag together with the command,
+					// e.g. "!cmd git diff main" — a plain string whose
+					// value happens to start with "!cmd ". Trimming only
+					// the leading "!" (as the generic case below does)
+					// would suggest !cmd "cmd git diff main", which runs a
+					// program literally called "cmd". The tag has to sit
+					// outside the quotes.
+					rest := strings.TrimPrefix(strings.TrimPrefix(c.Value, "!cmd"), " ")
+					*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
+						"rule 18: context[%d]: %q is a plain string with the !cmd tag INSIDE the quotes, which names a FILE PATH, not a command; the tag must sit outside the quotes: !cmd %q",
+						i, c.Value, rest)))
+					continue
+				}
 				*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
 					"rule 18: context[%d]: %q is a plain string starting with \"!\", which names a FILE PATH, not a command; tag it with !cmd to run it as a command: !cmd %q",
 					i, c.Value, strings.TrimPrefix(c.Value, "!"))))
