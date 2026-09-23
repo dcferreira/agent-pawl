@@ -66,7 +66,7 @@ guards:
 
 invariants:
   - id: draft-until-assigned
-    check: scripts/check-draft-invariant.sh "${project_path}" "${mr_iid}" "${reviewers_approved}"
+    check: scripts/check-draft-invariant.sh ${project_path} ${mr_iid} ${reviewers_approved}
     message: >
       The MR was un-drafted or given reviewers before a reviewer-decision
       step approved any. A non-canonical route (title-rewrite un-draft,
@@ -75,21 +75,21 @@ invariants:
       `reviewers_approved` — no other step's `run:`/goal may emit that key —
       so this invariant is purely the title-rewrite/indirection backstop.
   - id: never-on-trunk
-    check: "[ \"${branch}\" != \"${target_branch}\" ] && [ \"${branch}\" != main ] && [ \"${branch}\" != master ]"
+    check: "[ ${branch} != ${target_branch} ] && [ ${branch} != main ] && [ ${branch} != master ]"
     message: "The feature bookmark/branch is never the trunk."
 
 steps:
   # ── ENTRY ──────────────────────────────────────────────────────────────
   - id: entry
     kind: deterministic
-    run: scripts/entry.sh "${mr_url_arg}"   # pure routing; exit 0 = success, no postcondition needed
+    run: scripts/entry.sh ${mr_url_arg}   # pure routing; exit 0 = success, no postcondition needed
     outcomes:
       fresh:  preflight
       resume: resume_mr
 
   - id: resume_mr                     # deterministic, read-only re-hydration
     kind: deterministic
-    run: scripts/resume-init.sh init "${mr_url_arg}"
+    run: scripts/resume-init.sh init ${mr_url_arg}
     emits: pairs
     writes: [mr_url, mr_iid, project_path, target_branch, branch, vcs]
     postcondition: {all_set: [mr_iid, project_path]}
@@ -123,7 +123,7 @@ steps:
     context: [!cmd "bash scripts/check-changelog.sh"]
     subagent_args: {tools: [Read, Write, Edit, "Bash(bash scripts/check-changelog.sh)"], model: sonnet}
     writes: {changelog_updated: {type: boolean}}
-    postcondition: "[ \"${changelog_updated}\" = true ]"
+    postcondition: "[ ${changelog_updated} = true ]"
     soft: true                        # "or that none is needed" is a judgement call
     attempts: 2
     next: branch_sync
@@ -133,14 +133,14 @@ steps:
     run: scripts/branch-sync.sh
     emits: pairs
     writes: [branch, target_branch]
-    postcondition: "[ -n \"${branch}\" ] && [ \"${branch}\" != \"${target_branch}\" ]"
+    postcondition: "[ -n ${branch} ] && [ ${branch} != ${target_branch} ]"
     outcomes:
       clean:    describe
       conflict: resolve_conflict
 
   - id: resolve_conflict              # deterministic — this workflow never auto-resolves
     kind: deterministic
-    run: scripts/print-conflict.sh "${target_branch}"
+    run: scripts/print-conflict.sh ${target_branch}
     emits: pairs
     writes: [conflict_detail]
     postcondition: {all_set: [conflict_detail]}
@@ -162,23 +162,23 @@ steps:
         ## Screenshots (optional)
         ## Breaking changes (optional)
       Write the description to a temp file yourself (a single `cat > file <<'EOF' ... EOF`).
-    context: [!cmd "git diff \"${target_branch}\"...HEAD", !cmd "git log \"${target_branch}\"..HEAD --format=%B"]
+    context: [!cmd "git diff ${target_branch}...HEAD", !cmd "git log ${target_branch}..HEAD --format=%B"]
     subagent_args: {tools: [Read, "Bash(git diff:*)", "Bash(git log:*)", "Bash(jj diff:*)", "Bash(jj log:*)"], model: sonnet}
     writes:
       title: {type: string, max_length: 72}
       description_file: {type: string}
-    postcondition: "[ -n \"${title}\" ] && [ ${#title} -le 72 ] && [ -s \"${description_file}\" ]"
+    postcondition: "[ -n ${title} ] && [ ${#title} -le 72 ] && [ -s ${description_file} ]"
     attempts: 3
     next: push_and_create
 
   - id: push_and_create
     kind: deterministic
-    run: scripts/push-create.sh "${vcs}" "${branch}" "${target_branch}" "${title}" "${description_file}"
+    run: scripts/push-create.sh ${vcs} ${branch} ${target_branch} ${title} ${description_file}
     writes: [mr_url, mr_iid, project_path]   # push-create.sh already prints
                                               # JSON — emits: json (the
                                               # default) needs no override.
     postcondition:
-      command: glab mr view "${mr_iid}" -R "${project_path}" --output json | jq -e '.state=="opened" and .draft'
+      command: glab mr view ${mr_iid} -R ${project_path} --output json | jq -e '.state=="opened" and .draft'
     retry: {max_attempts: 3, backoff: 5s}
     next: ai_review
 
@@ -200,7 +200,7 @@ steps:
     writes:
       findings: {type: json}
       pipeline_failed: {type: boolean}
-    postcondition: "jq -e 'type==\"array\"' <<<\"${findings}\" >/dev/null"
+    postcondition: "jq -e 'type==\"array\"' <<<${findings} >/dev/null"
     attempts: 1
     next: ai_review_route
 
@@ -210,7 +210,7 @@ steps:
     # an agentic step's own judgement — an `agentic` step can't select its
     # own named outcome, so this routing step is the pattern.
     kind: deterministic
-    run: scripts/ai-review-route.sh "${findings}" "${pipeline_failed}"   # pure routing
+    run: scripts/ai-review-route.sh ${findings} ${pipeline_failed}   # pure routing
     outcomes:
       blocking: fix_issues
       clean:    trigger_coderabbit
@@ -237,7 +237,7 @@ steps:
       the workflow re-checks CI and the review findings after you return).
     subagent_args: {tools: [Read, Edit, Write, "Bash(scripts/verify.sh)"]}
     writes: {findings: {type: json}}
-    postcondition: "jq -e 'all(.[]; has(\"verify_status\"))' <<<\"${findings}\" >/dev/null"
+    postcondition: "jq -e 'all(.[]; has(\"verify_status\"))' <<<${findings} >/dev/null"
     soft: true                         # this is the agent's own claim; it checks
                                         # shape, not that the fix is correct
     attempts: 3
@@ -246,7 +246,7 @@ steps:
 
   - id: fix_issues_push
     kind: deterministic
-    run: scripts/fix-push.sh "${vcs}" "${branch}" "${findings}" "${round}"
+    run: scripts/fix-push.sh ${vcs} ${branch} ${findings} ${round}
     emits: pairs
     writes: [round]
     postcondition: {all_set: [round]}   # "a round is pushed"; whether the fix
@@ -259,13 +259,13 @@ steps:
   # ── WAIT ─────────────────────────────────────────────────────────────
   - id: trigger_coderabbit
     kind: deterministic
-    run: scripts/trigger-coderabbit.sh "${project_path}" "${mr_iid}"   # idempotent best-effort nudge
+    run: scripts/trigger-coderabbit.sh ${project_path} ${mr_iid}   # idempotent best-effort nudge
     max_visits: 20                     # caps the number of round trips through the review cycle
     next: wait_for_mr
 
   - id: wait_for_mr
     kind: wait
-    poll: scripts/refresh.sh "${project_path}" "${mr_iid}"
+    poll: scripts/refresh.sh ${project_path} ${mr_iid}
     every: 30s
     timeout: 6h                        # required on `wait` — an unbounded
                                         # wait is a stall risk
@@ -281,16 +281,16 @@ steps:
 
   - id: cleanup_coderabbit
     kind: deterministic
-    run: scripts/trigger-coderabbit.sh --cleanup "${project_path}" "${mr_iid}"
+    run: scripts/trigger-coderabbit.sh --cleanup ${project_path} ${mr_iid}
     next: collect_reviewers
 
   # ── ADDRESS_COMMENTS ─────────────────────────────────────────────────
   - id: address_comments_collect
     kind: deterministic
-    run: scripts/collect-mr-comments.sh "${project_path}" "${mr_iid}"
+    run: scripts/collect-mr-comments.sh ${project_path} ${mr_iid}
     writes: [threads_raw]              # collect-mr-comments.sh already
                                         # prints JSON; emits: json (default).
-    postcondition: "jq -e 'has(\"threads\")' <<<\"${threads_raw}\" >/dev/null"
+    postcondition: "jq -e 'has(\"threads\")' <<<${threads_raw} >/dev/null"
     outcomes:
       has_threads: address_comments
       empty:       trigger_coderabbit  # nothing-to-do exit, straight back to WAIT
@@ -309,14 +309,14 @@ steps:
       happens only after the main workflow confirms the round pushed successfully.
     subagent_args: {tools: [Read, Edit, Write, "Bash(scripts/verify.sh)"]}
     writes: {draft_replies: {type: json}}
-    postcondition: "jq -e 'type==\"array\"' <<<\"${draft_replies}\" >/dev/null"
+    postcondition: "jq -e 'type==\"array\"' <<<${draft_replies} >/dev/null"
     soft: true
     attempts: 2
     next: address_comments_push
 
   - id: address_comments_push
     kind: deterministic
-    run: scripts/fix-push.sh "${vcs}" "${branch}" "${draft_replies}" "${round}"
+    run: scripts/fix-push.sh ${vcs} ${branch} ${draft_replies} ${round}
     emits: pairs
     writes: [round]
     postcondition: {all_set: [round]}
@@ -333,7 +333,7 @@ steps:
     # does the enforcement that a hand-written flag would otherwise have to
     # do.
     kind: deterministic
-    run: scripts/post-replies.sh "${project_path}" "${mr_iid}" "${draft_replies}"   # idempotent
+    run: scripts/post-replies.sh ${project_path} ${mr_iid} ${draft_replies}   # idempotent
                                         # posting; no independent re-check
     next: trigger_coderabbit
 
@@ -355,7 +355,7 @@ steps:
     writes:
       reviewer_usernames: {type: json}     # candidate usernames, offered via options_from
       reviewer_summary:   {type: string}   # one-line rationale, for the question text
-    postcondition: "jq -e 'type==\"array\"' <<<\"${reviewer_usernames}\" >/dev/null"
+    postcondition: "jq -e 'type==\"array\"' <<<${reviewer_usernames} >/dev/null"
     soft: true                             # ranking quality is a judgement call
     next: choose_reviewers
 
@@ -382,16 +382,16 @@ steps:
 
   - id: route_reviewers                # deterministic: "nothing picked" vs "skip" vs a real list
     kind: deterministic
-    run: scripts/route-reviewers.sh "${reviewers_approved}"   # pure routing; nothing to machine-check
+    run: scripts/route-reviewers.sh ${reviewers_approved}   # pure routing; nothing to machine-check
     outcomes:
       skip:      done_draft            # empty list, or the person typed "skip" as Other
       assign:    assign_reviewer
 
   - id: assign_reviewer                # the guarded, irreversible action
     kind: deterministic
-    run: scripts/assign-reviewer.sh "${project_path}" "${mr_iid}" "${reviewers_approved}"
+    run: scripts/assign-reviewer.sh ${project_path} ${mr_iid} ${reviewers_approved}
     postcondition:
-      command: glab mr view "${mr_iid}" -R "${project_path}" --output json | jq -e '(.draft|not) and (.reviewers|length>0)'
+      command: glab mr view ${mr_iid} -R ${project_path} --output json | jq -e '(.draft|not) and (.reviewers|length>0)'
     retry: {max_attempts: 3, backoff: 5s}
     next: done
 

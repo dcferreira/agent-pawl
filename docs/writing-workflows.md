@@ -147,13 +147,13 @@ guards:
     only_in: []
 invariants:
   - id: mr-still-open
-    check: scripts/mr-open.sh "${mr_url}"
+    check: scripts/mr-open.sh ${mr_url}
     message: "The MR was closed out from under the run."
 
 steps:
   - id: preflight
     kind: deterministic
-    run: scripts/preflight.sh "${mr_url}" && git fetch --quiet
+    run: scripts/preflight.sh ${mr_url} && git fetch --quiet
     emits: pairs                           # prints `FRESH branch=x title=y`
     writes: [branch, title]
     postcondition: {all_set: [branch]}
@@ -163,7 +163,7 @@ steps:
 
   - id: wait_for_mr
     kind: wait
-    poll: scripts/refresh.sh "${branch}"
+    poll: scripts/refresh.sh ${branch}
     every: 60s
     timeout: 6h
     emits: pairs
@@ -183,7 +183,7 @@ steps:
       scripts/verify.sh yourself and report a verify_status per item. Do not commit or push.
     subagent_args: {tools: [Read, Edit, "Bash(scripts/verify.sh)"]}
     writes: {findings: {type: json}}
-    postcondition: "jq -e 'all(.[]; has(\"verify_status\"))' <<<\"${findings}\""
+    postcondition: "jq -e 'all(.[]; has(\"verify_status\"))' <<<${findings}"
     soft: true
     attempts: 3
     next: wait_for_mr
@@ -202,8 +202,8 @@ steps:
 
   - id: assign
     kind: deterministic
-    run: glab mr update "${mr_url}" --assignee "${reviewer}" --ready
-    postcondition: scripts/mr-assigned.sh "${mr_url}" "${reviewer}"
+    run: glab mr update ${mr_url} --assignee ${reviewer} --ready
+    postcondition: scripts/mr-assigned.sh ${mr_url} ${reviewer}
     next: done
 
 terminal:

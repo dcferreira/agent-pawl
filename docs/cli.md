@@ -30,7 +30,7 @@ Every command uses the same table (`pawl status` is the one deliberate exception
 | 1 | resolution error: unknown workflow, or another non-flag problem hit while resolving it |
 | 2 | usage error: bad/unrecognised flag, missing a flag's value, missing required arg, or validation failed |
 | 3 | run is `BLOCKED` — paused, resumable, not an error (`pawl run`/`pawl submit`/`pawl poll` only) |
-| 4 | refused: lock held, file changed, submit/poll for a non-current step or kind, or a run that has already finished |
+| 4 | refused: lock held, file changed, submit for a non-current step or kind, a poll of a current step that is not `kind: wait`, or a run that has already finished (`pawl submit`/`pawl abandon` only — `pawl poll` exits 0 quietly instead, see below) |
 | 5 | engine error — a bug, or a broken/unreadable run directory or journal |
 
 ---
@@ -62,7 +62,9 @@ pawl run: journal: run locked by pid 48122 (alive); wait, or use --force if that
 pawl run: workflow file has changed since run 7f3a started (changed: greet); use --fresh to start a new run
 ```
 
-Submitting or polling against a run that has already finished is the same refusal, exit 4:
+Submitting or abandoning a run that has already finished is the same refusal, exit 4 (`pawl poll`
+against a finished run is not a refusal — it exits 0 quietly instead, since a poll driven by
+`Monitor` treats "the run moved on" as expected, not an error; see the `pawl poll` section below):
 
 ```
 pawl submit: engine: run has already finished: run "7f3a" ended ok

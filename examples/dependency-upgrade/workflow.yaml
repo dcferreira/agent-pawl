@@ -186,7 +186,7 @@ steps:
     run: scripts/commit-and-open-pr.sh
     writes: [branch, pr_number]
     postcondition:
-      command: gh pr view "${pr_number}" --json state -q .state | grep -qx OPEN
+      command: gh pr view ${pr_number} --json state -q .state | grep -qx OPEN
     retry: {max_attempts: 3, backoff: 5s}
     catch:
       - on: failure
@@ -234,7 +234,7 @@ steps:
     kind: deterministic
     run: scripts/merge-pr.sh
     postcondition:
-      command: gh pr view "${pr_number}" --json state -q .state | grep -qx MERGED
+      command: gh pr view ${pr_number} --json state -q .state | grep -qx MERGED
     retry: {max_attempts: 3, backoff: 5s}
     catch:
       - on: failure

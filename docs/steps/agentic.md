@@ -37,13 +37,13 @@ the five kinds compare.
       Description: what changed, why, and how it was verified. Write the description to a temp
       file yourself and return its path.
     context:
-      - !cmd "git diff \"${target_branch}\"...HEAD"
-      - !cmd "git log \"${target_branch}\"..HEAD --format=%B"
+      - !cmd "git diff ${target_branch}...HEAD"
+      - !cmd "git log ${target_branch}..HEAD --format=%B"
     subagent_args: {tools: [Read, "Bash(git diff:*)", "Bash(git log:*)"], model: sonnet}
     writes:
       title:            {type: string, max_length: 72}
       description_file: {type: string}
-    postcondition: "[ -n \"${title}\" ] && [ -s \"${description_file}\" ]"
+    postcondition: "[ -n ${title} ] && [ -s ${description_file} ]"
     attempts: 3
     next: push_and_create
 ```
@@ -62,7 +62,7 @@ route from a following `deterministic` step that reads its `writes:` and prints 
 ```yaml
   - id: ai_review_route
     kind: deterministic
-    run: scripts/ai-review-route.sh "${findings}" "${pipeline_failed}"
+    run: scripts/ai-review-route.sh ${findings} ${pipeline_failed}
     postcondition: "true"
     soft: true
     outcomes:

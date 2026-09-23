@@ -71,6 +71,16 @@ knowable without running anything.
 substituted as **one shell-quoted token**. In *prose* contexts (`description:`, `question:`,
 `message:`) the raw value is substituted, JSON pretty-printed. `$${` renders a literal `${`.
 
+**Never additionally double-quote a `${key}` in a shell context.** The substitution already is a
+single shell-quoted token (e.g. `'value'`), so `${key}` should stand alone, or be concatenated only
+with literal text outside any quotes (`origin/${branch}` is fine). Writing `"${key}"` embeds the
+rendered value's own quoting *inside* a second, literal pair of double quotes; the shell then
+re-interprets the result, and command substitution (`$(...)`/backticks) inside the value stays live
+even though the value was single-quoted — turning a `${key}` sourced from a `state:` key (e.g. one an
+agentic step wrote) into a command-injection vector, and, even when the value is inert, silently
+breaking equality checks like `[ "${key}" = true ]` (the comparison sees the literal apostrophes,
+never `true`). See `docs/dogfood.md`'s "traps" section for a worked example.
+
 **Engine-provided pseudo-keys**, readable everywhere, never declared and never written by a step:
 `run_id`, `step`, `attempt`, `visits`, `last_error`, `blocked_reason`.
 
@@ -381,13 +391,13 @@ guards:
     only_in: []                            # denied everywhere, all run long (§B.10)
 invariants:
   - id: mr-still-open
-    check: scripts/mr-open.sh "${mr_url}"  # re-observes reality after every step (§B.10)
+    check: scripts/mr-open.sh ${mr_url}  # re-observes reality after every step (§B.10)
     message: "The MR was closed out from under the run."
 
 steps:
   - id: preflight
     kind: deterministic
-    run: scripts/preflight.sh "${mr_url}" && git fetch --quiet
+    run: scripts/preflight.sh ${mr_url} && git fetch --quiet
     emits: pairs                           # script prints `FRESH branch=x title=y` (§B.1)
     writes: [branch, title]
     postcondition: {all_set: [branch]}
@@ -396,7 +406,7 @@ steps:
       EXISTING: choose_reviewer
   - id: wait_for_mr
     kind: wait
-    poll: scripts/refresh.sh "${branch}"
+    poll: scripts/refresh.sh ${branch}
     every: 60s
     timeout: 6h
     emits: pairs                           # poller prints e.g. `COMMENTS count=3`
@@ -417,7 +427,7 @@ steps:
       report one findings entry per issue you touched, each with a verify_status field.
     subagent_args: {tools: [Read, Edit, "Bash(scripts/verify.sh)"], model: sonnet}   # passed through verbatim (§B.6)
     writes: {findings: {type: json}}       # the typed map is the subagent's output schema
-    postcondition: "jq -e 'all(.[]; has(\"verify_status\"))' <<<\"${findings}\""
+    postcondition: "jq -e 'all(.[]; has(\"verify_status\"))' <<<${findings}"
     soft: true                             # the agent's own claim; counted every run (§B.7)
     attempts: 3                            # same failure text → same countdown (§B.4)
     next: wait_for_mr                      # fix-forward: attempt N+1 runs on the tree as left
@@ -434,8 +444,8 @@ steps:
       timeout: wait_for_mr                 # ask again next pass rather than blocking
   - id: assign
     kind: deterministic
-    run: glab mr update "${mr_url}" --assignee "${reviewer}" --ready
-    postcondition: scripts/mr-assigned.sh "${mr_url}" "${reviewer}"
+    run: glab mr update ${mr_url} --assignee ${reviewer} --ready
+    postcondition: scripts/mr-assigned.sh ${mr_url} ${reviewer}
     next: done
 
 terminal:

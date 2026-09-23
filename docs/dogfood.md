@@ -176,6 +176,16 @@ postcondition failure that burns an attempt, with no hint that the actual comman
 wrote — `writes:` output is workflow-internal data, and piping it through `sh -c` turns it into
 arbitrary command execution chosen by whatever produced that state.
 
+**1b. Never wrap a `${key}` in its own double quotes.** Because the substitution already is one
+shell-quoted token, `run: scripts/mr-open.sh ${mr_url}` is correct and `run: scripts/mr-open.sh
+"${mr_url}"` is not: the shell re-interprets the rendered `'value'` inside a second, literal pair of
+double quotes, and `$(...)`/backtick command substitution *inside the value* stays live even though
+the value itself was single-quoted. For a `state:` key an agentic step wrote, that is a command
+injection exactly like 1's, just with the quoting the other way round — a value like
+`$(touch PWNED)` executes. It also breaks functionally even when the value is inert: `[ "${entry_added}"
+= true ]` renders to `[ "'true'" = true ]`, which never matches (the comparison sees the literal
+apostrophes). See `design/format-spec.md` §B.2.
+
 **2. `jq` is a prerequisite.** Covered above, but worth repeating here since it's the first thing
 that silently degrades your first run if you skip it: no `jq` means `run_tests` always reports
 `FAIL {"failures": "run-tests.sh requires jq"}`, regardless of whether your code is actually

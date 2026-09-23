@@ -55,7 +55,7 @@ steps:
       host:           {type: string}
       harness:        {type: string}
       shortcut_story: {type: string}
-    postcondition: "[ -n \"${action_text}\" ] && [ -n \"${host}\" ] && [ -n \"${harness}\" ]"
+    postcondition: "[ -n ${action_text} ] && [ -n ${host} ] && [ -n ${harness} ]"
     attempts: 2
     next: gather_and_classify
 
@@ -76,20 +76,20 @@ steps:
       Derive a short kebab-case slug from the action, e.g. flaky-ui-suite.
     context:
       - !cmd "cat ~/Obsidian/vault/00-home/top-of-mind.md"
-      - !cmd "qmd search \"${action_text}\" -n 5 --md"
+      - !cmd "qmd search ${action_text} -n 5 --md"
     subagent_args: {tools: [Read, "Bash(qmd:*)"], model: sonnet}
     writes:
       task_type:         {type: string}
       slug:               {type: string}
       brief:              {type: json}
       project_dir_guess:  {type: string}
-    postcondition: "[ -n \"${slug}\" ] && { [ \"${task_type}\" = code ] || [ \"${task_type}\" = non-code ]; }"
+    postcondition: "[ -n ${slug} ] && { [ ${task_type} = code ] || [ ${task_type} = non-code ]; }"
     attempts: 2
     next: preflight
 
   - id: preflight                             # ── deterministic: two-line token wrapper around the real script
     kind: deterministic
-    run: bash ~/projects/brain/skills/brain-dispatch/scripts/preflight-wrapped.sh --host "${host}" --harness "${harness}" --project-dir "${project_dir_guess}"
+    run: bash ~/projects/brain/skills/brain-dispatch/scripts/preflight-wrapped.sh --host ${host} --harness ${harness} --project-dir ${project_dir_guess}
     emits: pairs                              # the real script's legacy `k=v k=v` stdout is a named, documented mode
     writes: [dir_exists, vcs, free_gb, harness_bin, guardrail, project_dir]
     postcondition: {all_set: [dir_exists, harness_bin]}
@@ -113,7 +113,7 @@ steps:
 
   - id: wait_for_brief                        # ── deterministic: real script, unmodified
     kind: deterministic
-    run: bash ~/projects/brain/skills/brain-dispatch/scripts/wait-for-brief.sh --host "${host}" --slug "${slug}"
+    run: bash ~/projects/brain/skills/brain-dispatch/scripts/wait-for-brief.sh --host ${host} --slug ${slug}
     emits: pairs
     writes: [synced]
     postcondition: {equals: {synced: "yes"}}
@@ -124,7 +124,7 @@ steps:
 
   - id: launch_and_verify                     # ── the step that must not be skipped
     kind: deterministic
-    run: bash ~/projects/brain/skills/brain-dispatch/scripts/launch-worker.sh --host "${host}" --harness "${harness}" --slug "${slug}" --project-dir "${project_dir}"
+    run: bash ~/projects/brain/skills/brain-dispatch/scripts/launch-worker.sh --host ${host} --harness ${harness} --slug ${slug} --project-dir ${project_dir}
     emits: pairs
     writes: [verified, session, rc_conn, attach]
     postcondition: {equals: {verified: "yes"}}

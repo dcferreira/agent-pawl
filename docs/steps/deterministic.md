@@ -24,7 +24,7 @@ The engine runs a shell command itself. No model, no tokens, no handshake. See
   returned URL resolves. Four forms: a shell string (exit 0 = pass), `{command: "…"}`,
   `{all_set: [key, …]}`, `{equals: {key: "value"}}`. `all_set`/`equals` run in-process; `command:` is
   a subprocess. Best postconditions re-observe reality (e.g.
-  `git ls-remote --exit-code origin "${branch}"`) rather than trust a flag the step set itself.
+  `git ls-remote --exit-code origin ${branch}`) rather than trust a flag the step set itself.
 
 ### When to add a postcondition
 
@@ -32,7 +32,7 @@ Most `deterministic` steps need nothing: `pytest -q` exiting 0 already means the
 postcondition when the exit code confirms the command *ran*, not that it had the effect you wanted —
 `git push` can exit 0 into a stale ref, `glab mr create` can exit 0 and hand back a URL that 404s.
 `postcondition: '[ "$(git rev-parse origin/${branch})" = "$(git rev-parse HEAD)" ]'` after a push, or
-a `curl -fsS "${mr_url}"` after a create, check the effect exit code alone can't.
+a `curl -fsS ${mr_url}` after a create, check the effect exit code alone can't.
 - **`attempts:`/`retry:`/`catch:`** — different layers. `retry: {max_attempts, backoff}` re-runs the
   *body* on a hard failure (flakiness), before any outcome. `attempts:` re-runs when the
   *postcondition* fails, carrying the failure text into the next attempt; keyed on a hash of that
@@ -44,7 +44,7 @@ a `curl -fsS "${mr_url}"` after a create, check the effect exit code alone can't
 ```yaml
   - id: push_and_create
     kind: deterministic
-    run: scripts/push-create.sh "${branch}" "${title}"
+    run: scripts/push-create.sh ${branch} ${title}
     writes: [mr_url, mr_iid, project_path]
     postcondition: {all_set: [mr_iid]}
     next: ai_review
