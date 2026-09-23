@@ -6,8 +6,10 @@
 # name, link and, for a GitHub Actions job, the tail of its failed-step log
 # (`gh run view --job <id> --log-failed`) — so the fixer is told what
 # actually broke instead of being sent back to diff-only reviewers. Every
-# finding (including the fallback one below) carries severity: "blocking" —
-# a failing CI check is never minor.
+# finding (including the fallback one below) carries severity: "major" — a
+# realistic failure mode that breaks the run, per the severity scale
+# review-route.sh's findings share (critical > major > medium > minor >
+# nitpick) — never a nitpick.
 #
 # Prints {"findings": [...], "ci_round": true} on one line (emits: json;
 # `jq -c` keeps it on the one line the engine parses). `ci_round: true`
@@ -60,7 +62,7 @@ while IFS= read -r check; do
                   + (if $url != "" then " (" + $url + ")" else "" end)
                   + ". Failed-step log tail:\n" + $log),
     fix: "Reproduce the failure locally and change the code (or the test, if the test is wrong) so this check passes.",
-    severity: "blocking"
+    severity: "major"
   }')
   items="${items}${item}${nl}"
 done <<EOF
@@ -74,7 +76,7 @@ if [ -z "$items" ]; then
     category: "bug",
     description: ("CI reported a failure on " + $sha + " but no failing check could be listed any more (re-run or removed?)."),
     fix: ("Inspect `gh pr checks " + $pr + "`, fix whatever is failing, or leave the tree unchanged if CI is actually green."),
-    severity: "blocking"
+    severity: "major"
   }')
 fi
 

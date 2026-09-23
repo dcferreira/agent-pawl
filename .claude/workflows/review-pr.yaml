@@ -10,10 +10,16 @@ description: >
   approval or review decision; it only fixes and pushes.
 start: fetch_pr
 # A full round (via prepare_review): prepare_review, fanout_review, its 4
-# branches, review_route, then either `clean` (-> wait_for_ci) or `blocking`
-# (-> fix_issues, record_declined, fix_push) — up to 10 entries to reach
-# fix_push once. prepare_review's max_visits (10) caps how many of those
-# full rounds can happen; the 11th entry is `exhausted` -> blocked.
+# branches, review_route, then one of:
+#   - `blocking` (-> fix_issues, record_declined, fix_push) — 10 entries to
+#     reach fix_push once, same as before.
+#   - `nitpicks_only` (-> ask_nitpicks, then either take_nitpicks ->
+#     fix_issues -> record_declined -> fix_push [12 entries], or
+#     skip_nitpicks -> wait_for_ci [10 entries, skipping fix_issues
+#     entirely]).
+#   - `clean` (-> wait_for_ci directly, shortest path).
+# prepare_review's max_visits (10) caps how many of those full rounds can
+# happen; the 11th entry is `exhausted` -> blocked.
 #
 # fix_push's `unchanged` outcome (fix_issues left the tree untouched — only
 # declines, no real fixes) no longer re-enters review_route: that cycle
@@ -32,12 +38,14 @@ start: fetch_pr
 # resolves `stuck` unconditionally and the run ends. So this extra cycle
 # fires at most once per full round, adding at most 6 entries
 # (unchanged_route, wait_for_ci, ci_failure, fix_issues, record_declined,
-# fix_push) beyond the round's base 10 — worst case ~17 entries for one
-# non-terminating round (blocking, then unchanged+to_ci, then pushed).
-# Every step in both cycles keeps its default max_visits (10), so both
-# remain independently bounded; 10 rounds x ~17 entries + 2 for fetch_pr and
-# choose_reviewers is comfortably under 200 with headroom, so max_steps is
-# raised from 150 to 200.
+# fix_push) beyond the round's base (now up to 12 via the nitpicks_only ->
+# take_nitpicks path) — worst case ~18 entries for one non-terminating round
+# (nitpicks_only + take_nitpicks, then unchanged+to_ci, then pushed).
+# Every step in both cycles — including the new ask_nitpicks, take_nitpicks,
+# skip_nitpicks — keeps its default max_visits (10), each reached at most
+# once per full round, so both remain independently bounded; 10 rounds x
+# ~18 entries + 2 for fetch_pr and choose_reviewers is comfortably under
+# 200 with headroom, so max_steps stays at 200.
 max_steps: 200
 
 args:
@@ -60,10 +68,15 @@ state:
   findings_custom: {type: json, default: []}
   findings_docs: {type: json, default: []}
   findings: {type: json, default: []}
-  # minor findings review_route peeled off (severity: "minor") — never sent
-  # to fix_issues, just accumulated across rounds and surfaced in the
-  # terminal messages so they aren't silently lost.
-  minor_findings: {type: json, default: []}
+  # this round's nitpick-severity findings (severity: "nitpick") review_route
+  # peeled off — never sent to fix_issues directly. Held here until
+  # ask_nitpicks asks whether to address them (only reached once a round has
+  # no fixable findings at all); take_nitpicks/skip_nitpicks then consume it.
+  nitpicks: {type: json, default: []}
+  # the user's free-text instructions from ask_nitpicks for this round (may
+  # be empty); prepare_review resets it to "" at the start of every round so
+  # a note only applies to the round it was given in.
+  fix_note: {type: string, default: ""}
   declined: {type: json, default: []}
   round: {type: integer, default: 0}
   # true iff the round in flight was seeded by a failing CI check
@@ -107,7 +120,8 @@ steps:
   #
   # Also writes ci_round = false: reaching prepare_review always starts a
   # fresh review round (never a CI-originated one), which unchanged_route
-  # later needs to know.
+  # later needs to know. Also resets fix_note to "" — a user's nitpick
+  # instructions apply only to the round ask_nitpicks gave them in.
   #
   # Refuses to start a round unless the working copy is clean and its head
   # is the PR's head, then fetches the PR diff into a file (a hard input:
@@ -116,7 +130,7 @@ steps:
   - id: prepare_review
     kind: deterministic
     run: scripts/prepare-review.sh ${vcs} ${pr_number}
-    writes: [head_sha, diff_file, ci_round]
+    writes: [head_sha, diff_file, ci_round, fix_note]
     postcondition: {all_set: [head_sha, diff_file]}
     max_visits: 10
     next: fanout_review
@@ -148,14 +162,18 @@ steps:
       {file, line, category, description, fix, severity}, category one of:
       bug | missing-test | other | performance | security |
       standards-violation | type-annotation. severity is one of:
-        - "blocking": a real defect a careful maintainer would not merge
-          with — wrong behaviour on the normal path or in a realistic
-          failure mode, a security problem, or data loss.
-        - "minor": a true observation that is narrow or unlikely — e.g. it
-          needs an unusual setup, a crash at a precise moment, or rare
-          timing. Portability to configurations this repo doesn't use
-          counts as minor, and so does polish.
-      Classify honestly; do not inflate severity to get attention.
+        - "critical": a security hole, data loss, or a destructive action
+          (e.g. rewriting a branch), or the main use case is completely
+          broken.
+        - "major": wrong behaviour on the normal path, or a realistic
+          failure mode that breaks the run.
+        - "medium": wrong behaviour in a plausible but less common
+          situation, or misleading output.
+        - "minor": a real but narrow problem: unusual setup, rare timing or
+          crash windows, small robustness gaps.
+        - "nitpick": style, naming, comments, wording, polish. Nothing
+          behaves wrongly.
+      Classify honestly; do not inflate or deflate severity.
 
       Findings the fixer already declined, with its reasons, are ${declined}.
       Do not re-raise any of them unless you believe the decline reason is
@@ -176,14 +194,18 @@ steps:
       working copy is checked out at the PR head) and normalize its output
       into the same findings shape as above (file, line, category,
       description, fix, severity). severity is one of:
-        - "blocking": a real defect a careful maintainer would not merge
-          with — wrong behaviour on the normal path or in a realistic
-          failure mode, a security problem, or data loss.
-        - "minor": a true observation that is narrow or unlikely — e.g. it
-          needs an unusual setup, a crash at a precise moment, or rare
-          timing. Portability to configurations this repo doesn't use
-          counts as minor, and so does polish.
-      Classify honestly; do not inflate severity to get attention.
+        - "critical": a security hole, data loss, or a destructive action
+          (e.g. rewriting a branch), or the main use case is completely
+          broken.
+        - "major": wrong behaviour on the normal path, or a realistic
+          failure mode that breaks the run.
+        - "medium": wrong behaviour in a plausible but less common
+          situation, or misleading output.
+        - "minor": a real but narrow problem: unusual setup, rare timing or
+          crash windows, small robustness gaps.
+        - "nitpick": style, naming, comments, wording, polish. Nothing
+          behaves wrongly.
+      Classify honestly; do not inflate or deflate severity.
 
       Once you know you are actually running (reviewer_choices includes
       "codex"): findings the fixer already declined, with its reasons, are
@@ -204,14 +226,18 @@ steps:
       the PR head), and normalize whatever it prints into the same findings
       shape as above (file, line, category, description, fix, severity).
       severity is one of:
-        - "blocking": a real defect a careful maintainer would not merge
-          with — wrong behaviour on the normal path or in a realistic
-          failure mode, a security problem, or data loss.
-        - "minor": a true observation that is narrow or unlikely — e.g. it
-          needs an unusual setup, a crash at a precise moment, or rare
-          timing. Portability to configurations this repo doesn't use
-          counts as minor, and so does polish.
-      Classify honestly; do not inflate severity to get attention. If there
+        - "critical": a security hole, data loss, or a destructive action
+          (e.g. rewriting a branch), or the main use case is completely
+          broken.
+        - "major": wrong behaviour on the normal path, or a realistic
+          failure mode that breaks the run.
+        - "medium": wrong behaviour in a plausible but less common
+          situation, or misleading output.
+        - "minor": a real but narrow problem: unusual setup, rare timing or
+          crash windows, small robustness gaps.
+        - "nitpick": style, naming, comments, wording, polish. Nothing
+          behaves wrongly.
+      Classify honestly; do not inflate or deflate severity. If there
       is no such entry, immediately return findings_custom: [] and stop.
 
       Once you know you are actually running (there is such an entry):
@@ -241,9 +267,14 @@ steps:
       {file, line, category: "stale-docs", description, fix, severity}:
       file/line point at the stale doc text, description quotes the stale
       claim and names the change that invalidated it, fix is the minimal
-      edit to make it true again. severity is always "blocking" — stale
-      existing docs are never minor. Return [] if nothing existing went
-      stale.
+      edit to make it true again. severity is one of: critical | major |
+      medium | minor | nitpick (same scale the other reviewers use — a
+      security hole/data loss/destructive action/completely-broken main
+      use case is critical, down through nitpick: style/wording/polish with
+      nothing behaving wrongly). Stale existing docs are never below
+      "minor" — even a small stale claim is at least minor, never a
+      nitpick. Classify honestly; do not inflate or deflate severity.
+      Return [] if nothing existing went stale.
 
       Findings the fixer already declined, with its reasons, are ${declined}.
       Do not re-raise any of them unless you believe the decline reason is
@@ -257,20 +288,67 @@ steps:
 
   - id: review_route
     kind: deterministic
-    run: scripts/review-route.sh ${findings_claude} ${findings_codex} ${findings_custom} ${findings_docs} ${declined} ${minor_findings}
-    writes: [findings, minor_findings]
+    run: scripts/review-route.sh ${findings_claude} ${findings_codex} ${findings_custom} ${findings_docs} ${declined}
+    writes: [findings, nitpicks]
     outcomes:
-      blocking: fix_issues         # blocking: severity "blocking", or missing/unrecognised (fail-safe)
-      clean: wait_for_ci           # clean is not done until CI is green on this head — minor findings alone are clean
+      blocking: fix_issues         # any severity other than exactly "nitpick" — missing/unrecognised included (fail-safe)
+      nitpicks_only: ask_nitpicks  # nothing fixable, but at least one nitpick — ask before touching anything
+      clean: wait_for_ci           # nothing fixable and no nitpicks at all — clean is not done until CI is green on this head
+
+  # Reached only when review_route found nothing fixable this round but did
+  # find nitpick-severity items — asks whether to address them before
+  # moving on, since a nitpick round would otherwise be silently dropped.
+  - id: ask_nitpicks
+    kind: human
+    question: |
+      No findings above nitpick severity on "${title}" (${pr_url}). These
+      nitpicks were raised this round: ${nitpicks}
+
+      Address them now, or skip them for this PR? Free text (the "Other"
+      answer) can give instructions instead — e.g. which of the nitpicks to
+      fix, or how — and will be passed to the fixer as this round's
+      instructions.
+    options: [address, skip]
+    timeout: 24h
+    writes: [fix_note]
+    outcomes:
+      address: take_nitpicks
+      skip: skip_nitpicks
+      chosen: take_nitpicks        # free-text instructions land in fix_note
+      timeout: blocked
+
+  # Turns this round's held nitpicks into the findings fix_issues fixes.
+  # fix_note (the "address" pick's label, or the free-text instructions from
+  # ask_nitpicks) is read by fix_issues itself, not here.
+  - id: take_nitpicks
+    kind: deterministic
+    run: "jq -cn --argjson n ${nitpicks} '{findings: $n}'"
+    writes: [findings]
+    postcondition: "printf '%s' ${findings} | jq -e 'type==\"array\"' >/dev/null"
+    next: fix_issues
+
+  # The user chose not to address this round's nitpicks: fold them into
+  # declined (so they don't get raised again next round) and move on to CI
+  # without ever dispatching fix_issues.
+  - id: skip_nitpicks
+    kind: deterministic
+    run: scripts/skip-nitpicks.sh ${declined} ${nitpicks}
+    writes: [declined]
+    postcondition: "printf '%s' ${declined} | jq -e 'type==\"array\"' >/dev/null"
+    next: wait_for_ci
 
   - id: fix_issues
     kind: agentic
     description: |
       Fix this round's findings. They are (a JSON array of
-      {file, line, category, description, fix} items — review findings, or
-      failing CI checks with their log tails):
+      {file, line, category, description, fix} items — review findings,
+      held nitpicks, or failing CI checks with their log tails):
 
       ${findings}
+
+      Instructions from the user for this round (may be empty): ${fix_note}
+      The user's instructions override the findings' suggested fixes and
+      which items to address.
 
       Treat each suggested fix as a reviewer's suggestion, not a
       requirement: make the simplest correct fix, or leave an item unfixed
@@ -349,6 +427,6 @@ steps:
     next: fix_issues
 
 terminal:
-  done: {status: ok, message: "Clean per ${reviewer_choices}, CI green on ${head_sha} — ${pr_url}. Minor findings not acted on: ${minor_findings}"}
+  done: {status: ok, message: "Clean per ${reviewer_choices}, CI green on ${head_sha} — ${pr_url}. Declined or skipped: ${declined}"}
   blocked: {status: blocked, message: "Paused: ${blocked_reason}"}
-  stuck: {status: blocked, message: "The fixer changed nothing on ${head_sha} — findings were left unfixed or declined failing CI checks. A human needs to look. Minor findings not acted on: ${minor_findings}"}
+  stuck: {status: blocked, message: "The fixer changed nothing on ${head_sha} — findings were left unfixed or declined failing CI checks. A human needs to look. Declined or skipped: ${declined}"}
