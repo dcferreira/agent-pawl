@@ -89,7 +89,7 @@ steps:
       tools with ";" inside that one command if you need more).
     options: [claude_subagent, codex]
     multi: true
-    timeout: 1h
+    timeout: 24h                  # a local tool: Daniel may step away mid-run
     writes: {reviewer_choices: {type: json}}
     outcomes:                      # multi: true always resolves to chosen at
       claude_subagent: prepare_review  # runtime, but the validator still
