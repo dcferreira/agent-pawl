@@ -19,12 +19,14 @@
 # remote head. Equal: nothing to do, `unchanged` (fix_issues changed nothing
 # in the tree — expected when this round's only non-fixes were declines,
 # since declining a finding doesn't touch the tree. The workflow routes
-# `unchanged` back to review_route, not straight to `blocked`: review_route
-# re-filters findings against the just-recorded declines, and if nothing
-# genuinely unfixed remains it resolves `clean`; if real not-fixed items
-# remain it resolves `blocking` and we're back in fix_issues). Local ahead
-# of remote (a previous attempt committed the fix but the push never
-# landed): skip the commit and just push it. Anything else: not a
+# `unchanged` to unchanged_route, not straight back to review_route: if
+# anything is left that the fixer didn't actually decline (a genuine
+# not-fixed/partially-fixed item, or — on a CI-originated round — a
+# declined CI failure, since CI on this head will stay red regardless),
+# retrying is pointless and unchanged_route resolves `stuck`; only a review
+# round whose only non-fixes were clean declines goes on to check CI).
+# Local ahead of remote (a previous attempt committed the fix but the push
+# never landed): skip the commit and just push it. Anything else: not a
 # fast-forward, refuse.
 #
 # jj (including a colocated jj+git repo): `jj commit` finalizes the

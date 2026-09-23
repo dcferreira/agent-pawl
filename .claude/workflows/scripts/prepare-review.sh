@@ -25,7 +25,10 @@
 #    outside the working copy (so fix-push.sh never commits it) and outside
 #    /tmp (so it survives a reboot and a resumed run can still read it).
 #
-# Prints {"head_sha": ..., "diff_file": ...} on one line (emits: json).
+# Prints {"head_sha": ..., "diff_file": ..., "ci_round": false} on one line
+# (emits: json). `ci_round: false` marks the round that follows as a
+# review round (a fresh round always starts here), so unchanged_route can
+# tell it apart from a ci_failure-originated one later.
 # PAWL_REVIEW_HEAD_TRIES / PAWL_REVIEW_HEAD_SLEEP tune the head re-check
 # (defaults 10 tries, 3s apart); tests set them low.
 set -eu
@@ -102,4 +105,4 @@ fi
 mv "${diff_file}.tmp" "$diff_file"
 
 jq -cn --arg head_sha "$pr_head" --arg diff_file "$diff_file" \
-  '{head_sha: $head_sha, diff_file: $diff_file}'
+  '{head_sha: $head_sha, diff_file: $diff_file, ci_round: false}'

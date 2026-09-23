@@ -10,21 +10,35 @@ description: >
   approval or review decision; it only fixes and pushes.
 start: fetch_pr
 # A full round (via prepare_review): prepare_review, fanout_review, its 4
-# branches, review_route, fix_issues, record_declined, fix_push — 9 entries.
-# prepare_review's max_visits (10) still caps how many of those full rounds
-# can happen. But fix_push's `unchanged` outcome now re-enters review_route
-# directly (declines got filtered out, nothing else changed — see fix_push
-# below), without going through prepare_review: that inner loop
-# (review_route -> fix_issues -> record_declined -> fix_push -> review_route)
-# is capped instead by review_route's own default max_visits (10) — a budget
-# it shares with the full-round path, since every full round also enters
-# review_route once. Worst case is bounded well short of infinite (at most
-# 10 prepare_review rounds and, independently, at most 10 review_route
-# entries total), but the two caps together can add up to more entries than
-# a single 10-round accounting would suggest, so max_steps has headroom
-# above the "10 rounds x ~9 steps" estimate rather than being sized exactly
-# to it.
-max_steps: 150
+# branches, review_route, then either `clean` (-> wait_for_ci) or `blocking`
+# (-> fix_issues, record_declined, fix_push) — up to 10 entries to reach
+# fix_push once. prepare_review's max_visits (10) caps how many of those
+# full rounds can happen; the 11th entry is `exhausted` -> blocked.
+#
+# fix_push's `unchanged` outcome (fix_issues left the tree untouched — only
+# declines, no real fixes) no longer re-enters review_route: that cycle
+# (review_route -> fix_issues -> record_declined -> fix_push -> review_route
+# -> ...) is gone, since retrying reviewers on an unchanged tree was the bug
+# this graph now avoids. Instead `unchanged` goes to unchanged_route, which
+# either resolves `stuck` (terminal — something the fixer could not
+# actually change is still outstanding, or this round's declines were
+# against a failing CI check that will stay red regardless) or, only when
+# every non-fix was a clean decline on a review round, `to_ci` (on to
+# wait_for_ci, the same as `pushed` would once CI is checked). `to_ci`
+# introduces one bounded extra cycle per full round: unchanged_route ->
+# wait_for_ci -> ci_failure -> fix_issues -> record_declined -> fix_push,
+# which either pushes (back to prepare_review, ending this round) or is
+# `unchanged` again — and by then ci_round is true, so unchanged_route
+# resolves `stuck` unconditionally and the run ends. So this extra cycle
+# fires at most once per full round, adding at most 6 entries
+# (unchanged_route, wait_for_ci, ci_failure, fix_issues, record_declined,
+# fix_push) beyond the round's base 10 — worst case ~17 entries for one
+# non-terminating round (blocking, then unchanged+to_ci, then pushed).
+# Every step in both cycles keeps its default max_visits (10), so both
+# remain independently bounded; 10 rounds x ~17 entries + 2 for fetch_pr and
+# choose_reviewers is comfortably under 200 with headroom, so max_steps is
+# raised from 150 to 200.
+max_steps: 200
 
 args:
   pr_number: {type: string}
@@ -48,6 +62,11 @@ state:
   findings: {type: json, default: []}
   declined: {type: json, default: []}
   round: {type: integer, default: 0}
+  # true iff the round in flight was seeded by a failing CI check
+  # (ci_failure), false for a review round (prepare_review). Read by
+  # unchanged_route to tell a CI-originated decline (CI on this head will
+  # stay red regardless) from a review-originated one (safe to check CI).
+  ci_round: {type: boolean, default: false}
 
 steps:
   - id: fetch_pr
@@ -76,13 +95,15 @@ steps:
 
   # Entry point of every FULL round (one that starts from a clean, PR-head
   # checkout) — its max_visits is the cap on those (the default 10, stated
-  # explicitly): the 11th entry is `exhausted` -> blocked. It is no longer
-  # the only cycle-breaker in the graph: fix_push's `unchanged` outcome
-  # re-enters review_route directly, skipping prepare_review entirely (see
-  # fix_push below), so that inner loop is capped by review_route's own
-  # default max_visits instead. Every other step in the full-round cycle is
-  # still entered at most once per round, so their own default caps of 10
-  # can never bind first on that path.
+  # explicitly): the 11th entry is `exhausted` -> blocked. It is not the
+  # only cycle-breaker in the graph: fix_push's `unchanged` outcome can
+  # instead lead to a bounded CI-check side-cycle via unchanged_route
+  # without going through prepare_review (see fix_push and unchanged_route
+  # below) — that cycle is capped by its own steps' default max_visits.
+  #
+  # Also writes ci_round = false: reaching prepare_review always starts a
+  # fresh review round (never a CI-originated one), which unchanged_route
+  # later needs to know.
   #
   # Refuses to start a round unless the working copy is clean and its head
   # is the PR's head, then fetches the PR diff into a file (a hard input:
@@ -91,7 +112,7 @@ steps:
   - id: prepare_review
     kind: deterministic
     run: scripts/prepare-review.sh ${vcs} ${pr_number}
-    writes: [head_sha, diff_file]
+    writes: [head_sha, diff_file, ci_round]
     postcondition: {all_set: [head_sha, diff_file]}
     max_visits: 10
     next: fanout_review
@@ -266,12 +287,19 @@ steps:
       pushed: prepare_review       # re-review the new head; CI runs meanwhile
       # The fixer changed nothing in the tree. That's expected when this
       # round's only non-fixes were declines (wont-fix), since declining
-      # doesn't touch the tree: route back to review_route, which now
-      # re-filters findings against the just-updated ${declined} and, if
-      # nothing genuinely unfixed remains, resolves `clean`. If real
-      # not-fixed items remain, review_route resolves `blocking` and we're
-      # back in fix_issues, bounded by its own default max_visits/attempts.
-      unchanged: review_route
+      # doesn't touch the tree — but retrying is pointless when nothing
+      # actually changed, so this no longer loops back to review_route:
+      # unchanged_route decides whether anything is left worth another
+      # round (`stuck`) or this was a clean review round whose only
+      # non-fixes were declines, safe to send on to CI (`to_ci`).
+      unchanged: unchanged_route
+
+  - id: unchanged_route
+    kind: deterministic
+    run: scripts/unchanged-route.sh ${findings} ${ci_round}
+    outcomes:
+      to_ci: wait_for_ci
+      stuck: stuck
 
   - id: wait_for_ci
     kind: wait
@@ -286,9 +314,10 @@ steps:
   - id: ci_failure
     kind: deterministic
     run: scripts/ci-failures.sh ${pr_number} ${head_sha}
-    writes: [findings]
+    writes: [findings, ci_round]
     next: fix_issues
 
 terminal:
   done: {status: ok, message: "Clean per ${reviewer_choices}, CI green on ${head_sha} — ${pr_url}"}
   blocked: {status: blocked, message: "Paused: ${blocked_reason}"}
+  stuck: {status: blocked, message: "The fixer changed nothing on ${head_sha} — findings were left unfixed or declined failing CI checks. A human needs to look."}

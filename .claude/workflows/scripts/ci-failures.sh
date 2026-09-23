@@ -7,10 +7,14 @@
 # (`gh run view --job <id> --log-failed`) — so the fixer is told what
 # actually broke instead of being sent back to diff-only reviewers.
 #
-# Prints {"findings": [...]} on one line (emits: json; `jq -c` keeps it on
-# the one line the engine parses). If the failing checks can't be listed any
-# more (e.g. re-run in the meantime) it still emits one finding saying so,
-# so a CI failure never turns into an empty fix round.
+# Prints {"findings": [...], "ci_round": true} on one line (emits: json;
+# `jq -c` keeps it on the one line the engine parses). `ci_round: true`
+# marks this round as CI-originated, so unchanged_route can tell (if
+# fix_push later reports the tree unchanged) that a decline here means CI
+# on this head will stay red, not that a re-review is worth another try.
+# If the failing checks can't be listed any more (e.g. re-run in the
+# meantime) it still emits one finding saying so, so a CI failure never
+# turns into an empty fix round.
 set -eu
 
 pr_number="${1:?ci-failures.sh: pr_number argument required}"
@@ -70,4 +74,4 @@ if [ -z "$items" ]; then
   }')
 fi
 
-printf '%s\n' "$items" | jq -cs '{findings: .}'
+printf '%s\n' "$items" | jq -cs '{findings: ., ci_round: true}'
