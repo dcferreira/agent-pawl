@@ -238,8 +238,9 @@ refuses to start if either is missing; it never installs or repairs them. The `/
 lifecycle: a terminal run's directory simply stops matching the live-run glob.
 
 **Identity comes from the run directory, and both sides derive it the same way.** `pawl run` resolves
-the working-copy root by asking the VCS (`jj workspace root`, or `git rev-parse --show-toplevel`),
-never by string-manipulating cwd, and writes the run directory under the slug derived from it. A hook
+the working-copy root by walking up from cwd for the nearest directory containing a `.git` or `.jj`
+entry (falling back to cwd itself if none is found), never by asking a VCS binary or by
+string-manipulating cwd, and writes the run directory under the slug derived from it. A hook
 reads its own stdin payload for the tool name, input and cwd, derives that call's root by the same
 algorithm, globs for live runs under that slug, and reads each match's `guards.json` off disk. Hooks
 read stdin for *data*, never for identity: one algorithm run independently by both sides against the
