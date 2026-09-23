@@ -5,7 +5,9 @@
 # failing check. Turns each failing check into a finding for fix_issues —
 # name, link and, for a GitHub Actions job, the tail of its failed-step log
 # (`gh run view --job <id> --log-failed`) — so the fixer is told what
-# actually broke instead of being sent back to diff-only reviewers.
+# actually broke instead of being sent back to diff-only reviewers. Every
+# finding (including the fallback one below) carries severity: "blocking" —
+# a failing CI check is never minor.
 #
 # Prints {"findings": [...], "ci_round": true} on one line (emits: json;
 # `jq -c` keeps it on the one line the engine parses). `ci_round: true`
@@ -57,7 +59,8 @@ while IFS= read -r check; do
     description: ("CI check \"" + $name + "\" failed on " + $sha
                   + (if $url != "" then " (" + $url + ")" else "" end)
                   + ". Failed-step log tail:\n" + $log),
-    fix: "Reproduce the failure locally and change the code (or the test, if the test is wrong) so this check passes."
+    fix: "Reproduce the failure locally and change the code (or the test, if the test is wrong) so this check passes.",
+    severity: "blocking"
   }')
   items="${items}${item}${nl}"
 done <<EOF
@@ -70,7 +73,8 @@ if [ -z "$items" ]; then
     line: 0,
     category: "bug",
     description: ("CI reported a failure on " + $sha + " but no failing check could be listed any more (re-run or removed?)."),
-    fix: ("Inspect `gh pr checks " + $pr + "`, fix whatever is failing, or leave the tree unchanged if CI is actually green.")
+    fix: ("Inspect `gh pr checks " + $pr + "`, fix whatever is failing, or leave the tree unchanged if CI is actually green."),
+    severity: "blocking"
   }')
 fi
 

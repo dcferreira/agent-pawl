@@ -60,6 +60,10 @@ state:
   findings_custom: {type: json, default: []}
   findings_docs: {type: json, default: []}
   findings: {type: json, default: []}
+  # minor findings review_route peeled off (severity: "minor") — never sent
+  # to fix_issues, just accumulated across rounds and surfaced in the
+  # terminal messages so they aren't silently lost.
+  minor_findings: {type: json, default: []}
   declined: {type: json, default: []}
   round: {type: integer, default: 0}
   # true iff the round in flight was seeded by a failing CI check
@@ -141,9 +145,17 @@ steps:
       adversarially review this PR's diff (in context) against
       ${base_branch}. Cold (you did not write this change) and read-only
       (analysis only, never edit files). Return findings as a JSON array of
-      {file, line, category, description, fix}, category one of:
+      {file, line, category, description, fix, severity}, category one of:
       bug | missing-test | other | performance | security |
-      standards-violation | type-annotation.
+      standards-violation | type-annotation. severity is one of:
+        - "blocking": a real defect a careful maintainer would not merge
+          with — wrong behaviour on the normal path or in a realistic
+          failure mode, a security problem, or data loss.
+        - "minor": a true observation that is narrow or unlikely — e.g. it
+          needs an unusual setup, a crash at a precise moment, or rare
+          timing. Portability to configurations this repo doesn't use
+          counts as minor, and so does polish.
+      Classify honestly; do not inflate severity to get attention.
 
       Findings the fixer already declined, with its reasons, are ${declined}.
       Do not re-raise any of them unless you believe the decline reason is
@@ -163,7 +175,15 @@ steps:
       `codex review --base ${base_branch}` (Bash tool) against this PR (the
       working copy is checked out at the PR head) and normalize its output
       into the same findings shape as above (file, line, category,
-      description, fix).
+      description, fix, severity). severity is one of:
+        - "blocking": a real defect a careful maintainer would not merge
+          with — wrong behaviour on the normal path or in a realistic
+          failure mode, a security problem, or data loss.
+        - "minor": a true observation that is narrow or unlikely — e.g. it
+          needs an unusual setup, a crash at a precise moment, or rare
+          timing. Portability to configurations this repo doesn't use
+          counts as minor, and so does polish.
+      Classify honestly; do not inflate severity to get attention.
 
       Once you know you are actually running (reviewer_choices includes
       "codex"): findings the fixer already declined, with its reasons, are
@@ -182,8 +202,17 @@ steps:
       as the free-text "Other" answer (at most one such entry). Run it once,
       as a single command (Bash tool), in the working copy (checked out at
       the PR head), and normalize whatever it prints into the same findings
-      shape as above. If there is no such entry, immediately return
-      findings_custom: [] and stop.
+      shape as above (file, line, category, description, fix, severity).
+      severity is one of:
+        - "blocking": a real defect a careful maintainer would not merge
+          with — wrong behaviour on the normal path or in a realistic
+          failure mode, a security problem, or data loss.
+        - "minor": a true observation that is narrow or unlikely — e.g. it
+          needs an unusual setup, a crash at a precise moment, or rare
+          timing. Portability to configurations this repo doesn't use
+          counts as minor, and so does polish.
+      Classify honestly; do not inflate severity to get attention. If there
+      is no such entry, immediately return findings_custom: [] and stop.
 
       Once you know you are actually running (there is such an entry):
       findings the fixer already declined, with its reasons, are ${declined}.
@@ -209,10 +238,12 @@ steps:
       Do NOT flag missing documentation for anything new the PR adds, and do
       not suggest new sections — only existing text that is now wrong.
       Read-only, never edit files. Return findings as a JSON array of
-      {file, line, category: "stale-docs", description, fix}: file/line
-      point at the stale doc text, description quotes the stale claim and
-      names the change that invalidated it, fix is the minimal edit to make
-      it true again. Return [] if nothing existing went stale.
+      {file, line, category: "stale-docs", description, fix, severity}:
+      file/line point at the stale doc text, description quotes the stale
+      claim and names the change that invalidated it, fix is the minimal
+      edit to make it true again. severity is always "blocking" — stale
+      existing docs are never minor. Return [] if nothing existing went
+      stale.
 
       Findings the fixer already declined, with its reasons, are ${declined}.
       Do not re-raise any of them unless you believe the decline reason is
@@ -226,11 +257,11 @@ steps:
 
   - id: review_route
     kind: deterministic
-    run: scripts/review-route.sh ${findings_claude} ${findings_codex} ${findings_custom} ${findings_docs} ${declined}
-    writes: [findings]
+    run: scripts/review-route.sh ${findings_claude} ${findings_codex} ${findings_custom} ${findings_docs} ${declined} ${minor_findings}
+    writes: [findings, minor_findings]
     outcomes:
-      blocking: fix_issues
-      clean: wait_for_ci           # clean is not done until CI is green on this head
+      blocking: fix_issues         # blocking: severity "blocking", or missing/unrecognised (fail-safe)
+      clean: wait_for_ci           # clean is not done until CI is green on this head — minor findings alone are clean
 
   - id: fix_issues
     kind: agentic
@@ -318,6 +349,6 @@ steps:
     next: fix_issues
 
 terminal:
-  done: {status: ok, message: "Clean per ${reviewer_choices}, CI green on ${head_sha} — ${pr_url}"}
+  done: {status: ok, message: "Clean per ${reviewer_choices}, CI green on ${head_sha} — ${pr_url}. Minor findings not acted on: ${minor_findings}"}
   blocked: {status: blocked, message: "Paused: ${blocked_reason}"}
-  stuck: {status: blocked, message: "The fixer changed nothing on ${head_sha} — findings were left unfixed or declined failing CI checks. A human needs to look."}
+  stuck: {status: blocked, message: "The fixer changed nothing on ${head_sha} — findings were left unfixed or declined failing CI checks. A human needs to look. Minor findings not acted on: ${minor_findings}"}
