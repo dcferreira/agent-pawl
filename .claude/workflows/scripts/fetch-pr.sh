@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# fetch-pr.sh <pr_number>
+# fetch-pr.sh <pr_number> <run_id>
 #
 # Body of the `fetch_pr` deterministic step. Prints a single JSON object
 # (emits: json, the default) remapping `gh pr view`'s field names onto this
@@ -20,9 +20,20 @@
 # repo IS derived from origin, by construction it always agrees with where
 # fix-push.sh pushes — and every other gh-using script takes it as an
 # argument instead of letting gh guess.
+#
+# Also creates this run's declined-findings file (holding `[]`, only if it
+# does not exist yet, so a resumed step never wipes it) and writes its path
+# to state as `declined_file`. The declined list grows every round, so it
+# lives in a file rather than in state: a state key read by a
+# deterministic step is rendered into the one `sh -c` argument AND exported
+# as PAWL_<KEY>, and Linux caps each at MAX_ARG_STRLEN (128 KiB) — an
+# unbounded list there would eventually fail the step with E2BIG. The file
+# is under the user cache dir, next to prepare-review.sh's diff files,
+# outside the working copy so fix-push.sh never commits it.
 set -eu
 
 pr_number="${1:?fetch-pr.sh: pr_number argument required}"
+run_id="${2:?fetch-pr.sh: run_id argument required}"
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 vcs=$("$script_dir/detect-vcs.sh")
@@ -100,9 +111,18 @@ if [ "$head_ref" = "$base_ref" ]; then
   exit 1
 fi
 
-printf '%s' "$view" | jq -c --arg vcs "$vcs" --arg repo "$repo" '{
+cache_dir="${XDG_CACHE_HOME:-${HOME}/.cache}/pawl-review-pr"
+mkdir -p "$cache_dir"
+declined_file="${cache_dir}/run-${run_id}-declined.json"
+if [ ! -e "$declined_file" ]; then
+  printf '[]\n' >"${declined_file}.tmp"
+  mv "${declined_file}.tmp" "$declined_file"
+fi
+
+printf '%s' "$view" | jq -c --arg vcs "$vcs" --arg repo "$repo" --arg declined_file "$declined_file" '{
     vcs: $vcs,
     repo: $repo,
+    declined_file: $declined_file,
     pr_url: .url,
     head_sha: .headRefOid,
     base_branch: .baseRefName,

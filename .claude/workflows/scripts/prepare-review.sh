@@ -1,12 +1,14 @@
 #!/usr/bin/env sh
-# prepare-review.sh <vcs> <pr_number> <repo>
+# prepare-review.sh <vcs> <pr_number> <repo> <base_branch> <reviewer_choices>
 #
 # Body of the `prepare_review` deterministic step, the entry point of every
 # review round. It makes the round's inputs hard rather than best-effort:
 #
-# 1. The local working copy must be clean. fix-push.sh later commits
-#    *everything* in it as the round's fix, so unrelated local edits would
-#    otherwise ride along into the PR.
+# 1. The local working copy must be clean (check-clean.sh). fix-push.sh
+#    later commits *everything* in it as the round's fix, so unrelated local
+#    edits would otherwise ride along into the PR. (The same check runs
+#    again after the reviewers, in `reviewers_left_tree_clean`, for files
+#    the reviewers themselves left behind.)
 # 2. The local head must BE the PR's head (headRefOid). Otherwise codex and
 #    fix_issues would work on a different tree than the diff the other
 #    reviewers see, and fix-push.sh would push unrelated history onto the PR
@@ -24,9 +26,17 @@
 #    and conclude the PR is clean. The file lives under the user cache dir,
 #    outside the working copy (so fix-push.sh never commits it) and outside
 #    /tmp (so it survives a reboot and a resumed run can still read it).
+# 4. `codex_base`, the ref ai_review_codex passes to `codex review --base`:
+#    only when "codex" is in <reviewer_choices> (otherwise empty, and
+#    nothing is fetched), `origin/<base_branch>`, freshly fetched (`git fetch` under git, `jj git
+#    fetch` under a colocated jj repo, which writes the same git
+#    remote-tracking ref) so codex never diffs against a stale local
+#    `main`. Also empty when this directory is not a git work tree of its
+#    own (is-git-worktree.sh; e.g. a non-colocated jj workspace): codex review cannot run there at all,
+#    and check_reviewers has already refused the codex option in that case.
 #
-# Prints {"head_sha": ..., "diff_file": ..., "ci_round": false, "fix_note": ""}
-# on one line (emits: json). `ci_round: false` marks the round that follows
+# Prints {"head_sha": ..., "diff_file": ..., "codex_base": ...,
+# "ci_round": false, "fix_note": ""} on one line (emits: json). `ci_round: false` marks the round that follows
 # as a review round (a fresh round always starts here), so unchanged_route
 # can tell it apart from a ci_failure-originated one later. `fix_note` is
 # reset to "" here so a prior round's ask_nitpicks instructions never leak
@@ -38,6 +48,9 @@ set -eu
 vcs="${1:?prepare-review.sh: vcs argument required}"
 pr_number="${2:?prepare-review.sh: pr_number argument required}"
 repo="${3:?prepare-review.sh: repo argument required}"
+base_branch="${4:?prepare-review.sh: base_branch argument required}"
+reviewer_choices="${5:?prepare-review.sh: reviewer_choices argument required}"
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 tries_max="${PAWL_REVIEW_HEAD_TRIES:-10}"
 sleep_s="${PAWL_REVIEW_HEAD_SLEEP:-3}"
 
@@ -46,29 +59,13 @@ sleep_s="${PAWL_REVIEW_HEAD_SLEEP:-3}"
 # non-colocated jj workspace (no .git directory at all).
 export GH_REPO="$repo"
 
-case "$vcs" in
-  jj)
-    dirty=$(jj diff -r @ --summary)
-    local_head=$(jj log --no-graph -r @- -T commit_id)
-    ;;
-  git)
-    dirty=$(git status --porcelain)
-    local_head=$(git rev-parse HEAD)
-    ;;
-  *)
-    echo "prepare-review.sh: unknown vcs '${vcs}' (expected jj or git)" >&2
-    exit 1
-    ;;
-esac
+"$script_dir/check-clean.sh" "$vcs" "prepare-review.sh: the working copy has uncommitted changes; the fix step
+commits everything in it, so start from a clean checkout of the PR head:"
 
-if [ -n "$dirty" ]; then
-  {
-    echo "prepare-review.sh: the working copy has uncommitted changes; the fix step"
-    echo "commits everything in it, so start from a clean checkout of the PR head:"
-    echo "$dirty"
-  } >&2
-  exit 1
-fi
+case "$vcs" in
+  jj) local_head=$(jj log --no-graph -r @- -T commit_id) ;;
+  git) local_head=$(git rev-parse HEAD) ;;
+esac
 
 tries=0
 while :; do
@@ -112,5 +109,15 @@ if [ ! -s "${diff_file}.tmp" ]; then
 fi
 mv "${diff_file}.tmp" "$diff_file"
 
-jq -cn --arg head_sha "$pr_head" --arg diff_file "$diff_file" \
-  '{head_sha: $head_sha, diff_file: $diff_file, ci_round: false, fix_note: ""}'
+codex_base=""
+wants_codex=$(printf '%s' "$reviewer_choices" | jq -r 'if type == "array" then (index("codex") != null) else false end')
+if [ "$wants_codex" = "true" ] && "$script_dir/is-git-worktree.sh"; then
+  case "$vcs" in
+    jj) jj git fetch --remote origin --branch "exact:\"${base_branch}\"" >&2 ;;
+    git) git fetch --quiet origin "+refs/heads/${base_branch}:refs/remotes/origin/${base_branch}" >&2 ;;
+  esac
+  codex_base="origin/${base_branch}"
+fi
+
+jq -cn --arg head_sha "$pr_head" --arg diff_file "$diff_file" --arg codex_base "$codex_base" \
+  '{head_sha: $head_sha, diff_file: $diff_file, codex_base: $codex_base, ci_round: false, fix_note: ""}'
