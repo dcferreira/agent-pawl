@@ -24,8 +24,9 @@ const usage = `Usage: pawl <command> [args]
 Commands:
   pawl run <name> [key=value …] [--fresh] [--force] [--run <id>]
         start, or resume a non-terminal run
-  pawl validate <name>
-        run the static checks against a workflow file
+  pawl validate <name> [--path <file>]
+        run the static checks against a workflow file (--path validates a
+        specific file instead of a name resolved under .claude/workflows/)
   pawl status [--run <id>]
         show where a run is, and its trust surface
   pawl abandon --run <id>

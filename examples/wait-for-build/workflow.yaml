@@ -67,7 +67,7 @@ steps:
       to go on beyond the timestamps above — say so if you have nothing more
       specific to report rather than inventing detail.
     writes: {summary: {type: string}}
-    postcondition: "[ -n \"${summary}\" ] && [ \"$(printf '%s' \"${summary}\" | wc -c)\" -ge 10 ]"   # wrote
+    postcondition: "[ -n ${summary} ] && [ \"$(printf '%s' ${summary} | wc -c)\" -ge 10 ]"   # wrote
                                         # something, not just an empty/trivial
                                         # string (required on agentic — §B.7)
     attempts: 2

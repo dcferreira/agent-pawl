@@ -22,7 +22,7 @@ when the exit code alone can't confirm the *effect*:
 ```yaml
 - id: push
   kind: deterministic
-  run: git push origin "${branch}"
+  run: git push origin ${branch}
   postcondition: '[ "$(git rev-parse origin/${branch})" = "$(git rev-parse HEAD)" ]'
   next: open_pr
 ```
@@ -43,10 +43,10 @@ correctness, only for shape.
   kind: agentic
   description: |
     Add a changelog entry for this change from the diff and commits below.
-  context: ["!git diff main...HEAD"]
+  context: [!cmd "git diff main...HEAD"]
   subagent_args: {tools: [Read, Edit], model: sonnet}
   writes: {entry_added: {type: boolean}}
-  postcondition: "[ \"${entry_added}\" = true ]"
+  postcondition: "[ ${entry_added} = true ]"
   next: commit
 ```
 

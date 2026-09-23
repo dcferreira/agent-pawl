@@ -17,7 +17,7 @@ import (
 // §9: "pawl run prints which one it used").
 type resolvedWorkflow struct {
 	Path   string
-	Source string // "repo-local" or "user"
+	Source string // "repo-local", "user" or "path" (pawl validate --path)
 }
 
 // resolveWorkflowFile finds <name>.yaml the way DESIGN.md §9 specifies: a

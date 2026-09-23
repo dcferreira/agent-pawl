@@ -91,10 +91,13 @@ Makefile targets (all real, all in CI or documented for local use):
 
 CI (`.github/workflows/ci.yml`) gates a PR on: `make fmt-check`, `make vet`, `make staticcheck`,
 `go mod tidy` producing no diff to `go.mod`/`go.sum`, `claude plugin validate . --strict`, and both
-`make test` and `make test-race`. The test job also installs `jq` and a pinned `jj` binary and sets
-`PAWL_REQUIRE_VCS_TOOLS=1` so `internal/journal`'s jj-workspace root-resolution test hard-fails
-instead of silently skipping when jj is missing — that env var is set only in this repo's own CI,
-never assume or rely on it locally.
+`make test` and `make test-race`. The test job installs `jq` (the `green-tests` example's
+`run-tests.sh` needs it) and sets `PAWL_REQUIRE_VCS_TOOLS=1`, which makes a missing/failing `git` in
+`internal/journal`'s VCS tests a hard failure instead of a silent skip — scoped to `git` only. `jj`
+is deliberately *not* installed in this job: root resolution (`internal/journal/root.go`) has no
+runtime dependency on either VCS binary, so `TestResolveRoot_JJWorkspace` always skips when `jj` is
+missing regardless of `PAWL_REQUIRE_VCS_TOOLS`. `pawl` itself never shells out to `git` or `jj` at
+runtime either — see the next section.
 
 ## Conventions and traps
 
@@ -103,10 +106,14 @@ never assume or rely on it locally.
   `Co-Authored-By:`/`Claude-Session:` where applicable — verified against this repo's actual `jj
   log`/`git log`, not assumed.
 - **git is the assumed VCS for contributors; jj is supported but optional.**
-  `internal/journal.ResolveRoot` tries `jj workspace root`, then `git rev-parse --show-toplevel`,
-  then falls back to (symlink-resolved) cwd — **in that order, deliberately**. Do not reorder it to
-  "prefer git" or otherwise "fix" it; the design docs and code comments describing that precedence
-  are accurate on purpose (see the `docs: present git as the assumed VCS` commit).
+  `internal/journal.ResolveRoot` never shells out to either: it walks up from cwd looking for the
+  nearest directory containing a `.git` or `.jj` entry (either can be a plain file, e.g. a git
+  worktree/submodule's `.git`) and returns the first one found; with neither anywhere above cwd it
+  falls back to (symlink-resolved) cwd itself. The nearest marker wins — a repo nested inside
+  another repo stops at the inner one. Don't reintroduce shelling out to `jj`/`git` here (e.g. `jj
+  workspace root` or `git rev-parse --show-toplevel`) to "fix" this — the marker walk is deliberate:
+  it needs no subprocess and gives the runtime and any future enforcement hook one shared, pure
+  algorithm for working-copy identity (see `internal/journal/root.go`'s doc comment).
 - **`${key}` shell-quotes as a single token — and that's an injection defence, not an
   inconvenience.** `render.RenderShell` substitutes every `${key}` occurrence as one
   `shellQuote`d token in `run:`/`poll:`/`check:`/`postcondition.command`. The idiom

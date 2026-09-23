@@ -58,13 +58,24 @@ Every `pawl submit`/finished `pawl poll` prints the next line, until `TERMINAL 7
 
 ```
 › pawl status
-run 7f3a  manage-mr  waiting     step wait_for_mr (wait)  attempt 1/1  visits 2/8
-  root     /home/ada/src/app
-  next     pawl poll --run 7f3a --step wait_for_mr
+root: /home/ada/src/app
+workflow: /home/ada/src/app/.claude/workflows/manage-mr.yaml
+run: 7f3a
+status: running
+step: fix_issues
+attempt: 1
+visits: fix_issues=1
+state: branch=feat/x
+soft: 0/23 steps (0.0%): (none)
 ```
 
-Status word: `running`, `dispatched`, `asking`, `waiting`, `blocked`, `ok`, `abandoned`. `root` is
-worth checking if enforcement looks wrong; `--json` prints the same fields.
+`status:` is `running` for a live run that hasn't ended yet — that covers every step kind, not a
+separate word per kind (there's no `dispatched`/`asking`/`waiting`) — and, once the run has ended,
+whatever its `RUN_END` recorded: the terminal's own declared `status:` (normatively `ok` or
+`blocked` — see [format-spec.md §B.12](../design/format-spec.md)), or `abandoned` for a run `pawl
+abandon` ended. A `reason:` line appears only when one was recorded (a `blocked` run's diagnostic,
+or an abandon's `--reason`). `root` is worth checking if enforcement looks wrong; `--json` (see
+[cli.md](cli.md)) prints the same fields, machine-readably.
 
 Runs are keyed by working-copy root, not session: several may be live in one repo, but two on one
 tree collide — separate git worktrees/jj workspaces are separate roots.

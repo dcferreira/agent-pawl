@@ -13,6 +13,21 @@ import (
 // lockFileName is the pid lockfile's name within a run directory.
 const lockFileName = "lock"
 
+// ErrHeld marks an AcquireLock refusal because dir's lock is held by another
+// live process (force=false) — docs/cli.md's exit-code table (~line 33)
+// calls this a refusal, not a resolution error or an engine bug: the run
+// itself is fine, the caller simply lost a race with another session acting
+// on it right now. cli wraps this sentinel around the detail below via %w
+// so every command that can hit it (run, submit, poll, abandon) can tell it
+// apart from a genuinely broken run directory with one errors.Is check,
+// without needing to parse the message text. Its own text is deliberately
+// short ("journal: run locked") and the detail is appended after it, not
+// repeated inside it — an earlier version of this sentinel read "journal:
+// run is locked by another process" and, %w-wrapped in front of the detail
+// text, rendered "run is locked by pid 123: journal: run is locked by
+// another process".
+var ErrHeld = errors.New("journal: run locked")
+
 // Lock is a held run lock. Release it when the run's current process is done
 // acting on the run.
 type Lock struct {
@@ -71,7 +86,7 @@ func AcquireLock(dir string, force bool) (*Lock, error) {
 		}
 		if alive && !force {
 			holderPID, _, _ := LockHolder(dir)
-			return nil, fmt.Errorf("journal: run is locked by pid %d", holderPID)
+			return nil, fmt.Errorf("%w by pid %d (alive); wait, or use --force if that process is gone", ErrHeld, holderPID)
 		}
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			return nil, fmt.Errorf("journal: stealing lock: %w", err)

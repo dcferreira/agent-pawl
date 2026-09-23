@@ -47,7 +47,7 @@ cheaply and before the fact; they do not catch a determined workaround.
 ```yaml
 invariants:
   - id: draft-until-assigned
-    check: scripts/check-draft-invariant.sh "${project_path}" "${mr_iid}" "${reviewers_approved}"
+    check: scripts/check-draft-invariant.sh ${project_path} ${mr_iid} ${reviewers_approved}
     message: "The MR was un-drafted or given reviewers before any were approved."
 ```
 

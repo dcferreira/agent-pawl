@@ -108,8 +108,8 @@ func TestPoll_UnroutedThenTimeout(t *testing.T) {
 	runID := runIDFromWait(t, stdout)
 
 	stdout, stderr, code = runCLI(t, []string{"pawl", "poll", "--run", runID, "--step", "wait_for_build"})
-	if code != 0 {
-		t.Fatalf("poll exit = %d, stderr = %q", code, stderr)
+	if code != 3 {
+		t.Fatalf("poll exit = %d, want 3 (BLOCKED terminal); stderr = %q", code, stderr)
 	}
 	if !strings.Contains(stdout, "poll 2") {
 		t.Errorf("poll did not keep polling past the first unrouted iteration:\n%s", stdout)

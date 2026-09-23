@@ -143,6 +143,27 @@ func TestValidate_GoldenMessages(t *testing.T) {
 			},
 		},
 		{
+			name: "rule18: untagged bang context entry",
+			file: "rule18_untagged_bang_context.yaml",
+			want: []string{
+				`testdata/rule18_untagged_bang_context.yaml: step "a": rule 18: context[0]: "!git diff main...HEAD" is a plain string starting with "!", which names a FILE PATH, not a command; tag it with !cmd to run it as a command: !cmd "git diff main...HEAD"`,
+			},
+		},
+		{
+			name: "rule18: unquoted custom-tagged bang context entry",
+			file: "rule18_unquoted_bang_tag.yaml",
+			want: []string{
+				`testdata/rule18_unquoted_bang_tag.yaml: step "a": rule 18: context[0]: tagged !git "diff main", which is not a recognised command form; only the YAML tag !cmd runs a command — use !cmd "git diff main" instead`,
+			},
+		},
+		{
+			name: "rule18: quoted string with the !cmd tag inside the quotes",
+			file: "rule18_quoted_bang_cmd.yaml",
+			want: []string{
+				`testdata/rule18_quoted_bang_cmd.yaml: step "a": rule 18: context[0]: "!cmd git diff main" is a plain string with the !cmd tag INSIDE the quotes, which names a FILE PATH, not a command; the tag must sit outside the quotes: !cmd "git diff main"`,
+			},
+		},
+		{
 			name: "rule7: human step with no timeout: (plus no route for the timeout outcome)",
 			file: "rule7_human_missing_timeout.yaml",
 			want: []string{

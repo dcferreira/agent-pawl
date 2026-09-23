@@ -86,7 +86,7 @@ This is the main deliverable, so I'm being exhaustive:
    mentions `postcondition: {all_set: [...]}` / `{equals: {...}}` as
    alternatives to a bare command, but neither is spelled out with an
    example anywhere in A/B/D. I stuck to bare shell-string postconditions
-   throughout (`preflight`'s `[ "${dir_exists}" = yes ] && [ "${harness_bin}"
+   throughout (`preflight`'s `[ ${dir_exists} = yes ] && [ ${harness_bin}
    = present ]`) rather than risk inventing syntax for the structured form.
 
 4. **How to write a brand-new vault file from a deterministic step.** The
@@ -98,7 +98,7 @@ This is the main deliverable, so I'm being exhaustive:
    I don't know if `run:` supports a multi-line heredoc block, or whether
    the idiom is always "author a tiny script and call it with flags." I
    **guessed the script idiom** (`scripts/write-worker-note.sh --slug ...
-   --brief "${brief}"`) to stay inside what B's examples actually show, but
+   --brief ${brief}`) to stay inside what B's examples actually show, but
    that script does not exist — writing it was out of scope for this
    exercise, and I have no field-reference evidence for how a JSON-typed
    state value like `${brief}` is supposed to cross a shell-argument
@@ -167,7 +167,7 @@ This is the main deliverable, so I'm being exhaustive:
 9. **Templating a JSON value from `context:`.** B's `context:` examples are
    always either a bare file path or a fixed `!cmd` string; nothing shows
    whether `${key}` substitution is allowed *inside* a `context:` entry
-   (e.g. `context: ["!qmd search \"${action_text}\" -n 5 --md"]`) the way it
+   (e.g. `context: [!cmd "qmd search ${action_text} -n 5 --md"]`) the way it
    plainly is inside `goal:`, `run:`, and `postcondition:`. I avoided this
    by putting the dynamic `qmd search` inside the *goal prompt* instead
    (telling the agent to run it itself via its `Bash(qmd:*)` tool) rather
@@ -318,7 +318,7 @@ A-C and H-K (rationale, changelog, roadmap, open questions) were not read.
 - **Gap 9 (`${key}` inside `context:`).** Resolved — the field table says
   `${key}` is "resolved first" in `context:` entries. Moved the `qmd search`
   from inside the agentic prompt (a workaround) into
-  `context: ["!qmd search \"${action_text}\" -n 5 --md"]` directly, and
+  `context: [!cmd "qmd search ${action_text} -n 5 --md"]` directly, and
   updated `prompts/gather_and_classify.md` to read the results from context
   instead of running the search itself.
 

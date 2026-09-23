@@ -53,13 +53,25 @@ func cmdPoll(args []string, cwd string, stdout, stderr io.Writer) int {
 		printLine(stderr, err.Error())
 		return 1
 	}
-	ref, err := findLiveRun(root, runID)
+	ref, err := findRunByID(root, runID)
 	if err != nil {
-		// A run that is no longer live is the same expected race
-		// engine.ErrPollNotCurrent covers: another process finished or
-		// abandoned it while this WAIT line was sitting in the session's
-		// scrollback. Exit 0, having done nothing (DESIGN.md §3).
-		printLine(stdout, "poll: nothing to do:", err.Error())
+		// No run by this id at all (or an id ambiguous across workflows) is
+		// a resolution error — the caller gave pawl poll something that was
+		// never going to resolve, exit 1 — distinct from the two "nothing to
+		// do" cases below, which both name a run that does/did exist.
+		printLine(stderr, "pawl poll:", err.Error())
+		return exitForLookupErr(err)
+	}
+	if ref.State.Terminal() {
+		// The run existed and has already ended — the same expected race
+		// engine.ErrPollNotCurrent covers below (another process finished or
+		// abandoned it while this WAIT line sat in the session's scrollback):
+		// pawl poll runs as an unattended background loop under Monitor
+		// (DESIGN.md §3 treats "the run moved on" as expected, not an
+		// error), so it exits 0 quietly rather than refusing, unlike pawl
+		// submit/pawl abandon, which a person or the driving session reads
+		// synchronously and can act on a refusal.
+		printLine(stdout, fmt.Sprintf("poll: nothing to do: run %s has already ended (%s)", runID, ref.State.Status()))
 		return 0
 	}
 
@@ -67,12 +79,15 @@ func cmdPoll(args []string, cwd string, stdout, stderr io.Writer) int {
 	// workflow, never a re-resolution by name off whatever is on disk now.
 	pinned, err := loadPinnedWorkflow(ref.Dir)
 	if err != nil {
+		// Same reasoning as pawl submit's: findLiveRun already confirmed
+		// this run exists and is live, so a plan.json that has since become
+		// unreadable is a broken run directory (exit 5), not an unknown run.
 		printLine(stderr, "pawl poll:", err.Error())
-		return 1
+		return 5
 	}
 	if pinned.Changed {
 		printLine(stderr, fmt.Sprintf("pawl poll: workflow file changed since run %s started (changed: %s); this run cannot continue safely — abandon it with `pawl abandon --run %s` and start a fresh run", runID, pinned.Detail, runID))
-		return 1
+		return 4
 	}
 	w := pinned.Workflow
 
@@ -87,10 +102,10 @@ func cmdPoll(args []string, cwd string, stdout, stderr io.Writer) int {
 			return 0
 		}
 		printLine(stderr, "pawl poll:", err.Error())
-		return 1
+		return exitForEngineErr(err)
 	}
 	fmt.Fprint(stdout, formatInstruction(instr, w, root))
-	return 0
+	return instructionExitCode(instr)
 }
 
 // flush pushes a per-iteration line out immediately when stdout is a

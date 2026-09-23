@@ -197,12 +197,12 @@ func (e *Engine) SubmitHuman(runID, stepID string, attempt int, result json.RawM
 		return nil, fmt.Errorf("%w: run %q ended %s", ErrAlreadyTerminal, runID, rs.EndStatus)
 	}
 	if rs.Cursor.Step != stepID || rs.Cursor.Attempt != attempt {
-		return nil, fmt.Errorf("engine: refusing submit for %s/attempt %d: the run is waiting on %s/attempt %d",
-			stepID, attempt, rs.Cursor.Step, rs.Cursor.Attempt)
+		return nil, fmt.Errorf("%w: submit for %s/attempt %d, but the run is waiting on %s/attempt %d",
+			ErrRefused, stepID, attempt, rs.Cursor.Step, rs.Cursor.Attempt)
 	}
 	step := e.Workflow.StepByID(stepID)
 	if step == nil || step.Kind != "human" {
-		return nil, fmt.Errorf("engine: step %q is not a human step awaiting an answer", stepID)
+		return nil, fmt.Errorf("%w: step %q is not a human step awaiting an answer", ErrRefused, stepID)
 	}
 
 	timedOut, terr := e.humanDeadlinePassed(dir, stepID, attempt, step.Timeout)

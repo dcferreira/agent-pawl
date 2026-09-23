@@ -2,7 +2,10 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -446,8 +449,8 @@ func TestRun_DigestMismatchOffersFresh(t *testing.T) {
 	writeWorkflow(t, root, "sample", changed)
 
 	_, stderr, code2 := runCLI(t, []string{"pawl", "run", "sample"})
-	if code2 == 0 {
-		t.Fatalf("expected a digest-mismatch refusal; stderr = %q", stderr)
+	if code2 != 4 {
+		t.Fatalf("exit = %d, want 4 (a refusal, docs/cli.md's exit-code table); stderr = %q", code2, stderr)
 	}
 	if !strings.Contains(stderr, "--fresh") || !strings.Contains(stderr, "greet") {
 		t.Errorf("stderr = %q, want it to name step %q and offer --fresh", stderr, "greet")
@@ -482,11 +485,249 @@ steps:
     run: echo hi
 `)
 	stdout, _, code := runCLI(t, []string{"pawl", "validate", "broken"})
-	if code == 0 {
-		t.Fatalf("expected non-zero exit for a step with no route")
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 (validation failed, docs/cli.md's exit-code table)", code)
 	}
 	if !strings.Contains(stdout, `step "a"`) {
 		t.Errorf("stdout missing the failing step id: %q", stdout)
+	}
+}
+
+// TestRun_ValidationFailureExitsUsage pins the same exit-2 clause for pawl
+// run: a workflow that fails spec.Validate never reaches the engine, and
+// the docs/cli.md table's "validation failed" case belongs under 2 (usage),
+// not 1 (resolution) — the file resolved fine; spec.Validate is what
+// refused it.
+func TestRun_ValidationFailureExitsUsage(t *testing.T) {
+	root := setupWorkingCopy(t)
+	writeWorkflow(t, root, "broken", `workflow: broken
+start: a
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+`)
+	_, stderr, code := runCLI(t, []string{"pawl", "run", "broken"})
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 (validation failed); stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stderr, `step "a"`) {
+		t.Errorf("stderr missing the failing step id: %q", stderr)
+	}
+}
+
+// TestRun_ParseErrorExitsUsage is reviewer item 4's pawl-run half: a YAML
+// syntax error or an unknown field (spec.Load's KnownFields(true)) is
+// "validation failed" — exit 2 — not a resolution error (1); only a read
+// failure (missing file, permission denied) stays 1. pawl run gates on
+// loadAndValidate and used to map every error it returned to exit 1
+// regardless of which of the two this was. (pawl validate's own version of
+// this fix lives with pawl validate --path, in the commit that owns
+// internal/cli/validate.go.)
+//
+// TestValidate_EmptyFileExitsUsage checks the other consistency the reviewer
+// asked for: an empty file has no decode error at all (yaml.Decode's io.EOF
+// is deliberately swallowed by spec.Load), so it reaches spec.Validate as a
+// zero-value Workflow — which then reports real rule violations (no start:,
+// no steps) through report.Errors, the same exit 2 a parse error gets, by a
+// different path through the same command.
+func TestValidate_EmptyFileExitsUsage(t *testing.T) {
+	root := setupWorkingCopy(t)
+	writeWorkflow(t, root, "empty", "")
+	_, stderr, code := runCLI(t, []string{"pawl", "validate", "empty"})
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 (validation failed, via report.Errors); stderr = %q", code, stderr)
+	}
+}
+
+func TestRun_ParseErrorExitsUsage(t *testing.T) {
+	root := setupWorkingCopy(t)
+	writeWorkflow(t, root, "broken", "workflow: [this is not valid yaml\n")
+	_, stderr, code := runCLI(t, []string{"pawl", "run", "broken"})
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 (parse error); stderr = %q", code, stderr)
+	}
+}
+
+func TestRun_UnknownFieldExitsUsage(t *testing.T) {
+	root := setupWorkingCopy(t)
+	writeWorkflow(t, root, "broken", sampleWorkflow+"totally_unknown_field: true\n")
+	_, stderr, code := runCLI(t, []string{"pawl", "run", "broken"})
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 (unknown field, KnownFields(true)); stderr = %q", code, stderr)
+	}
+}
+
+// TestRun_MissingWorkflowFileExitsResolution is the read-failure half of
+// item 4's contrast: a file that simply isn't there is exit 1, not 2 — it
+// never reaches spec.Load's decoder at all.
+func TestRun_MissingWorkflowFileExitsResolution(t *testing.T) {
+	setupWorkingCopy(t)
+	_, stderr, code := runCLI(t, []string{"pawl", "run", "does-not-exist"})
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1 (resolution error); stderr = %q", code, stderr)
+	}
+}
+
+// TestValidate_PathFlag exercises --path against a workflow file that was
+// never placed under .claude/workflows/: the header names the file with
+// "(path)", scripts/context still resolve relative to it, and the output
+// otherwise matches the name-resolved path exactly.
+func TestValidate_PathFlag(t *testing.T) {
+	root := setupWorkingCopy(t)
+	yamlPath := filepath.Join(root, "wf.yaml")
+	if err := os.WriteFile(yamlPath, []byte(sampleWorkflow), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "notes.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, code := runCLI(t, []string{"pawl", "validate", "--path", "wf.yaml"})
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stdout, "workflow: "+yamlPath+" (path)") {
+		t.Errorf("stdout missing the path-sourced banner line: %q", stdout)
+	}
+	if !strings.Contains(stdout, "soft: 0/1 steps") {
+		t.Errorf("stdout missing soft census: %q", stdout)
+	}
+}
+
+// TestValidate_PathIsAbsoluteOrCwdRelative checks an absolute --path works
+// unchanged, alongside the relative case TestValidate_PathFlag already
+// covers.
+func TestValidate_PathIsAbsoluteOrCwdRelative(t *testing.T) {
+	root := setupWorkingCopy(t)
+	yamlPath := filepath.Join(root, "sub", "wf.yaml")
+	if err := os.MkdirAll(filepath.Dir(yamlPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(yamlPath, []byte(sampleWorkflow), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "sub", "notes.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, code := runCLI(t, []string{"pawl", "validate", "--path", yamlPath})
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stdout, "workflow: "+yamlPath+" (path)") {
+		t.Errorf("stdout missing the path-sourced banner line: %q", stdout)
+	}
+}
+
+// TestValidate_PathMissingFileExitsResolution checks a missing --path file
+// is a resolution error (1), consistent with an unknown name.
+func TestValidate_PathMissingFileExitsResolution(t *testing.T) {
+	root := setupWorkingCopy(t)
+	_, stderr, code := runCLI(t, []string{"pawl", "validate", "--path", filepath.Join(root, "nope.yaml")})
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1 (resolution error); stderr = %q", code, stderr)
+	}
+}
+
+// TestValidate_NameAndPathAreMutuallyExclusive and
+// TestValidate_NeitherNameNorPathExitsUsage pin the usage-error (2) rule
+// around --path/name: exactly one of them must be given.
+func TestValidate_NameAndPathAreMutuallyExclusive(t *testing.T) {
+	setupWorkingCopy(t)
+	_, stderr, code := runCLI(t, []string{"pawl", "validate", "sample", "--path", "wf.yaml"})
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 (usage error); stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stderr, "mutually exclusive") {
+		t.Errorf("stderr = %q, want it to explain the conflict", stderr)
+	}
+}
+
+func TestValidate_NeitherNameNorPathExitsUsage(t *testing.T) {
+	setupWorkingCopy(t)
+	_, stderr, code := runCLI(t, []string{"pawl", "validate"})
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 (usage error); stderr = %q", code, stderr)
+	}
+}
+
+// TestValidate_LeadingBadFlagExitsUsage is reviewer item 9: an argument
+// starting with "-" that isn't --path used to fall through to the
+// positional-name branch when it came first — `pawl validate --strict`
+// looked up a workflow literally named "--strict" and failed with a
+// resolution error (exit 1) instead of a usage error (exit 2). Checked in
+// both argument orders, since the bug was specific to a bad flag being the
+// very first argument (a bad flag after a name already hit the "unrecognised
+// argument" branch and was already exit 2).
+func TestValidate_LeadingBadFlagExitsUsage(t *testing.T) {
+	setupWorkingCopy(t)
+	for _, args := range [][]string{
+		{"pawl", "validate", "--strict"},
+		{"pawl", "validate", "--bogus"},
+		{"pawl", "validate", "sample", "--strict"},
+	} {
+		_, stderr, code := runCLI(t, args)
+		if code != 2 {
+			t.Errorf("%v: exit = %d, want 2 (usage error); stderr = %q", args, code, stderr)
+		}
+		if !strings.Contains(stderr, "unrecognised argument") {
+			t.Errorf("%v: stderr = %q, want it to say unrecognised argument", args, stderr)
+		}
+	}
+}
+
+// TestValidate_RepeatedPathExitsUsage is reviewer item 10: a second --path
+// used to silently overwrite the first rather than refusing outright.
+func TestValidate_RepeatedPathExitsUsage(t *testing.T) {
+	setupWorkingCopy(t)
+	_, stderr, code := runCLI(t, []string{"pawl", "validate", "--path", "a.yaml", "--path", "b.yaml"})
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 (usage error); stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stderr, "--path given more than once") {
+		t.Errorf("stderr = %q, want it to say --path was given more than once", stderr)
+	}
+}
+
+// TestValidate_ParseErrorExitsUsage and TestValidate_UnknownFieldExitsUsage
+// are pawl validate's half of reviewer item 4 (see TestRun_ParseErrorExitsUsage
+// for the pawl-run half and the general rule): a YAML syntax error or an
+// unknown field (spec.Load's KnownFields(true)) is "validation failed" —
+// exit 2 — not a resolution error (1). This is validate.go's own
+// exitForLoadErr wiring, alongside --path, since pawl validate --path
+// (TestValidate_PathParseErrorExitsUsage below) needs the same
+// classification to be consistent with a name-resolved file.
+func TestValidate_ParseErrorExitsUsage(t *testing.T) {
+	root := setupWorkingCopy(t)
+	writeWorkflow(t, root, "broken", "workflow: [this is not valid yaml\n")
+	_, stderr, code := runCLI(t, []string{"pawl", "validate", "broken"})
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 (parse error); stderr = %q", code, stderr)
+	}
+}
+
+func TestValidate_UnknownFieldExitsUsage(t *testing.T) {
+	root := setupWorkingCopy(t)
+	writeWorkflow(t, root, "broken", sampleWorkflow+"totally_unknown_field: true\n")
+	_, stderr, code := runCLI(t, []string{"pawl", "validate", "broken"})
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 (unknown field, KnownFields(true)); stderr = %q", code, stderr)
+	}
+}
+
+// TestValidate_PathParseErrorExitsUsage checks --path is consistent with a
+// name-resolved file: a non-YAML file given by --path is exit 2 exactly the
+// same way a malformed name-resolved workflow is.
+func TestValidate_PathParseErrorExitsUsage(t *testing.T) {
+	root := setupWorkingCopy(t)
+	yamlPath := filepath.Join(root, "wf.yaml")
+	if err := os.WriteFile(yamlPath, []byte("workflow: [this is not valid yaml\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, stderr, code := runCLI(t, []string{"pawl", "validate", "--path", yamlPath})
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 (parse error); stderr = %q", code, stderr)
 	}
 }
 
@@ -581,8 +822,8 @@ func TestSubmitRefusesMidRunEdit(t *testing.T) {
 	writeWorkflow(t, root, "sample", edited)
 
 	stdout2, stderr2, code2 := runCLI(t, []string{"pawl", "submit", "--run", runID, "--step", "greet", "--json", `{"greeting":"hi"}`})
-	if code2 == 0 {
-		t.Fatalf("expected pawl submit to refuse a mid-run edit; stdout = %q", stdout2)
+	if code2 != 4 {
+		t.Fatalf("exit = %d, want 4 (a refusal, docs/cli.md's exit-code table); stdout = %q", code2, stdout2)
 	}
 	if !strings.Contains(stderr2, "changed") || !strings.Contains(stderr2, "abandon") {
 		t.Errorf("stderr = %q, want it to say the workflow changed and suggest abandon", stderr2)
@@ -624,8 +865,8 @@ func TestTerminalBlockedSurfacesDetail(t *testing.T) {
 	writeWorkflow(t, root, "blocked-demo", blockedWorkflow)
 
 	stdout, _, code := runCLI(t, []string{"pawl", "run", "blocked-demo"})
-	if code != 0 {
-		t.Fatalf("pawl run: exit %d, stdout = %q", code, stdout)
+	if code != 3 {
+		t.Fatalf("pawl run: exit %d, want 3 (BLOCKED terminal, docs/cli.md's exit-code table); stdout = %q", code, stdout)
 	}
 	if !strings.Contains(stdout, "TERMINAL") || !strings.Contains(stdout, " blocked") {
 		t.Fatalf("expected a blocked TERMINAL; stdout = %q", stdout)
@@ -674,6 +915,333 @@ func TestStatusAndAbandon(t *testing.T) {
 	_, _, code2 := runCLI(t, []string{"pawl", "abandon", "--run", runID})
 	if code2 == 0 {
 		t.Errorf("expected second abandon of a terminal run to fail")
+	}
+}
+
+// TestStatusJSON is task B2: pawl status --json prints the same fields the
+// human output does, machine-readably, as a single JSON object with a
+// runs: array (statusJSON in format.go).
+// assertJSONObject decodes s as a JSON object into map[string]any, or fails
+// the test with the raw text for context.
+func assertJSONObject(t *testing.T, label, s string) map[string]any {
+	t.Helper()
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(s), &raw); err != nil {
+		t.Fatalf("%s: not a valid JSON object: %v (%q)", label, err, s)
+	}
+	return raw
+}
+
+// assertJSONArrayKey asserts m[key] decodes to a JSON array (never absent,
+// and never JSON null — encoding/json decodes a null into a nil
+// interface{}, which fails the []any assertion the same way an absent key
+// would, so this one check catches reviewer finding B3's "null instead of
+// []" for every array field in the status contract).
+func assertJSONArrayKey(t *testing.T, label string, m map[string]any, key string) []any {
+	t.Helper()
+	v, ok := m[key].([]any)
+	if !ok {
+		t.Errorf("%s: %q = %#v (%T), want a JSON array (present, and not null)", label, key, m[key], m[key])
+		return nil
+	}
+	return v
+}
+
+func assertJSONStringKey(t *testing.T, label string, m map[string]any, key, want string) {
+	t.Helper()
+	v, ok := m[key]
+	if !ok {
+		t.Errorf("%s: key %q is missing, want present (possibly \"\")", label, key)
+		return
+	}
+	s, ok := v.(string)
+	if !ok {
+		t.Errorf("%s: %q = %#v (%T), want a JSON string", label, key, v, v)
+		return
+	}
+	if want != "" && s != want {
+		t.Errorf("%s: %q = %q, want %q", label, key, s, want)
+	}
+}
+
+func assertJSONNumberKey(t *testing.T, label string, m map[string]any, key string) {
+	t.Helper()
+	if _, ok := m[key].(float64); !ok {
+		t.Errorf("%s: %q = %#v (%T), want a JSON number", label, key, m[key], m[key])
+	}
+}
+
+// TestStatusJSON is task B2 (as tightened by reviewer finding B3): decode
+// the raw JSON into map[string]any rather than through statusJSON, so the
+// test actually exercises the wire contract docs/cli.md promises — every
+// key present with the documented type, and every array field "[]" rather
+// than "null" when empty — not just this package's own Go types round-
+// tripping through themselves.
+func TestStatusJSON(t *testing.T) {
+	root := setupWorkingCopy(t)
+	writeWorkflow(t, root, "sample", sampleWorkflow)
+	writeContextFile(t, root, "notes.txt", "x\n")
+
+	// No live runs at all: still {"root": ..., "runs": []}, never "runs":
+	// null.
+	emptyOut, emptyErr, emptyCode := runCLI(t, []string{"pawl", "status", "--json"})
+	if emptyCode != 0 {
+		t.Fatalf("pawl status --json (no runs): exit %d, stderr = %q", emptyCode, emptyErr)
+	}
+	emptyRaw := assertJSONObject(t, "no-runs", emptyOut)
+	assertJSONStringKey(t, "no-runs", emptyRaw, "root", root)
+	if runs := assertJSONArrayKey(t, "no-runs", emptyRaw, "runs"); len(runs) != 0 {
+		t.Errorf("no-runs: runs = %v, want an empty array", runs)
+	}
+
+	stdout, _, code := runCLI(t, []string{"pawl", "run", "sample", "name=Ada"})
+	if code != 0 {
+		t.Fatalf("pawl run: exit %d", code)
+	}
+	runID := ""
+	for _, l := range strings.Split(stdout, "\n") {
+		if strings.HasPrefix(l, "DISPATCH ") {
+			runID = extractRunID(t, l)
+		}
+	}
+
+	jsonOut, jsonErr, jsonCode := runCLI(t, []string{"pawl", "status", "--json"})
+	if jsonCode != 0 {
+		t.Fatalf("pawl status --json: exit %d, stderr = %q", jsonCode, jsonErr)
+	}
+	raw := assertJSONObject(t, "one-run", jsonOut)
+	assertJSONStringKey(t, "one-run", raw, "root", root)
+	runs := assertJSONArrayKey(t, "one-run", raw, "runs")
+	if len(runs) != 1 {
+		t.Fatalf("one-run: runs = %v, want exactly one", runs)
+	}
+	run, ok := runs[0].(map[string]any)
+	if !ok {
+		t.Fatalf("one-run: runs[0] = %#v, want a JSON object", runs[0])
+	}
+
+	assertJSONStringKey(t, "one-run", run, "run_id", runID)
+	assertJSONStringKey(t, "one-run", run, "workflow", "")
+	assertJSONStringKey(t, "one-run", run, "status", "running")
+	assertJSONStringKey(t, "one-run", run, "step", "greet")
+	assertJSONNumberKey(t, "one-run", run, "attempt")
+	// warning/reason are always present as "", never omitted (dropping
+	// omitempty was reviewer finding B3): a run this fresh has neither.
+	assertJSONStringKey(t, "one-run", run, "warning", "")
+	assertJSONStringKey(t, "one-run", run, "reason", "")
+
+	if visits, ok := run["visits"].(map[string]any); !ok {
+		t.Errorf("one-run: visits = %#v (%T), want a JSON object", run["visits"], run["visits"])
+	} else if _, ok := visits["greet"]; !ok {
+		t.Errorf("one-run: visits = %v, want a \"greet\" entry", visits)
+	}
+	assertJSONArrayKey(t, "one-run", run, "state_keys")
+
+	soft, ok := run["soft"].(map[string]any)
+	if !ok {
+		t.Fatalf("one-run: soft = %#v, want a JSON object", run["soft"])
+	}
+	assertJSONNumberKey(t, "one-run(soft)", soft, "count")
+	assertJSONNumberKey(t, "one-run(soft)", soft, "total")
+	assertJSONNumberKey(t, "one-run(soft)", soft, "percent")
+	if ids := assertJSONArrayKey(t, "one-run(soft)", soft, "step_ids"); len(ids) != 0 {
+		t.Errorf("one-run: soft.step_ids = %v, want an empty array (sampleWorkflow has no soft: postconditions)", ids)
+	}
+
+	// --json against a run that has since been abandoned shows the
+	// reason, matching the human path (TestAbandonReason) — and it's a
+	// non-empty string this time, not the "" every field is otherwise
+	// guaranteed to be present as.
+	if _, _, code := runCLI(t, []string{"pawl", "abandon", "--run", runID, "--reason", "testing --json"}); code != 0 {
+		t.Fatalf("pawl abandon: exit %d", code)
+	}
+	jsonOut2, jsonErr2, jsonCode2 := runCLI(t, []string{"pawl", "status", "--run", runID, "--json"})
+	if jsonCode2 != 0 {
+		t.Fatalf("pawl status --run --json: exit %d, stderr = %q", jsonCode2, jsonErr2)
+	}
+	raw2 := assertJSONObject(t, "abandoned", jsonOut2)
+	runs2 := assertJSONArrayKey(t, "abandoned", raw2, "runs")
+	if len(runs2) != 1 {
+		t.Fatalf("abandoned: runs = %v, want exactly one", runs2)
+	}
+	run2, ok := runs2[0].(map[string]any)
+	if !ok {
+		t.Fatalf("abandoned: runs[0] = %#v, want a JSON object", runs2[0])
+	}
+	assertJSONStringKey(t, "abandoned", run2, "status", "abandoned")
+	assertJSONStringKey(t, "abandoned", run2, "reason", "testing --json")
+}
+
+// TestStatusJSON_MultipleLiveRuns is reviewer finding B3's other missing
+// coverage: with more than one live run and no --run to disambiguate,
+// --json must refuse exactly like the human path does — a plain-text
+// usage-refusal on stderr, exit 1 — never a JSON array of more than one
+// run (docs/cli.md's contract: pawl status never actually prints more than
+// one run itself).
+func TestStatusJSON_MultipleLiveRuns(t *testing.T) {
+	root := setupWorkingCopy(t)
+	writeWorkflow(t, root, "sample", sampleWorkflow)
+	// A second, distinct workflow — not just a second file with the same
+	// internal workflow: id, which would resolve to the SAME run namespace
+	// (journal state is keyed by the workflow: field, not the filename)
+	// and make the second pawl run resume the first run instead of
+	// starting a genuinely separate live one.
+	writeWorkflow(t, root, "sample2", strings.Replace(sampleWorkflow, "workflow: sample\n", "workflow: sample2\n", 1))
+	writeContextFile(t, root, "notes.txt", "x\n")
+
+	if _, _, code := runCLI(t, []string{"pawl", "run", "sample", "name=Ada"}); code != 0 {
+		t.Fatalf("pawl run sample: exit %d", code)
+	}
+	if _, _, code := runCLI(t, []string{"pawl", "run", "sample2", "name=Bea"}); code != 0 {
+		t.Fatalf("pawl run sample2: exit %d", code)
+	}
+
+	stdout, stderr, code := runCLI(t, []string{"pawl", "status", "--json"})
+	if code == 0 {
+		t.Fatalf("pawl status --json with two live runs: exit 0, want a disambiguation refusal; stdout = %q", stdout)
+	}
+	if stdout != "" {
+		t.Errorf("pawl status --json with two live runs: stdout = %q, want nothing on stdout (refusal goes to stderr, not JSON)", stdout)
+	}
+	if !strings.Contains(stderr, "--run") {
+		t.Errorf("pawl status --json with two live runs: stderr = %q, want it to mention --run", stderr)
+	}
+}
+
+// TestAbandonReason is task B1: --reason is journalled onto the RUN_END
+// event abandon already appends, and pawl status --run <id> shows it once
+// the run is over (FindRun, unlike Live, does not filter out terminal
+// runs).
+func TestAbandonReason(t *testing.T) {
+	root := setupWorkingCopy(t)
+	writeWorkflow(t, root, "sample", sampleWorkflow)
+	writeContextFile(t, root, "notes.txt", "x\n")
+
+	stdout, _, code := runCLI(t, []string{"pawl", "run", "sample", "name=Ada"})
+	if code != 0 {
+		t.Fatalf("pawl run: exit %d", code)
+	}
+	runID := ""
+	for _, l := range strings.Split(stdout, "\n") {
+		if strings.HasPrefix(l, "DISPATCH ") {
+			runID = extractRunID(t, l)
+		}
+	}
+
+	abandonOut, abandonErr, abandonCode := runCLI(t, []string{"pawl", "abandon", "--run", runID, "--reason", "wrong workflow, restarting"})
+	if abandonCode != 0 {
+		t.Fatalf("pawl abandon: exit %d, stderr = %q", abandonCode, abandonErr)
+	}
+	if !strings.Contains(abandonOut, "TERMINAL "+runID+" abandoned") {
+		t.Errorf("pawl abandon output = %q", abandonOut)
+	}
+
+	statusOut, statusErr, statusCode := runCLI(t, []string{"pawl", "status", "--run", runID})
+	if statusCode != 0 {
+		t.Fatalf("pawl status: exit %d, stderr = %q", statusCode, statusErr)
+	}
+	if !strings.Contains(statusOut, "reason: wrong workflow, restarting") {
+		t.Errorf("pawl status output = %q, want it to show the abandon reason", statusOut)
+	}
+
+	// --reason without a value is a usage error, like --run.
+	_, reasonErr, reasonCode := runCLI(t, []string{"pawl", "abandon", "--run", runID, "--reason"})
+	if reasonCode != 2 {
+		t.Errorf("pawl abandon --reason (no value): exit %d, want 2", reasonCode)
+	}
+	if !strings.Contains(reasonErr, "--reason needs a value") {
+		t.Errorf("pawl abandon --reason (no value) stderr = %q", reasonErr)
+	}
+}
+
+// TestAbandonReason_DefaultAndEmpty is reviewer finding B7: --reason omitted
+// entirely, and --reason passed as the explicit empty string, must both
+// fall back to the same "abandoned by user" default — the two are
+// indistinguishable once journalled (an empty reason: line would be
+// pointless), so cmdAbandon treats them identically on purpose.
+func TestAbandonReason_DefaultAndEmpty(t *testing.T) {
+	root := setupWorkingCopy(t)
+	writeWorkflow(t, root, "sample", sampleWorkflow)
+	writeContextFile(t, root, "notes.txt", "x\n")
+
+	startRun := func(t *testing.T) string {
+		t.Helper()
+		stdout, _, code := runCLI(t, []string{"pawl", "run", "sample", "name=Ada", "--fresh"})
+		if code != 0 {
+			t.Fatalf("pawl run: exit %d", code)
+		}
+		for _, l := range strings.Split(stdout, "\n") {
+			if strings.HasPrefix(l, "DISPATCH ") {
+				return extractRunID(t, l)
+			}
+		}
+		t.Fatal("no DISPATCH line in pawl run output")
+		return ""
+	}
+
+	// --reason omitted entirely.
+	runID1 := startRun(t)
+	if _, _, code := runCLI(t, []string{"pawl", "abandon", "--run", runID1}); code != 0 {
+		t.Fatalf("pawl abandon: exit %d", code)
+	}
+	statusOut1, _, code1 := runCLI(t, []string{"pawl", "status", "--run", runID1})
+	if code1 != 0 {
+		t.Fatalf("pawl status: exit %d", code1)
+	}
+	if !strings.Contains(statusOut1, "reason: abandoned by user") {
+		t.Errorf("no --reason: status = %q, want the default reason", statusOut1)
+	}
+
+	// --reason "" explicitly.
+	runID2 := startRun(t)
+	if _, _, code := runCLI(t, []string{"pawl", "abandon", "--run", runID2, "--reason", ""}); code != 0 {
+		t.Fatalf("pawl abandon: exit %d", code)
+	}
+	statusOut2, _, code2 := runCLI(t, []string{"pawl", "status", "--run", runID2})
+	if code2 != 0 {
+		t.Fatalf("pawl status: exit %d", code2)
+	}
+	if !strings.Contains(statusOut2, "reason: abandoned by user") {
+		t.Errorf("--reason \"\": status = %q, want the default reason", statusOut2)
+	}
+}
+
+// TestStatus_NoChangedWarningOnTerminalRun is reviewer finding B6: the
+// "workflow file has changed … pawl submit will refuse until you abandon
+// and start fresh" warning is about resuming a still-live run — it's
+// actively misleading on a run `pawl status --run <id>` finds only because
+// FindRun doesn't filter out terminal runs (task B1), since there is no
+// submit left to refuse and nothing to abandon.
+func TestStatus_NoChangedWarningOnTerminalRun(t *testing.T) {
+	root := setupWorkingCopy(t)
+	writeWorkflow(t, root, "sample", sampleWorkflow)
+	writeContextFile(t, root, "notes.txt", "x\n")
+
+	stdout, _, code := runCLI(t, []string{"pawl", "run", "sample", "name=Ada"})
+	if code != 0 {
+		t.Fatalf("pawl run: exit %d", code)
+	}
+	runID := ""
+	for _, l := range strings.Split(stdout, "\n") {
+		if strings.HasPrefix(l, "DISPATCH ") {
+			runID = extractRunID(t, l)
+		}
+	}
+
+	if _, _, code := runCLI(t, []string{"pawl", "abandon", "--run", runID}); code != 0 {
+		t.Fatalf("pawl abandon: exit %d", code)
+	}
+
+	// Change the workflow file after the run has ended.
+	changed := strings.Replace(sampleWorkflow, "Greet ${name} nicely.", "Greet ${name} warmly.", 1)
+	writeWorkflow(t, root, "sample", changed)
+
+	statusOut, statusErr, statusCode := runCLI(t, []string{"pawl", "status", "--run", runID})
+	if statusCode != 0 {
+		t.Fatalf("pawl status: exit %d, stderr = %q", statusCode, statusErr)
+	}
+	if strings.Contains(statusOut, "workflow file has changed") {
+		t.Errorf("status on a terminal run = %q, want no changed-file warning (nothing left to submit or abandon)", statusOut)
 	}
 }
 

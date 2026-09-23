@@ -112,10 +112,10 @@ steps:
       state — only edit source/dependency files, and run tests yourself before returning. Keep
       the fix minimal and scoped to what the upgrade broke.
     context:
-      - "!uv run pytest -q 2>&1 | tail -n 150"
-      - "!git diff HEAD -- pyproject.toml uv.lock"
+      - !cmd "uv run pytest -q 2>&1 | tail -n 150"
+      - !cmd "git diff HEAD -- pyproject.toml uv.lock"
       - CHANGELOG.md
-      - "!echo Failing-test signature for this attempt: ${failing_signature}"
+      - !cmd "echo Failing-test signature for this attempt: ${failing_signature}"
     subagent_args:
       tools:
         - Read
@@ -186,7 +186,7 @@ steps:
     run: scripts/commit-and-open-pr.sh
     writes: [branch, pr_number]
     postcondition:
-      command: gh pr view "${pr_number}" --json state -q .state | grep -qx OPEN
+      command: gh pr view ${pr_number} --json state -q .state | grep -qx OPEN
     retry: {max_attempts: 3, backoff: 5s}
     catch:
       - on: failure
@@ -234,7 +234,7 @@ steps:
     kind: deterministic
     run: scripts/merge-pr.sh
     postcondition:
-      command: gh pr view "${pr_number}" --json state -q .state | grep -qx MERGED
+      command: gh pr view ${pr_number} --json state -q .state | grep -qx MERGED
     retry: {max_attempts: 3, backoff: 5s}
     catch:
       - on: failure

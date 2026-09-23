@@ -42,7 +42,7 @@ func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 	w, report, err := loadAndValidate(rw.Path)
 	if err != nil {
 		printLine(stderr, err.Error())
-		return 1
+		return exitForLoadErr(err)
 	}
 	if len(report.Errors) > 0 {
 		errBlock := &blockWriter{}
@@ -50,7 +50,10 @@ func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 			errBlock.line(0, e)
 		}
 		fmt.Fprint(stderr, errBlock.String())
-		return 1
+		// docs/cli.md's exit-code table (~line 33): "validation failed" is
+		// its own clause under 2 (usage/validation), not 1 (resolution) —
+		// the file resolved fine; spec.Validate is what refused it.
+		return 2
 	}
 
 	root, err := journal.ResolveRoot(cwd)
@@ -66,7 +69,11 @@ func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 		ref, rerr := resolveRunToResume(root, w.Workflow, flags.RunID)
 		if rerr != nil {
 			printLine(stderr, rerr.Error())
-			return 1
+			// resolveRunToResume's own "no live run %q"/"multiple runs are
+			// live" refusals are resolution errors (1, item 8: an ambiguous
+			// run is classed the same as an unknown one); only a genuine
+			// journal.ErrIO underneath journal.Live is an engine error (5).
+			return exitForLookupErr(rerr)
 		}
 		if ref != nil {
 			if len(raw) > 0 {
@@ -92,7 +99,7 @@ func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 			}
 			fmt.Fprint(stdout, formatResumeLine(ref.RunID, ref.State.Cursor.Step, ref.State.Cursor.Attempt, ref.State.State))
 			fmt.Fprint(stdout, formatInstruction(instr, w, root))
-			return 0
+			return instructionExitCode(instr)
 		}
 	}
 
@@ -113,10 +120,10 @@ func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 	instr, err := e.Start(runID, boundArgs)
 	if err != nil {
 		printLine(stderr, "pawl run:", err.Error())
-		return 1
+		return exitForEngineErr(err)
 	}
 	fmt.Fprint(stdout, formatInstruction(instr, w, root))
-	return 0
+	return instructionExitCode(instr)
 }
 
 // resolveRunToResume applies design/format-spec.md §I / DESIGN.md §4's
@@ -165,10 +172,14 @@ func handleRunErr(err error, stderr io.Writer, root string, w *spec.Workflow, ru
 	if errors.Is(err, engine.ErrDigestMismatch) {
 		changed := diffChangedSteps(root, w, runID)
 		printLine(stderr, fmt.Sprintf("pawl run: workflow file has changed since run %s started (changed: %s); use --fresh to start a new run", runID, changed))
-		return 1
+		// docs/cli.md's exit-code table (~line 33): a changed workflow file
+		// is a refusal, exit 4 — the run itself is fine, resuming it with
+		// the file as it now stands is what's refused, and --fresh is the
+		// offered way out, not a typo to go fix and retype.
+		return 4
 	}
 	printLine(stderr, "pawl run:", err.Error())
-	return 1
+	return exitForEngineErr(err)
 }
 
 // diffChangedSteps compares the workflow plan.json recorded when runID

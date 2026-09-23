@@ -22,7 +22,7 @@ Wait on something outside the run: CI, a review, a build, a person doing a thing
 ```yaml
   - id: wait_for_mr
     kind: wait
-    poll: scripts/refresh.sh "${project_path}" "${mr_iid}"
+    poll: scripts/refresh.sh ${project_path} ${mr_iid}
     every: 30s
     timeout: 6h
     emits: pairs

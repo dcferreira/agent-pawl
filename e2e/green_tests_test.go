@@ -348,8 +348,8 @@ func TestGreenTestsMaxVisitsGivesUp(t *testing.T) {
 	// visit, past max_visits: 4: exhausted, routed to gave_up (blocked).
 	out, code = p.run(t, "submit", "--run", runID, "--step", "fix_tests",
 		"--json", `{"fix_summary":"compiles, does not fix anything"}`)
-	if code != 0 {
-		t.Fatalf("pawl submit (final round): exit %d, output:\n%s", code, out)
+	if code != 3 {
+		t.Fatalf("pawl submit (final round): exit %d, want 3 (BLOCKED terminal), output:\n%s", code, out)
 	}
 	if !strings.Contains(out, "TERMINAL "+runID+" blocked") {
 		t.Fatalf("expected TERMINAL %s blocked (gave_up via max_visits), got:\n%s", runID, out)

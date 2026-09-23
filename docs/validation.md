@@ -1,17 +1,20 @@
 # `pawl validate`
 
 ```
-pawl validate <name|path> [--strict]
+pawl validate <workflow-name> [--path <file>]
 ```
 
 Static only: no commands run, no network, no model. It parses the file, walks the graph, and checks
-the rules below. Exit 0 clean, 2 on error. Run before every run, and in CI with `--strict`.
+the rules below. Exit 0 clean, 2 on error. Run before every run, and in CI.
+
+Takes a workflow name (resolved under `.claude/workflows/` exactly as `pawl run` resolves one) or,
+with `--path <file>`, a specific file instead — mutually exclusive with a name; scripts and context
+files it references still resolve relative to the workflow file itself either way.
 
 ```
 › pawl validate manage-mr
-.claude/workflows/manage-mr.yaml: ok — 23 steps, 3 terminals, 2 cycles.
-soft postconditions: 6 of 23 (26%):
-  entry, changelog, fix_issues, fix_issues_push, trigger_coderabbit, route_reviewers
+workflow: .claude/workflows/manage-mr.yaml (repo-local)
+soft: 6/23 steps (26.1%): changelog, entry, fix_issues, fix_issues_push, route_reviewers, trigger_coderabbit
 ```
 
 Every error names the file and line, the step, the rule and the fix.
@@ -64,19 +67,46 @@ route needs exactly one `writes:` key; `options_from:` requires `writes:`.
 `postcondition: {all_set: [branch, title]}`.
 
 **15 — guard names a missing step.** `only_in:` must name a real step (`only_in: []` — empty —
-means denied everywhere).
+means denied everywhere). Not implemented in this build: top-level `guards:` is rejected outright as
+a separate error, so there's no `only_in:` left standing for this rule to check.
 
 **16 — missing or non-executable file.** A referenced script doesn't exist (relative to
-`.claude/workflows/`), or isn't `chmod +x`.
+`.claude/workflows/`), or isn't `chmod +x`. Not implemented in this build: `validate` never touches
+the filesystem beyond parsing the YAML, so a missing or non-executable script or context file passes
+`validate` clean and only shows up as a BLOCKED run when `pawl run` actually tries it.
 
 **17 — bad `kind: parallel` branch.** `branches:` needs ≥ 2 entries, each a declared
 `deterministic`/`agentic` step (no nesting), listed once, claimed by only one `parallel` step, not
 the workflow's `start:` step, and declaring none of `next:`/`outcomes:`/`catch:`/`attempts:`/
 `attempt_key:`/`max_visits:` itself — see [steps/parallel.md](steps/parallel.md).
 
+**18 — a `context:` entry starts with `!` but does not carry the YAML tag `!cmd`.** A `context:`
+entry is a command only when it carries the YAML tag `!cmd` (e.g. `!cmd "git diff"`). Every plain
+entry starting with `!` is rejected, and so is any custom YAML tag other than `!cmd`, in either
+shape an author might write it:
+
+- A *quoted* string that merely starts with `!` (e.g. `"!git diff main...HEAD"`) is read as a FILE
+  PATH literally named `!git diff main...HEAD`, not executed.
+- An *unquoted* entry starting with `!` (e.g. `!git diff main`) isn't even that literal text — YAML
+  reads it as a custom tag `!git` applied to the scalar `diff main`. Any custom tag other than
+  `!cmd` is rejected the same way.
+- A quoted string with `!cmd` *inside* the quotes (e.g. `"!cmd git diff main"`) is the same FILE
+  PATH mistake as the first case, just with a value that happens to start with `!cmd `. The tag has
+  to sit outside the quotes (`!cmd "git diff main"`) to take effect — the error names the corrected
+  form with `!cmd` stripped from the front of the value, not just the leading `!` (which would
+  otherwise suggest running a program literally called `cmd`).
+
+`pawl validate` rejects both and names the corrected `!cmd "..."` form. A real file whose name
+starts with `!` is not a case this rule can special-case away (there is no way to tell "this author
+really means a file" from "this author typo'd a command" from the YAML alone) — reference it as
+`./!name` instead, which does not start with `!` and so is unambiguously a file path.
+
 ## Warnings
 
-Two, printed as `warning:` and exit 0 — unless `--strict`, which makes them errors.
+Two, printed as `warning:` and exit 0. `--strict` (turning these into errors, for CI) is
+documented as a flag elsewhere but is not implemented in this build: `internal/cli/validate.go`
+has no flag parsing for it at all, so `pawl validate <name> --strict` is a plain usage error
+(exit 2, "unrecognised argument") today, not a silently-ignored no-op.
 
 ```
 warning: `blocked_reason` is written by `resolve_conflict` and never read.

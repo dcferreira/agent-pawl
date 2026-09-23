@@ -61,7 +61,7 @@ robustness, without the postcondition changing.
 `pawl` evaluates the postcondition in its own process, after the body, before the transition — the
 step's output is an input, never the verdict. `{all_set: […]}` and `{equals: {…}}` run in-process;
 `command:` spawns a subprocess. Best postconditions re-observe reality, e.g.
-`glab mr view "${mr_iid}" --output json | jq -e '.state=="opened"'` rather than trust a flag the
+`glab mr view ${mr_iid} --output json | jq -e '.state=="opened"'` rather than trust a flag the
 step set itself.
 
 Where you cannot check the real thing, write the weakest real check and mark it `soft: true`: it

@@ -52,10 +52,10 @@ func (e *Engine) Submit(runID, stepID string, attempt int, result json.RawMessag
 		// also stop it, but it would leave the caller with no idea what to
 		// run instead, which for the one command the /pawl skill is
 		// explicitly told not to use is the whole point of the message.
-		return nil, fmt.Errorf("engine: step %q is a wait step: its result is submitted by the poller, not by you — run `pawl poll --run %s --step %s` (DESIGN.md §3: the model never runs pawl submit for a wait result)", stepID, runID, stepID)
+		return nil, fmt.Errorf("%w: step %q is a wait step: its result is submitted by the poller, not by you — run `pawl poll --run %s --step %s` (DESIGN.md §3: the model never runs pawl submit for a wait result)", ErrRefused, stepID, runID, stepID)
 	}
 	if step == nil {
-		return nil, fmt.Errorf("engine: step %q is not an agentic step awaiting submission", stepID)
+		return nil, fmt.Errorf("%w: step %q is not an agentic step awaiting submission", ErrRefused, stepID)
 	}
 
 	// branchOf is set when stepID names a still-outstanding branch of the
@@ -70,18 +70,18 @@ func (e *Engine) Submit(runID, stepID string, attempt int, result json.RawMessag
 	switch {
 	case rs.Cursor.Step == stepID && rs.Cursor.Attempt == attempt:
 		if step.Kind != "agentic" {
-			return nil, fmt.Errorf("engine: step %q is not an agentic step awaiting submission", stepID)
+			return nil, fmt.Errorf("%w: step %q is not an agentic step awaiting submission", ErrRefused, stepID)
 		}
 	case rs.PendingBranches[rs.Cursor.Step][stepID]:
 		parallelStep := e.Workflow.StepByID(rs.Cursor.Step)
 		if parallelStep == nil || parallelStep.Kind != "parallel" || step.Kind != "agentic" {
-			return nil, fmt.Errorf("engine: refusing submit for %s/attempt %d: the run is waiting on %s/attempt %d",
-				stepID, attempt, rs.Cursor.Step, rs.Cursor.Attempt)
+			return nil, fmt.Errorf("%w: submit for %s/attempt %d, but the run is waiting on %s/attempt %d",
+				ErrRefused, stepID, attempt, rs.Cursor.Step, rs.Cursor.Attempt)
 		}
 		branchOf = rs.Cursor.Step
 	default:
-		return nil, fmt.Errorf("engine: refusing submit for %s/attempt %d: the run is waiting on %s/attempt %d",
-			stepID, attempt, rs.Cursor.Step, rs.Cursor.Attempt)
+		return nil, fmt.Errorf("%w: submit for %s/attempt %d, but the run is waiting on %s/attempt %d",
+			ErrRefused, stepID, attempt, rs.Cursor.Step, rs.Cursor.Attempt)
 	}
 	key := rs.Cursor.AttemptKey
 
