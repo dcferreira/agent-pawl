@@ -1,16 +1,24 @@
 workflow: review-pr
 description: >
   Local, interactive review of an already-open GitHub PR: pick any number of
-  reviewers (a Claude subagent, codex, and/or custom local commands) to run
-  concurrently, fix what they find, loop through CI, repeat until clean.
-  Not a CI check — this is a tool Daniel runs on his own machine, with a
+  reviewers (a Claude subagent, codex, and/or a custom local command) to run
+  concurrently, fix what they find, push, and repeat until a review round is
+  clean AND CI is green on the head that round reviewed (a CI failure is
+  fed back to the fixer as findings). Not a CI check — this is a tool Daniel
+  runs on his own machine, from a clean checkout of the PR head, with a
   human step where his judgement is the point. Never posts a GitHub
   approval or review decision; it only fixes and pushes.
 start: fetch_pr
+# Per round: prepare_review, fanout_review, review_route, fix_issues,
+# fix_push (+ wait_for_ci, ci_failure on a CI round) — at most 7 entries, so
+# 10 rounds (prepare_review's max_visits) fit comfortably under 100.
 max_steps: 100
 
 args:
   pr_number: {type: string}
+  # A repo with no CI at all: without this, "no checks registered" is
+  # treated as not-yet-started and wait_for_ci polls until its timeout.
+  allow_no_ci: {type: boolean, default: false}
 
 state:
   vcs: {type: string}
@@ -19,6 +27,7 @@ state:
   base_branch: {type: string}
   branch: {type: string}
   title: {type: string}
+  diff_file: {type: string}
   reviewer_choices: {type: json, default: []}
   findings_claude: {type: json, default: []}
   findings_codex: {type: json, default: []}
@@ -39,17 +48,36 @@ steps:
     kind: human
     question: |
       Reviewing "${title}" (${pr_url}). Pick any number of reviewers to run
-      concurrently. Type "Other" to add a custom shell command as a
-      reviewer — you can add more than one "Other" answer.
+      concurrently. To add a custom reviewer, type ONE shell command as the
+      "Other" answer (there is only one free-text answer; chain several
+      tools with ";" inside that one command if you need more).
     options: [claude_subagent, codex]
     multi: true
     timeout: 1h
     writes: {reviewer_choices: {type: json}}
     outcomes:                      # multi: true always resolves to chosen at
-      claude_subagent: fanout_review   # runtime, but the validator still
-      codex: fanout_review             # requires every listed option routed
-      chosen: fanout_review
+      claude_subagent: prepare_review  # runtime, but the validator still
+      codex: prepare_review            # requires every listed option routed
+      chosen: prepare_review
       timeout: blocked
+
+  # Entry point of every round — every cycle in this graph passes through
+  # it, so its max_visits is THE round cap (the default 10, stated
+  # explicitly): the 11th entry is `exhausted` -> blocked. Every other step
+  # in the cycle is entered at most once per round, so their own default
+  # caps of 10 can never bind first.
+  #
+  # Refuses to start a round unless the working copy is clean and its head
+  # is the PR's head, then fetches the PR diff into a file (a hard input:
+  # a gh failure or an empty diff fails the step rather than letting the
+  # reviewers see nothing and call the PR clean).
+  - id: prepare_review
+    kind: deterministic
+    run: scripts/prepare-review.sh ${vcs} ${pr_number}
+    writes: [head_sha, diff_file]
+    postcondition: {all_set: [head_sha, diff_file]}
+    max_visits: 10
+    next: fanout_review
 
   - id: fanout_review
     kind: parallel
@@ -63,19 +91,23 @@ steps:
   # branch not in reviewer_choices self-filters by returning [] immediately rather than
   # doing real review work. Accepted tradeoff: a cheap, near-instant no-op
   # subagent call per unselected engine, each round.
+  #
+  # The diff comes in as a plain-file context: entry (${diff_file}, written
+  # by prepare_review), not a `!cmd "gh pr diff ..."`: a !cmd that fails
+  # degrades silently to empty output, a missing file fails the branch.
   - id: ai_review_claude
     kind: agentic
     description: |
       reviewer_choices is ${reviewer_choices}. If "claude_subagent" is not
       in it, immediately return findings_claude: [] and stop. Otherwise:
-      adversarially review this PR's diff against ${base_branch}. Cold (you
-      did not write this change) and read-only (analysis only, never edit
-      files). Return findings as a JSON array of
+      adversarially review this PR's diff (in context) against
+      ${base_branch}. Cold (you did not write this change) and read-only
+      (analysis only, never edit files). Return findings as a JSON array of
       {file, line, category, description, fix}, category one of:
       bug | missing-test | other | performance | security |
       standards-violation | type-annotation.
     context:
-      - !cmd "gh pr diff ${pr_number}"   # the !cmd YAML tag, not a "!..." string — the engine reads that as a file path
+      - "${diff_file}"
     subagent_args: {tools: [Read, "Bash(gh pr diff:*)", "Bash(gh pr view:*)"], model: opus}
     writes: {findings_claude: {type: json}}
     postcondition: "printf '%s' ${findings_claude} | jq -e 'type==\"array\"' >/dev/null"
@@ -85,9 +117,10 @@ steps:
     description: |
       reviewer_choices is ${reviewer_choices}. If "codex" is not in it,
       immediately return findings_codex: [] and stop. Otherwise: run
-      `codex review --base ${base_branch}` (Bash tool) against this PR and
-      normalize its output into the same findings shape as above
-      (file, line, category, description, fix).
+      `codex review --base ${base_branch}` (Bash tool) against this PR (the
+      working copy is checked out at the PR head) and normalize its output
+      into the same findings shape as above (file, line, category,
+      description, fix).
     subagent_args: {tools: [Read, "Bash(codex review:*)", "Bash(gh pr diff:*)"], model: haiku}
     writes: {findings_codex: {type: json}}
     postcondition: "printf '%s' ${findings_codex} | jq -e 'type==\"array\"' >/dev/null"
@@ -95,11 +128,13 @@ steps:
   - id: ai_review_custom
     kind: agentic
     description: |
-      reviewer_choices is ${reviewer_choices}. Any entry that is not
-      "claude_subagent" or "codex" is a custom shell command Daniel typed —
-      run each one (Bash tool) against this PR and normalize whatever it
-      prints into the same findings shape as above. If there are no such
-      entries, immediately return findings_custom: [] and stop.
+      reviewer_choices is ${reviewer_choices}. An entry that is not
+      "claude_subagent" or "codex" is the custom shell command Daniel typed
+      as the free-text "Other" answer (at most one such entry). Run it once,
+      as a single command (Bash tool), in the working copy (checked out at
+      the PR head), and normalize whatever it prints into the same findings
+      shape as above. If there is no such entry, immediately return
+      findings_custom: [] and stop.
     subagent_args: {tools: [Read, Bash], model: haiku}
     writes: {findings_custom: {type: json}}
     postcondition: "printf '%s' ${findings_custom} | jq -e 'type==\"array\"' >/dev/null"
@@ -124,7 +159,7 @@ steps:
       names the change that invalidated it, fix is the minimal edit to make
       it true again. Return [] if nothing existing went stale.
     context:
-      - !cmd "gh pr diff ${pr_number}"   # the !cmd YAML tag, not a "!..." string — the engine reads that as a file path
+      - "${diff_file}"
     subagent_args: {tools: [Read, Grep, Glob, "Bash(gh pr diff:*)", "Bash(gh pr view:*)"], model: sonnet}
     writes: {findings_docs: {type: json}}
     postcondition: "printf '%s' ${findings_docs} | jq -e 'type==\"array\"' >/dev/null"
@@ -135,22 +170,30 @@ steps:
     writes: [findings]
     outcomes:
       blocking: fix_issues
-      clean: done
+      clean: wait_for_ci           # clean is not done until CI is green on this head
 
   - id: fix_issues
     kind: agentic
     description: |
-      findings is a JSON array of items to fix this round. Make the fix, run
-      the repo's own verify command (or its test suite) as your feedback
-      loop, and iterate until it passes or further local iteration clearly
-      won't help. Never commit or push — the next step does that. Report
-      each item's verify_status honestly.
+      Fix this round's findings. They are (a JSON array of
+      {file, line, category, description, fix} items — review findings, or
+      failing CI checks with their log tails):
+
+      ${findings}
+
+      Treat each suggested fix as a reviewer's suggestion, not a
+      requirement: make the simplest correct fix, or leave an item unfixed
+      (and say why) if it is wrong. Run the repo's own verify command (or
+      its test suite) as your feedback loop, and iterate until it passes or
+      further local iteration clearly won't help. Never commit or push —
+      the next step does that. Return findings: the same items, each with
+      an added verify_status reporting honestly what you did and how you
+      verified it.
     subagent_args: {tools: [Read, Edit, Write, Bash]}
     writes: {findings: {type: json}}
     postcondition: "printf '%s' ${findings} | jq -e 'all(.[]; has(\"verify_status\"))' >/dev/null"
     soft: true                     # the agent's own claim, not independently re-verified here
     attempts: 3
-    max_visits: 20
     next: fix_push
 
   - id: fix_push
@@ -158,20 +201,27 @@ steps:
     run: scripts/fix-push.sh ${vcs} ${branch} ${round}
     emits: pairs                   # a bare integer — safe under the whitespace-split grammar
     writes: [round]
-    postcondition: {all_set: [round]}
-    next: wait_for_ci
+    postcondition: scripts/verify-pushed.sh ${vcs} ${branch}
+    outcomes:
+      pushed: prepare_review       # re-review the new head; CI runs meanwhile
+      unchanged: blocked           # the fixer changed nothing — a human should look
 
   - id: wait_for_ci
     kind: wait
-    poll: scripts/poll-ci.sh ${pr_number}
+    poll: scripts/poll-ci.sh ${pr_number} ${head_sha} ${allow_no_ci}
     every: 30s
     timeout: 2h
-    max_visits: 20
     outcomes:
-      SUCCESS: fanout_review       # loop straight back — reviewer_choices already in state
-      FAILURE: fanout_review
+      SUCCESS: done
+      FAILURE: ci_failure
       timeout: blocked
 
+  - id: ci_failure
+    kind: deterministic
+    run: scripts/ci-failures.sh ${pr_number} ${head_sha}
+    writes: [findings]
+    next: fix_issues
+
 terminal:
-  done: {status: ok, message: "Clean per ${reviewer_choices} — ${pr_url}"}
+  done: {status: ok, message: "Clean per ${reviewer_choices}, CI green on ${head_sha} — ${pr_url}"}
   blocked: {status: blocked, message: "Paused: ${blocked_reason}"}
