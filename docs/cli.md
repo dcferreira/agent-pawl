@@ -13,7 +13,7 @@ the process exits with nothing driving it — deterministic-only workflows, or i
 
 ```
 pawl run <name> [key=value …] [--run <id>] [--fresh] [--force]
-pawl validate <name|path> [--strict]
+pawl validate <workflow-name> [--path <file>]
 pawl status [--run <id>] [--json]
 pawl list
 pawl abandon --run <id> [--reason <text>]
@@ -72,12 +72,16 @@ pawl abandon: run 7f3a has already ended (ok); nothing to abandon
 ## `pawl validate` — human
 
 ```
-pawl validate <name|path> [--strict]
+pawl validate <workflow-name> [--path <file>]
 ```
 
-Static checks only — nothing runs, no network, no LLM. Takes a workflow name or a path. `--strict`
-makes the two warnings — a key written and never read, a key read before anything writes it — into
-errors, for CI.
+Static checks only — nothing runs, no network, no LLM. Takes a workflow name, resolved under
+`.claude/workflows/` exactly as `pawl run` resolves one — or, with `--path <file>`, a specific file
+instead, skipping name resolution entirely (useful for a workflow mid-edit, before it's placed under
+`.claude/workflows/` at all, or checked out under a different name). A name and `--path` are mutually
+exclusive; giving both, or neither, is a usage error. A relative `--path` resolves against the current
+directory; scripts and context files the workflow references still resolve relative to the workflow
+file itself, the same way either way.
 
 ```
 › pawl validate manage-mr
@@ -85,7 +89,14 @@ workflow: .claude/workflows/manage-mr.yaml (repo-local)
 soft: 6/23 steps (26.1%): entry, changelog, fix_issues
 ```
 
-Exit 0 clean, 2 on any error. Full check list and messages: [validation.md](validation.md).
+Exit 0 clean, 2 on any error (including a missing/unrecognised flag or giving both/neither of a name
+and `--path`); a missing or unreadable `--path` file is exit 1, consistent with an unknown name. Full
+check list and messages: [validation.md](validation.md).
+
+`--strict` does not exist in this build, despite an earlier version of this doc claiming it turns the
+two `soft:`-adjacent warnings into errors for CI — there is no flag parsing for it in
+`internal/cli/validate.go` at all. If you want that behaviour, it needs building; don't pass `--strict`
+expecting it to do anything today.
 
 ## `pawl status` — human
 

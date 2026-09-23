@@ -51,8 +51,10 @@ args:
 soft postconditions: 0 of 2 (0%).
 ```
 
-Validation is static: it checks the graph, state keys, caps, and that every referenced file exists.
-It runs nothing — the fastest feedback in the tool, so get in the habit.
+Validation is static: it checks the graph, state keys and caps. It does not check that a referenced
+script or context file exists — that's not caught until `pawl run` actually tries to gather it, and a
+missing one then ends the run `BLOCKED`, not `pawl validate` refusing to start. It runs nothing itself
+— the fastest feedback in the tool, so get in the habit.
 
 Break it on purpose to see the shape of an error — change `next: count` to `next: cuont`:
 

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -564,6 +566,168 @@ func TestRun_MissingWorkflowFileExitsResolution(t *testing.T) {
 	_, stderr, code := runCLI(t, []string{"pawl", "run", "does-not-exist"})
 	if code != 1 {
 		t.Fatalf("exit = %d, want 1 (resolution error); stderr = %q", code, stderr)
+	}
+}
+
+// TestValidate_PathFlag exercises --path against a workflow file that was
+// never placed under .claude/workflows/: the header names the file with
+// "(path)", scripts/context still resolve relative to it, and the output
+// otherwise matches the name-resolved path exactly.
+func TestValidate_PathFlag(t *testing.T) {
+	root := setupWorkingCopy(t)
+	yamlPath := filepath.Join(root, "wf.yaml")
+	if err := os.WriteFile(yamlPath, []byte(sampleWorkflow), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "notes.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, code := runCLI(t, []string{"pawl", "validate", "--path", "wf.yaml"})
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stdout, "workflow: "+yamlPath+" (path)") {
+		t.Errorf("stdout missing the path-sourced banner line: %q", stdout)
+	}
+	if !strings.Contains(stdout, "soft: 0/1 steps") {
+		t.Errorf("stdout missing soft census: %q", stdout)
+	}
+}
+
+// TestValidate_PathIsAbsoluteOrCwdRelative checks an absolute --path works
+// unchanged, alongside the relative case TestValidate_PathFlag already
+// covers.
+func TestValidate_PathIsAbsoluteOrCwdRelative(t *testing.T) {
+	root := setupWorkingCopy(t)
+	yamlPath := filepath.Join(root, "sub", "wf.yaml")
+	if err := os.MkdirAll(filepath.Dir(yamlPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(yamlPath, []byte(sampleWorkflow), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "sub", "notes.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, code := runCLI(t, []string{"pawl", "validate", "--path", yamlPath})
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stdout, "workflow: "+yamlPath+" (path)") {
+		t.Errorf("stdout missing the path-sourced banner line: %q", stdout)
+	}
+}
+
+// TestValidate_PathMissingFileExitsResolution checks a missing --path file
+// is a resolution error (1), consistent with an unknown name.
+func TestValidate_PathMissingFileExitsResolution(t *testing.T) {
+	root := setupWorkingCopy(t)
+	_, stderr, code := runCLI(t, []string{"pawl", "validate", "--path", filepath.Join(root, "nope.yaml")})
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1 (resolution error); stderr = %q", code, stderr)
+	}
+}
+
+// TestValidate_NameAndPathAreMutuallyExclusive and
+// TestValidate_NeitherNameNorPathExitsUsage pin the usage-error (2) rule
+// around --path/name: exactly one of them must be given.
+func TestValidate_NameAndPathAreMutuallyExclusive(t *testing.T) {
+	setupWorkingCopy(t)
+	_, stderr, code := runCLI(t, []string{"pawl", "validate", "sample", "--path", "wf.yaml"})
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 (usage error); stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stderr, "mutually exclusive") {
+		t.Errorf("stderr = %q, want it to explain the conflict", stderr)
+	}
+}
+
+func TestValidate_NeitherNameNorPathExitsUsage(t *testing.T) {
+	setupWorkingCopy(t)
+	_, stderr, code := runCLI(t, []string{"pawl", "validate"})
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 (usage error); stderr = %q", code, stderr)
+	}
+}
+
+// TestValidate_LeadingBadFlagExitsUsage is reviewer item 9: an argument
+// starting with "-" that isn't --path used to fall through to the
+// positional-name branch when it came first — `pawl validate --strict`
+// looked up a workflow literally named "--strict" and failed with a
+// resolution error (exit 1) instead of a usage error (exit 2). Checked in
+// both argument orders, since the bug was specific to a bad flag being the
+// very first argument (a bad flag after a name already hit the "unrecognised
+// argument" branch and was already exit 2).
+func TestValidate_LeadingBadFlagExitsUsage(t *testing.T) {
+	setupWorkingCopy(t)
+	for _, args := range [][]string{
+		{"pawl", "validate", "--strict"},
+		{"pawl", "validate", "--bogus"},
+		{"pawl", "validate", "sample", "--strict"},
+	} {
+		_, stderr, code := runCLI(t, args)
+		if code != 2 {
+			t.Errorf("%v: exit = %d, want 2 (usage error); stderr = %q", args, code, stderr)
+		}
+		if !strings.Contains(stderr, "unrecognised argument") {
+			t.Errorf("%v: stderr = %q, want it to say unrecognised argument", args, stderr)
+		}
+	}
+}
+
+// TestValidate_RepeatedPathExitsUsage is reviewer item 10: a second --path
+// used to silently overwrite the first rather than refusing outright.
+func TestValidate_RepeatedPathExitsUsage(t *testing.T) {
+	setupWorkingCopy(t)
+	_, stderr, code := runCLI(t, []string{"pawl", "validate", "--path", "a.yaml", "--path", "b.yaml"})
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 (usage error); stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stderr, "--path given more than once") {
+		t.Errorf("stderr = %q, want it to say --path was given more than once", stderr)
+	}
+}
+
+// TestValidate_ParseErrorExitsUsage and TestValidate_UnknownFieldExitsUsage
+// are pawl validate's half of reviewer item 4 (see TestRun_ParseErrorExitsUsage
+// for the pawl-run half and the general rule): a YAML syntax error or an
+// unknown field (spec.Load's KnownFields(true)) is "validation failed" —
+// exit 2 — not a resolution error (1). This is validate.go's own
+// exitForLoadErr wiring, alongside --path, since pawl validate --path
+// (TestValidate_PathParseErrorExitsUsage below) needs the same
+// classification to be consistent with a name-resolved file.
+func TestValidate_ParseErrorExitsUsage(t *testing.T) {
+	root := setupWorkingCopy(t)
+	writeWorkflow(t, root, "broken", "workflow: [this is not valid yaml\n")
+	_, stderr, code := runCLI(t, []string{"pawl", "validate", "broken"})
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 (parse error); stderr = %q", code, stderr)
+	}
+}
+
+func TestValidate_UnknownFieldExitsUsage(t *testing.T) {
+	root := setupWorkingCopy(t)
+	writeWorkflow(t, root, "broken", sampleWorkflow+"totally_unknown_field: true\n")
+	_, stderr, code := runCLI(t, []string{"pawl", "validate", "broken"})
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 (unknown field, KnownFields(true)); stderr = %q", code, stderr)
+	}
+}
+
+// TestValidate_PathParseErrorExitsUsage checks --path is consistent with a
+// name-resolved file: a non-YAML file given by --path is exit 2 exactly the
+// same way a malformed name-resolved workflow is.
+func TestValidate_PathParseErrorExitsUsage(t *testing.T) {
+	root := setupWorkingCopy(t)
+	yamlPath := filepath.Join(root, "wf.yaml")
+	if err := os.WriteFile(yamlPath, []byte("workflow: [this is not valid yaml\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, stderr, code := runCLI(t, []string{"pawl", "validate", "--path", yamlPath})
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 (parse error); stderr = %q", code, stderr)
 	}
 }
 
