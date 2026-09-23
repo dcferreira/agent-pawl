@@ -1,5 +1,5 @@
 // Package e2e drives the real pawl binary (never internal/engine or
-// internal/cli directly) against the examples/green-tests workflow and the
+// internal/cli directly) against the docs/examples/green-tests workflow and the
 // testdata/fixture Go module, to prove — with no LLM and no network — that
 // spec, render, emit, journal, engine and cli compose into a working
 // engine. The agentic fix_tests step is satisfied by scripted `pawl submit`
@@ -97,12 +97,12 @@ type project struct {
 	fixtureGo string // path to fixture.go, the file under test
 }
 
-// newProject copies testdata/fixture and examples/green-tests into a fresh
+// newProject copies testdata/fixture and docs/examples/green-tests into a fresh
 // temp directory, laid out the way resolveWorkflowFile and DESIGN.md §9's
 // "scripts/ resolve relative to the workflow file" rule expect: the fixture
 // Go module at root (cwd for run:, per §3, is unaffected by this layout),
 // the workflow at .claude/workflows/green-tests.yaml, and its scripts/
-// alongside it at .claude/workflows/scripts/ — exactly as examples/
+// alongside it at .claude/workflows/scripts/ — exactly as docs/examples/
 // green-tests itself lays scripts/ next to workflow.yaml.
 func newProject(t *testing.T) *project {
 	t.Helper()
@@ -116,12 +116,12 @@ func newProject(t *testing.T) *project {
 	if err := os.MkdirAll(filepath.Join(dir, ".claude", "workflows"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	copyFile(t, filepath.Join(root, "examples", "green-tests", "workflow.yaml"), filepath.Join(dir, ".claude", "workflows", "green-tests.yaml"), 0o644)
+	copyFile(t, filepath.Join(root, "docs", "examples", "green-tests", "workflow.yaml"), filepath.Join(dir, ".claude", "workflows", "green-tests.yaml"), 0o644)
 
 	if err := os.MkdirAll(filepath.Join(dir, ".claude", "workflows", "scripts"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	copyFile(t, filepath.Join(root, "examples", "green-tests", "scripts", "run-tests.sh"), filepath.Join(dir, ".claude", "workflows", "scripts", "run-tests.sh"), 0o755)
+	copyFile(t, filepath.Join(root, "docs", "examples", "green-tests", "scripts", "run-tests.sh"), filepath.Join(dir, ".claude", "workflows", "scripts", "run-tests.sh"), 0o755)
 
 	return &project{
 		root:      dir,

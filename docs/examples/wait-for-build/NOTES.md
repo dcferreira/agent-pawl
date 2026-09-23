@@ -9,7 +9,7 @@ engine accepting `kind: wait` — see the top-level task this was written for; `
 ## The status file
 
 `kick_off_build.sh` and `check_build.sh` share a plain-text status file at
-`examples/wait-for-build/.run/status` (gitignored — it's a runtime artifact, not example content).
+`docs/examples/wait-for-build/.run/status` (gitignored — it's a runtime artifact, not example content).
 `kick_off_build` truncates it fresh on every run so a stale `PASSED`/`FAILED` line from a previous
 invocation of this example can never be mistaken for the current run's result. `simulate_build.sh`
 appends exactly one line to it, ~17s after being launched.
@@ -36,7 +36,7 @@ exercised from the command line without editing the workflow or the scripts — 
    not a script error, and a non-zero exit is unconditionally `failure` (§B.1), which would fail
    the whole wait rather than let it keep polling.
 2. **Where the shared status file lives.** Nothing in the spec pins runtime scratch state to a
-   location; `examples/wait-for-build/.run/` keeps it colocated with the example (so the two
+   location; `docs/examples/wait-for-build/.run/` keeps it colocated with the example (so the two
    scripts' relative-from-repo-root paths in the YAML are self-explanatory) without being
    mistaken for checked-in example content, hence the `.gitignore` entry.
 3. **Why the background launch uses `nohup`.** DESIGN.md doesn't specify process-group semantics

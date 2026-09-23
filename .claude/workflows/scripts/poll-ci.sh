@@ -20,7 +20,7 @@
 #   - otherwise (success/neutral/skipped)    -> SUCCESS
 #
 # PENDING is not one of wait_for_ci's declared `outcomes:` — following the
-# same convention as examples/wait-for-build/scripts/check_build.sh, an
+# same convention as docs/examples/wait-for-build/scripts/check_build.sh, an
 # unrouted token is simply logged and `pawl poll` re-runs this script on
 # the next tick. Always exits 0: design/format-spec.md §B.1 makes a non-zero
 # exit unconditionally `failure`, which would end the wait outright.

@@ -301,7 +301,7 @@ rule feels right, and whether a non-author can author a workflow.
 
 ## 7. Examples
 
-`examples/manage-mr/`, `examples/dependency-upgrade/` and `examples/brain-dispatch/` are worked
+`docs/examples/manage-mr/`, `docs/examples/dependency-upgrade/` and `docs/examples/brain-dispatch/` are worked
 authoring exercises; each has a `workflow.yaml` and a `NOTES.md` recording what it could not express.
 `manage-mr` is the first dogfood target: it exercises every Milestone-1 feature at once — both hooks,
 a long `wait`, a human gate, a capped cycle, keyed retries. Success is one MR taken from branch to

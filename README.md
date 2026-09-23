@@ -10,7 +10,7 @@ a postcondition the engine — never the agent that did the work — evaluates.
 
 **It executes.** `pawl run` / `pawl submit` / `pawl status` / `pawl abandon` / `pawl validate` / `pawl list` /
 `pawl version` are real, working code with unit and end-to-end test coverage (`go test ./...`), and
-`examples/green-tests` runs against `testdata/fixture` — see [docs/dogfood.md](docs/dogfood.md)
+`docs/examples/green-tests` runs against `testdata/fixture` — see [docs/dogfood.md](docs/dogfood.md)
 for a real, captured transcript of that run.
 
 This is a milestone-1 build, and it is deliberately narrower than the design documents below
@@ -35,7 +35,7 @@ describe:
 - `pawl poll --run … --step …` drives a `wait` step; `pawl hook pre|stop` still does not exist,
   because there is no enforcement layer to invoke it.
 
-The workflows under `examples/` beyond `green-tests` remain authoring exercises rather than
+The workflows under `docs/examples/` beyond `green-tests` remain authoring exercises rather than
 verified-runnable artefacts.
 
 ## Installation
@@ -99,7 +99,7 @@ development.
 
 1. **[docs/install.md](docs/install.md)** — build and install the binary that actually exists
    today.
-2. **[docs/dogfood.md](docs/dogfood.md)** — run `examples/green-tests` end to end, with a real
+2. **[docs/dogfood.md](docs/dogfood.md)** — run `docs/examples/green-tests` end to end, with a real
    captured transcript and the two traps an author will actually hit.
 3. **[skills/pawl/SKILL.md](skills/pawl/SKILL.md)** — the `/agent-pawl:pawl` skill a Claude Code
    session follows to drive a run.

@@ -1,6 +1,6 @@
 # Dogfooding: running `green-tests` for real
 
-This walks through actually running the `examples/green-tests` workflow, end to end, in a real
+This walks through actually running the `docs/examples/green-tests` workflow, end to end, in a real
 Claude Code session. It assumes you've followed [install.md](install.md) and have a `pawl` binary
 on your `PATH`. Everything in this document was run and its output pasted verbatim — nothing here
 is retyped or paraphrased.
@@ -28,9 +28,9 @@ steps of, even though nothing forces that on you.
 
 - `pawl` installed per [install.md](install.md).
 - `jq` on your `PATH`. **This is a real prerequisite of this specific example**, not of `pawl`
-  itself: `examples/green-tests/scripts/run-tests.sh` shells out to `jq -Rs .` to JSON-encode a
+  itself: `docs/examples/green-tests/scripts/run-tests.sh` shells out to `jq -Rs .` to JSON-encode a
   possibly multi-line test failure so it survives as a `pawl` state value (see
-  `examples/green-tests/NOTES.md`, Ruling R11). If `jq` is missing, `run_tests` doesn't crash —
+  `docs/examples/green-tests/NOTES.md`, Ruling R11). If `jq` is missing, `run_tests` doesn't crash —
   it reports a named `FAIL` saying `run-tests.sh requires jq` — but you'll never see a real test
   failure until you install it.
 - A Go toolchain, since the fixture used below is a Go module.
@@ -47,9 +47,9 @@ script, laid out like this:
   fixture_test.go
   .claude/
     workflows/
-      green-tests.yaml  # from examples/green-tests/workflow.yaml
+      green-tests.yaml  # from docs/examples/green-tests/workflow.yaml
       scripts/
-        run-tests.sh    # from examples/green-tests/scripts/
+        run-tests.sh    # from docs/examples/green-tests/scripts/
 ```
 
 This repo ships exactly such a fixture at `testdata/fixture/` (a two-line `Add` function that
@@ -60,14 +60,14 @@ mkdir -p /tmp/pawl-dogfood/.claude/workflows/scripts
 cp testdata/fixture/go.mod          /tmp/pawl-dogfood/go.mod
 cp testdata/fixture/fixture.go      /tmp/pawl-dogfood/fixture.go
 cp testdata/fixture/fixture_test.go /tmp/pawl-dogfood/fixture_test.go
-cp examples/green-tests/scripts/run-tests.sh /tmp/pawl-dogfood/.claude/workflows/scripts/run-tests.sh
-cp examples/green-tests/workflow.yaml /tmp/pawl-dogfood/.claude/workflows/green-tests.yaml
+cp docs/examples/green-tests/scripts/run-tests.sh /tmp/pawl-dogfood/.claude/workflows/scripts/run-tests.sh
+cp docs/examples/green-tests/workflow.yaml /tmp/pawl-dogfood/.claude/workflows/green-tests.yaml
 ```
 
 `scripts/` lives beside the workflow file, under `.claude/workflows/`, not at the project root:
 DESIGN.md §9's "scripts/ resolve relative to the workflow file" rule is implemented as of this
 build, so `run: scripts/run-tests.sh ${test_cmd}` in `green-tests.yaml` resolves against
-`.claude/workflows/`, the directory containing it — exactly the layout `examples/green-tests`
+`.claude/workflows/`, the directory containing it — exactly the layout `docs/examples/green-tests`
 itself uses and `e2e/green_tests_test.go` builds.
 
 ## Run it
@@ -113,7 +113,7 @@ sequences are real: the captured multi-line test failure is carried in a rendere
 control characters come out escaped, not as raw newlines/tabs, in the printed block.
 
 `[1] git diff (0 bytes)` is empty because `/tmp/pawl-dogfood` isn't a git (or jj) working copy in
-this walkthrough; per `examples/green-tests/NOTES.md`, a failing or unavailable `!cmd` context
+this walkthrough; per `docs/examples/green-tests/NOTES.md`, a failing or unavailable `!cmd` context
 entry degrades silently to empty rather than blocking the run.
 
 Per the `/pawl` skill (`.claude/skills/pawl/SKILL.md`), this `DISPATCH` line is the instruction: it's
@@ -160,7 +160,7 @@ That's the whole loop for a workflow with a single agentic step: one `DISPATCH`,
 one `TERMINAL`. A workflow with more agentic steps, or one whose fix doesn't compile or doesn't
 actually fix the suite, repeats the `DISPATCH` → dispatch-and-submit cycle — burning `attempts:`
 on a bad submission, or `max_visits:` on a submission that compiles but doesn't fix the tests —
-until it reaches `done` or `gave_up` (see `examples/green-tests/NOTES.md` for how those two
+until it reaches `done` or `gave_up` (see `docs/examples/green-tests/NOTES.md` for how those two
 counters stay independent).
 
 ## The two traps you will actually hit
@@ -200,5 +200,5 @@ them exist in this build; a workflow file that declares any of them is rejected 
 
 ---
 
-See also: `examples/green-tests/NOTES.md` for the workflow author's own notes on this example's
+See also: `docs/examples/green-tests/NOTES.md` for the workflow author's own notes on this example's
 design, and `.claude/skills/pawl/SKILL.md` for the exact protocol a Claude Code session follows.
