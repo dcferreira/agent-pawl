@@ -60,7 +60,16 @@ fi
 
 tries=0
 while :; do
-  pr_head=$(gh pr view "$pr_number" --json headRefOid | jq -r '.headRefOid')
+  # Not a pipeline: without pipefail a gh failure would surface only as a
+  # misleading head mismatch. Fail on the real cause instead.
+  if ! view=$(gh pr view "$pr_number" --json headRefOid); then
+    echo "prepare-review.sh: gh pr view ${pr_number} failed" >&2
+    exit 1
+  fi
+  if ! pr_head=$(printf '%s' "$view" | jq -er '.headRefOid'); then
+    echo "prepare-review.sh: gh pr view ${pr_number} returned no headRefOid: ${view}" >&2
+    exit 1
+  fi
   if [ "$pr_head" = "$local_head" ]; then
     break
   fi

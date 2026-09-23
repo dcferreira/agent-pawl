@@ -65,9 +65,13 @@ func needTool(t *testing.T, name string, hard bool) {
 // otherwise derives headRefOid from the bare remote's $FAKE_GH_BRANCH;
 // `pr diff` diffs that branch against main in the bare remote; `api` for a
 // git ref reads the ref from the bare remote; `run view` prints
-// $FAKE_GH_RUNLOG. $FAKE_GH_FAIL makes every call fail.
+// $FAKE_GH_RUNLOG. $FAKE_GH_FAIL makes every call fail; $FAKE_GH_FAIL_DIFF
+// makes only `pr diff` fail (after writing partial output).
 const fakeGH = `#!/bin/sh
 if [ -n "${FAKE_GH_FAIL:-}" ]; then echo "gh: simulated failure" >&2; exit 1; fi
+if [ -n "${FAKE_GH_FAIL_DIFF:-}" ] && [ "$1 $2" = "pr diff" ]; then
+  echo "diff --git a/partial b/partial"; echo "gh: simulated diff failure" >&2; exit 1
+fi
 case "$1 $2" in
 "pr view")
   if [ -n "${FAKE_GH_VIEW:-}" ]; then cat "$FAKE_GH_VIEW"; exit 0; fi
@@ -355,10 +359,27 @@ func exercisePushFlow(t *testing.T, e *scriptEnv, vcs, remote string) {
 	verify := reviewPRScript(t, "verify-pushed.sh")
 
 	// The diff is a hard input: a gh failure fails the round's first step
-	// instead of letting the reviewers see an empty diff.
+	// instead of letting the reviewers see an empty diff — and is reported
+	// as a gh failure, not as a misleading head mismatch.
 	failing := &scriptEnv{dir: e.dir, env: append(append([]string{}, e.env...), "FAKE_GH_FAIL=1")}
-	if _, _, code := failing.run(t, prepare, vcs, "7"); code == 0 {
+	if _, errOut, code := failing.run(t, prepare, vcs, "7"); code == 0 {
 		t.Error("prepare-review.sh succeeded although gh failed")
+	} else if !strings.Contains(errOut, "gh pr view 7 failed") {
+		t.Errorf("gh pr view failure misreported: %s", errOut)
+	}
+	// Only `gh pr diff` failing (pr view works): the diff-failure branch
+	// fires and leaves no partial diff file behind.
+	diffFailing := &scriptEnv{dir: e.dir, env: append(append([]string{}, e.env...), "FAKE_GH_FAIL_DIFF=1")}
+	if _, errOut, code := diffFailing.run(t, prepare, vcs, "7"); code == 0 {
+		t.Error("prepare-review.sh succeeded although gh pr diff failed")
+	} else if !strings.Contains(errOut, "gh pr diff 7 failed") {
+		t.Errorf("gh pr diff failure misreported: %s", errOut)
+	}
+	cacheDir := filepath.Join(e.dir, "..", "cache", "pawl-review-pr")
+	if entries, err := os.ReadDir(cacheDir); err == nil {
+		for _, ent := range entries {
+			t.Errorf("gh pr diff failure left %s behind in the cache dir", ent.Name())
+		}
 	}
 
 	checkPrepare(t, e, vcs, remote)
@@ -390,6 +411,25 @@ func exercisePushFlow(t *testing.T, e *scriptEnv, vcs, remote string) {
 	e.must(t, verify, vcs, "feature")
 	checkPrepare(t, e, vcs, remote)
 
+	// Idempotent across a failed push: a previous attempt committed the fix
+	// but the push never landed. The re-run must push that commit rather
+	// than report `unchanged` (which verify-pushed.sh would then reject).
+	write(t, filepath.Join(e.dir, "a.txt"), "one\ntwo\nthree\nfive\n")
+	switch vcs {
+	case "git":
+		e.must(t, "git", "commit", "--quiet", "-am", "review round 2")
+	case "jj":
+		e.must(t, "jj", "commit", "-m", "review round 2")
+	}
+	if _, _, code := e.run(t, verify, vcs, "feature"); code == 0 {
+		t.Fatal("setup: verify-pushed.sh passed before the stranded commit was pushed")
+	}
+	if out := e.must(t, fixPush, vcs, "feature", "1"); lastLine(out) != "pushed round=2" {
+		t.Errorf("stranded commit: got %q, want pushed round=2", out)
+	}
+	e.must(t, verify, vcs, "feature")
+	checkPrepare(t, e, vcs, remote)
+
 	// Someone else moves the PR branch: local is no longer the PR head.
 	other := filepath.Join(filepath.Dir(remote), "other")
 	e.must(t, "git", "clone", "--quiet", "--branch", "feature", remote, other)
@@ -405,14 +445,31 @@ func exercisePushFlow(t *testing.T, e *scriptEnv, vcs, remote string) {
 	if _, _, code := e.run(t, verify, vcs, "feature"); code == 0 {
 		t.Error("verify-pushed.sh passed with the remote on someone else's commit")
 	}
-	// And a fix on the stale head must not overwrite their commit.
+	// And a fix on the stale head must not overwrite their commit — refused
+	// by fix-push.sh's own fast-forward guard (after fetching), before it
+	// commits anything locally, not merely by a push-time lease check.
+	headBefore := localHead(t, e, vcs)
 	write(t, filepath.Join(e.dir, "a.txt"), "one\ntwo\nfour\n")
-	if _, _, code := e.run(t, fixPush, vcs, "feature", "1"); code == 0 {
+	if _, errOut, code := e.run(t, fixPush, vcs, "feature", "2"); code == 0 {
 		t.Error("fix-push.sh pushed a change that does not descend from the remote branch")
+	} else if !strings.Contains(errOut, "refusing to push") {
+		t.Errorf("fix-push.sh failed, but not via its own fast-forward guard: %s", errOut)
 	}
 	if got := remoteHead(t, e, remote); got != theirs {
 		t.Errorf("remote branch rewritten: %s, want %s", got, theirs)
 	}
+	if got := localHead(t, e, vcs); got != headBefore {
+		t.Errorf("refused fix was still committed locally: head %s, want %s", got, headBefore)
+	}
+}
+
+// localHead is the workflow's "local head": HEAD under git, @- under jj.
+func localHead(t *testing.T, e *scriptEnv, vcs string) string {
+	t.Helper()
+	if vcs == "jj" {
+		return e.must(t, "jj", "log", "--no-graph", "-r", "@-", "-T", "commit_id")
+	}
+	return e.must(t, "git", "rev-parse", "HEAD")
 }
 
 func TestReviewPRScripts_GitPushFlow(t *testing.T) {
@@ -463,4 +520,59 @@ func TestReviewPRScripts_JJPushFlow(t *testing.T) {
 		t.Fatalf("detect-vcs.sh: %q, want jj", got)
 	}
 	exercisePushFlow(t, e, "jj", remote)
+}
+
+func TestReviewPRScript_FetchPR(t *testing.T) {
+	needTool(t, "jq", true)
+	view := func(cross, head, base string) string {
+		return `{"url":"https://github.com/o/r/pull/7","headRefOid":"abc123","baseRefName":"` + base +
+			`","headRefName":"` + head + `","title":"a title with spaces","isCrossRepository":` + cross + `}`
+	}
+	cases := []struct {
+		name    string
+		view    string // "" = gh fails
+		wantErr string // "" = success
+	}{
+		{"same repo", view("false", "feature", "main"), ""},
+		{"fork", view("true", "main", "main"), "cross-repository"},
+		{"fork, different branch", view("true", "feature", "main"), "cross-repository"},
+		{"head is base", view("false", "main", "main"), "head branch is its base branch"},
+		{"gh error", "", "gh pr view 7 failed"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newScriptEnv(t)
+			if tc.view == "" {
+				e.set("FAKE_GH_FAIL=1")
+			} else {
+				f := filepath.Join(e.dir, "view.json")
+				write(t, f, tc.view)
+				e.set("FAKE_GH_VIEW=" + f)
+			}
+			out, errOut, code := e.run(t, reviewPRScript(t, "fetch-pr.sh"), "7")
+			if tc.wantErr != "" {
+				if code == 0 {
+					t.Fatalf("fetch-pr.sh succeeded, want failure %q: %q", tc.wantErr, out)
+				}
+				if !strings.Contains(errOut, tc.wantErr) {
+					t.Errorf("stderr %q, want it to contain %q", errOut, tc.wantErr)
+				}
+				return
+			}
+			if code != 0 {
+				t.Fatalf("exit %d: %s", code, errOut)
+			}
+			var got map[string]string
+			if err := json.Unmarshal([]byte(lastLine(out)), &got); err != nil {
+				t.Fatalf("output %q: %v", out, err)
+			}
+			want := map[string]string{"vcs": "git", "pr_url": "https://github.com/o/r/pull/7", "head_sha": "abc123",
+				"base_branch": "main", "branch": "feature", "title": "a title with spaces"}
+			for k, v := range want {
+				if got[k] != v {
+					t.Errorf("%s = %q, want %q", k, got[k], v)
+				}
+			}
+		})
+	}
 }

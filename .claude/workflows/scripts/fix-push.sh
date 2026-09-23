@@ -7,24 +7,28 @@
 # against) might use. prepare-review.sh has already checked, at the start
 # of this round, that the working copy was clean and sat on the PR head.
 #
-# No changes: if fix_issues left nothing to commit (e.g. it judged every
-# finding a false positive), nothing is committed or pushed under either VCS
-# and the step prints `unchanged`, which the workflow routes to `blocked` so
-# a human looks at why — re-reviewing an unchanged diff would just raise the
-# same findings again.
+# Fast-forward only: the PR branch's remote head is fetched first (under
+# both VCSes, so a push someone else made since this round started is seen
+# before anything is committed locally), and the new commit must descend
+# from it, or the step fails without committing or pushing. This is what
+# keeps a run from rewriting the PR branch with unrelated history.
 #
-# Fast-forward only: the new commit must descend from the PR branch's
-# current remote head, or the step fails without pushing. This is what keeps
-# a run from rewriting the PR branch with unrelated history.
+# Idempotent across a failed/interrupted push (format-spec §B.8 — the
+# engine re-runs the step on resume): with a clean working copy the step
+# compares the local head (git: HEAD; jj: @-) with the freshly fetched
+# remote head. Equal: nothing to do, `unchanged` (fix_issues changed
+# nothing — the workflow routes that to `blocked` so a human looks at why;
+# re-reviewing an unchanged diff would just raise the same findings again).
+# Local ahead of remote (a previous attempt committed the fix but the push
+# never landed): skip the commit and just push it. Anything else: not a
+# fast-forward, refuse.
 #
-# jj (including a colocated jj+git repo, verified against a scratch repo
-# while designing this): `jj commit` finalizes the working-copy changes into
-# a new commit and moves @ to a fresh empty one on top of it — the finished
-# commit is then @-. Bookmarks do NOT follow @ automatically past the first
-# commit (verified: a second round's push without an explicit `bookmark
-# set` left the remote bookmark stuck on round 1), so `branch` is
-# explicitly re-pointed at @- every round before pushing — without
-# --allow-backwards, so jj itself also refuses a backwards/sideways move.
+# jj (including a colocated jj+git repo): `jj commit` finalizes the
+# working-copy changes into a new commit and moves @ to a fresh empty one on
+# top of it — the finished commit is then @-. Bookmarks do NOT follow @
+# automatically past the first commit, so `branch` is explicitly re-pointed
+# at @- every round before pushing — without --allow-backwards, so jj itself
+# also refuses a backwards/sideways move.
 #
 # git: the familiar add/commit/push, pushing HEAD to the named branch
 # explicitly rather than relying on the checkout already tracking it; a
@@ -48,28 +52,44 @@ not_ff() {
 
 case "$vcs" in
   jj)
-    if [ -z "$(jj diff -r @ --summary)" ]; then
-      echo unchanged
-      exit 0
-    fi
+    jj git fetch --remote origin --branch "exact:\"${branch}\"" >&2
     remote_rev="\"${branch}\"@origin"
-    if [ -z "$(jj log --no-graph -r "(${remote_rev}) & ::@" -T commit_id)" ]; then
-      not_ff
+    remote_head=$(jj log --no-graph -r "$remote_rev" -T commit_id)
+    if [ -n "$(jj diff -r @ --summary)" ]; then
+      if [ -z "$(jj log --no-graph -r "(${remote_rev}) & ::@" -T commit_id)" ]; then
+        not_ff
+      fi
+      jj commit -m "$msg" >&2
+    else
+      local_head=$(jj log --no-graph -r @- -T commit_id)
+      if [ "$local_head" = "$remote_head" ]; then
+        echo unchanged
+        exit 0
+      fi
+      # A previous attempt committed but did not push: push that commit.
+      if [ -z "$(jj log --no-graph -r "(${remote_rev}) & ::@-" -T commit_id)" ]; then
+        not_ff
+      fi
     fi
-    jj commit -m "$msg"
-    jj bookmark set "$branch" -r @-
-    jj git push --bookmark "$branch"
+    jj bookmark set "$branch" -r @- >&2
+    jj git push --remote origin --bookmark "$branch" >&2
     ;;
   git)
-    git add -A
-    if git diff --cached --quiet; then
-      echo unchanged
-      exit 0
-    fi
     git fetch --quiet origin "refs/heads/${branch}"
-    git merge-base --is-ancestor FETCH_HEAD HEAD || not_ff
-    git commit -m "$msg"
-    git push origin "HEAD:refs/heads/${branch}"
+    remote_head=$(git rev-parse FETCH_HEAD)
+    git add -A
+    if ! git diff --cached --quiet; then
+      git merge-base --is-ancestor "$remote_head" HEAD || not_ff
+      git commit --quiet -m "$msg"
+    else
+      if [ "$(git rev-parse HEAD)" = "$remote_head" ]; then
+        echo unchanged
+        exit 0
+      fi
+      # A previous attempt committed but did not push: push that commit.
+      git merge-base --is-ancestor "$remote_head" HEAD || not_ff
+    fi
+    git push --quiet origin "HEAD:refs/heads/${branch}"
     ;;
   *)
     echo "fix-push.sh: unknown vcs '${vcs}' (expected jj or git)" >&2
