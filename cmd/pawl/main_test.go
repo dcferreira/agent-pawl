@@ -56,7 +56,7 @@ func TestUsageListsAllMilestone1Commands(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	run([]string{"pawl"}, &stdout, &stderr)
 
-	for _, cmd := range []string{"run", "validate", "status", "abandon", "list"} {
+	for _, cmd := range []string{"run", "validate", "status", "abandon", "list", "update"} {
 		if !strings.Contains(stderr.String(), cmd) {
 			t.Errorf("usage missing command %q; stderr = %q", cmd, stderr.String())
 		}

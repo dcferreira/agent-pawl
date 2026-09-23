@@ -17,8 +17,9 @@ import (
 
 // usage is the single source of truth for pawl's command-line surface
 // (design/format-spec.md §I): cmd/pawl's own run() prints this same text for
-// every command but "version", which it handles itself so a build-time
-// version string need not flow through this package.
+// every command but "version" and "update", which it handles itself so a
+// build-time version string need not flow through this package (see
+// internal/cli/update.go's CmdUpdate doc comment).
 const usage = `Usage: pawl <command> [args]
 
 Commands:
@@ -41,6 +42,10 @@ Commands:
         (the /pawl skill runs this under Monitor; an author never writes it)
   pawl version
         print the pawl version
+  pawl update [--check] [--version <vX.Y.Z>] [--force]
+        self-update to the latest (or a pinned) GitHub release binary;
+        refuses to overwrite a source/go-install ("dev") build without
+        --force
 `
 
 // Run dispatches on args[1] and returns the process exit code. It is the

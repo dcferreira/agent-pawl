@@ -4,7 +4,7 @@
 
 | Who | Commands |
 |---|---|
-| **You** (terminal or `/pawl`) | `pawl validate`, `pawl list`, `pawl status`, `pawl abandon`, `pawl run` (in a session, type `/pawl run`) |
+| **You** (terminal or `/pawl`) | `pawl validate`, `pawl list`, `pawl status`, `pawl abandon`, `pawl update`, `pawl run` (in a session, type `/pawl run`) |
 | **The model** (via `/pawl`, you don't type these) | `pawl run`, `pawl submit`, `pawl poll` |
 | **The hooks** (nobody types these) | `pawl hook pre`, `pawl hook stop` |
 
@@ -18,6 +18,7 @@ pawl status [--run <id>] [--json]
 pawl list
 pawl abandon --run <id> [--reason <text>]
 pawl version
+pawl update [--check] [--version <vX.Y.Z>] [--force]
 ```
 
 ## Exit codes
@@ -30,8 +31,8 @@ Every command uses the same table (`pawl status` is the one deliberate exception
 | 1 | resolution error: unknown workflow, or another non-flag problem hit while resolving it |
 | 2 | usage error: bad/unrecognised flag, missing a flag's value, missing required arg, or validation failed |
 | 3 | run is `BLOCKED` — paused, resumable, not an error (`pawl run`/`pawl submit`/`pawl poll` only) |
-| 4 | refused: lock held, file changed, submit for a non-current step or kind, a poll of a current step that is not `kind: wait`, or a run that has already finished (`pawl submit`/`pawl abandon` only — `pawl poll` exits 0 quietly instead, see below) |
-| 5 | engine error — a bug, or a broken/unreadable run directory or journal |
+| 4 | refused: lock held, file changed, submit for a non-current step or kind, a poll of a current step that is not `kind: wait`, or a run that has already finished (`pawl submit`/`pawl abandon` only — `pawl poll` exits 0 quietly instead, see below); `pawl update` refusing a source build |
+| 5 | engine error — a bug, or a broken/unreadable run directory or journal; for `pawl update`, any failure resolving, downloading, verifying or installing the release |
 
 ---
 
@@ -181,6 +182,62 @@ Prints `Version` (`main.Version` in `cmd/pawl`), always exit 0. This build has n
 version stamping and no plugin-pin comparison — a binary built from source always prints `pawl dev`,
 whatever the plugin manifest's pin says, and there is no refusal tied to it (see README.md's Status
 section).
+
+## `pawl update` — human
+
+```
+pawl update [--check] [--version <vX.Y.Z>] [--force]
+```
+
+Self-updates the *running* binary in place: downloads the release archive for the target GitHub
+release, verifies its sha256 against that release's `checksums.txt` before writing anything, and
+atomically replaces the binary at its own resolved path (`os.Executable` + symlink resolution). No
+flags: resolves the latest release, refuses to downgrade, and no-ops if already current. `--check`
+reports current vs. latest and installs nothing. `--version vX.Y.Z` (`v` optional) pins an exact
+release, including an older one — a rollback. `--force` skips every "nothing to do" check and
+reinstalls regardless.
+
+```
+› pawl update --check
+current: 0.1.0 latest: 0.2.0 update available: true
+› pawl update
+pawl updated: 0.1.0 -> 0.2.0 (/home/you/.local/bin/pawl)
+```
+
+A binary built from source (`pawl version` prints `pawl dev`, or anything else `MAJOR.MINOR.PATCH`
+can't parse) is refused without `--force` — `pawl update` won't silently swap a `go install`/`make
+install` build for a release binary out from under you. Verbatim stderr:
+
+```
+› pawl update
+pawl update: current version "dev" looks like a source/`go install` build, not a tagged release; pawl update won't overwrite it.
+To update a source build, either:
+  go install github.com/dcferreira/agent-pawl/cmd/pawl@latest
+  or rebuild from source (see docs/install.md)
+--force replaces it with a release binary anyway (see docs/cli.md).
+```
+
+`--check` still works on a dev build (it just reports the latest release and that current is a
+source build); `--force` bypasses the refusal like it bypasses every other "nothing to do" check.
+
+`--version` must be a strict `vX.Y.Z` (or `X.Y.Z`) — no leading zeros on any component, and an
+optional `-<prerelease>` suffix restricted to `[0-9A-Za-z.-]` — checked with a regexp *before* any
+network call, since a validated pin is spliced straight into the release-download URL and its
+`checksums.txt` (anything looser would let a value like `1.2.3-/../../other/repo` traverse both
+requests, defeating the checksum check along with the download). An empty value (`--version ""` /
+`--version=`) and combining `--check` with `--version` are both refused as usage errors too, rather
+than silently meaning "latest". The same strict check applies to the `tag_name` the GitHub API
+returns for the latest release, so a malformed value there is refused rather than installed. A pinned release GitHub doesn't have (or doesn't publish your
+platform's asset for) fails with a "release not found" error naming the release and the expected
+asset, not a bare HTTP status.
+
+Only linux/darwin x amd64/arm64 release binaries are published (`.goreleaser.yaml`); any other
+platform is a clear error, not a confusing download failure. Exit codes: 0 on success, a no-op
+(already up to date, already on the pinned version, or a refused downgrade), or `--check`; 2 for a
+usage error (unrecognised flag, missing flag value, empty/malformed `--version`, or `--check`
+combined with `--version`); 4 for the dev-build refusal above; 5 for anything that goes wrong
+resolving, downloading, verifying or installing the release (network failure, checksum mismatch,
+missing archive entry, unwritable target directory).
 
 ---
 

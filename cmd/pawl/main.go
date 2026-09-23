@@ -19,14 +19,20 @@ func main() {
 
 // run dispatches on args[1] and returns the process exit code. It is the
 // single entry point exercised by tests; main is a thin wrapper around it.
-// "version" is handled here, since it is the only command that needs the
-// build-time Version string; every other command — including the usage
-// text printed for no/unknown subcommand — is internal/cli.Run's single
-// source of truth, so it is not duplicated here.
+// "version" and "update" are handled here, since they are the only
+// commands that need the build-time Version string ("update" needs it to
+// know what it's updating from, and to refuse to overwrite a source/
+// go-install build without --force — see internal/cli.CmdUpdate); every
+// other command — including the usage text printed for no/unknown
+// subcommand — is internal/cli.Run's single source of truth, so it is not
+// duplicated here.
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) >= 2 && args[1] == "version" {
 		fmt.Fprintf(stdout, "pawl %s\n", Version)
 		return 0
+	}
+	if len(args) >= 2 && args[1] == "update" {
+		return cli.CmdUpdate(args[2:], stdout, stderr, Version, nil)
 	}
 	return cli.Run(args, stdout, stderr)
 }
