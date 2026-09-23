@@ -30,6 +30,19 @@ const DefaultEmits = "json"
 // wait step (design/format-spec.md §D).
 const DefaultEvery = "60s"
 
+// ErrParse marks a Load failure that is a YAML syntax error or an unknown
+// field (KnownFields(true) below) — an authoring mistake in the workflow
+// file's own content, as opposed to a read failure (the file is missing, or
+// unreadable for permissions reasons) that has nothing to do with what the
+// file contains. cli's exit-code table treats these differently: a read
+// failure is a resolution error (exit 1, the same bucket an unknown
+// workflow name falls into), while a parse failure is "validation failed"
+// (exit 2, the same bucket spec.Validate's own rule violations fall into) —
+// both commands that call Load (pawl run, pawl validate) need to tell the
+// two apart, so this sentinel is wrapped around the decode error rather
+// than the os.ReadFile one below.
+var ErrParse = errors.New("spec: parse error")
+
 // Load reads path, parses it as a workflow file and applies the
 // design/format-spec.md §D defaults, so that no later package has to
 // interpret a zero value.
@@ -51,7 +64,7 @@ func Load(path string) (*Workflow, error) {
 	dec.KnownFields(true)
 	var w Workflow
 	if err := dec.Decode(&w); err != nil && !errors.Is(err, io.EOF) {
-		return nil, fmt.Errorf("spec: parsing %s: %w", path, err)
+		return nil, fmt.Errorf("%w: parsing %s: %w", ErrParse, path, err)
 	}
 	w.Path = path
 	applyDefaults(&w)

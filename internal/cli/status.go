@@ -47,13 +47,15 @@ func cmdStatus(args []string, cwd string, stdout, stderr io.Writer) int {
 		ref, err = journal.FindRun(root, runID)
 		if err != nil {
 			printLine(stderr, "pawl status:", err.Error())
-			return 1
+			// "no run" / "ambiguous across workflows" is resolution (1);
+			// journal.ErrIO (a broken state directory) is an engine error (5).
+			return exitForLookupErr(err)
 		}
 	} else {
 		live, err := journal.Live(root)
 		if err != nil {
 			printLine(stderr, err.Error())
-			return 1
+			return exitForLookupErr(err)
 		}
 		switch len(live) {
 		case 0:
@@ -81,15 +83,18 @@ func cmdStatus(args []string, cwd string, stdout, stderr io.Writer) int {
 
 	// C1: read the workflow from plan.json, never by re-resolving the run
 	// directory's own workflow: id as a filename (see loadPinnedWorkflow).
+	// ref was just found by FindRun/Live, so a plan.json that has since
+	// become unreadable, or a pinned workflow spec.Validate itself can't
+	// process, is a broken run directory (exit 5), not an unknown run.
 	pinned, err := loadPinnedWorkflow(ref.Dir)
 	if err != nil {
 		printLine(stderr, err.Error())
-		return 1
+		return 5
 	}
 	report, err := spec.Validate(pinned.Workflow)
 	if err != nil {
 		printLine(stderr, err.Error())
-		return 1
+		return 5
 	}
 
 	warning := ""
@@ -121,12 +126,13 @@ func cmdStatus(args []string, cwd string, stdout, stderr io.Writer) int {
 			report,
 		))
 	}
-	// docs/cli.md claims exit 3 when the selected run is BLOCKED, but this
-	// build's cmdStatus has never implemented that (verified: no exit-3
-	// path existed before --json either) — always 0 on a successful
-	// lookup, blocked or not. --json intentionally matches that, rather
-	// than inventing a new exit code docs/cli.md's own audit (task B3)
-	// should instead correct.
+	// pawl status is a reporting command, deliberately exempt from the rest
+	// of the exit-code table's exit-3 row (run/submit/poll's BLOCKED
+	// terminal): the state it reports is in status, reason and (--json)
+	// the whole payload, not something a non-zero exit would add to. --run
+	// on an ended run reaches this same line, and an abandoned or otherwise
+	// terminal run is not an error to have looked up either. --json matches
+	// this on purpose rather than inventing a status-only exit code.
 	return 0
 }
 

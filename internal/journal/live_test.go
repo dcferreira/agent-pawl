@@ -1,6 +1,7 @@
 package journal
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -122,6 +123,38 @@ func TestLive_SkipsCorruptRunRatherThanAbortingTheScan(t *testing.T) {
 	}
 	if len(live) != 1 || live[0].RunID != "r-running" {
 		t.Errorf("Live() = %+v, want just r-running (r-corrupt skipped)", live)
+	}
+}
+
+// TestLive_ErrIOOnUnreadableBase is reviewer item 6: a genuine I/O failure
+// reading the state directory tree (as opposed to "no run for this root",
+// which allRuns' os.IsNotExist(err) branch reports as a plain empty result,
+// not an error at all) must be tellable apart from "not found" — cli's
+// exitForLookupErr uses errors.Is(err, ErrIO) to map this to exit 5 rather
+// than 1. Skipped under root, where permission bits don't block reads.
+func TestLive_ErrIOOnUnreadableBase(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: permission bits don't block directory reads")
+	}
+	base := t.TempDir()
+	t.Setenv(EnvStateDir, base)
+	root := "/home/user/proj"
+
+	if _, err := CreateRunDir(root, "ship", "r1"); err != nil {
+		t.Fatal(err)
+	}
+	slugDir := filepath.Join(StateBase(), Slug(root))
+	t.Cleanup(func() { _ = os.Chmod(slugDir, 0o755) })
+	if err := os.Chmod(slugDir, 0o000); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Live(root)
+	if err == nil {
+		t.Fatal("Live: want an error reading an unreadable state directory, got nil")
+	}
+	if !errors.Is(err, ErrIO) {
+		t.Errorf("Live: err = %v, want it to wrap ErrIO", err)
 	}
 }
 

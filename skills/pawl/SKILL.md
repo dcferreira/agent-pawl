@@ -37,6 +37,13 @@ below is the only thing making the loop honest; follow it exactly.
 3. Act on the instruction (see below).
 4. Every `pawl submit` prints the next instruction block. Repeat from step 2 until `TERMINAL`.
 
+**A non-zero exit from `pawl run`/`pawl submit`/`pawl poll` is not necessarily a crash.** Read the
+instruction block first: exit 3 means the run just printed a `TERMINAL … blocked` block (paused,
+resumable — not an error), and exit 4 means it refused the request (a lock held, the workflow file
+changed, or a submit for a step the run isn't actually waiting on) and printed why on stderr instead
+of an instruction block. Only treat the command as having failed outright — and stop to tell the
+user — on exit 1, 2 or 5, or on exit 3/4 whose stderr you can't otherwise explain.
+
 Never edit files or run a step's own commands yourself outside of what a dispatched subagent does,
 and never decide what step comes next — `pawl` does that. If you get stuck, run
 `pawl abandon --run <run>`.

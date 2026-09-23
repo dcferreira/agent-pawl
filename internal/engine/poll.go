@@ -196,7 +196,12 @@ func (e *Engine) pollPrecheck(dir, runID, stepID string) (*spec.Step, time.Time,
 	}
 	step := e.Workflow.StepByID(stepID)
 	if step == nil || step.Kind != "wait" {
-		return nil, time.Time{}, fmt.Errorf("engine: step %q is not a wait step; only a wait step is polled (DESIGN.md §3)", stepID)
+		// Polling a step that exists and is current, but isn't a wait step,
+		// is the same refusal class as a submit for the wrong step/kind
+		// (ErrRefused, exit 4) — a caller mistake naming a real step that
+		// simply isn't polled, not the ErrPollNotCurrent race above (the run
+		// having moved on entirely) and not a broken run directory.
+		return nil, time.Time{}, fmt.Errorf("%w: step %q is not a wait step; only a wait step is polled (DESIGN.md §3)", ErrRefused, stepID)
 	}
 	parkedAt := time.Time{}
 	for i := len(events) - 1; i >= 0; i-- {

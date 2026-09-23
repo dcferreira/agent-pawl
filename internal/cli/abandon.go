@@ -55,23 +55,37 @@ func cmdAbandon(args []string, cwd string, stdout, stderr io.Writer) int {
 		printLine(stderr, err.Error())
 		return 1
 	}
-	ref, err := findLiveRun(root, runID)
+	ref, err := findRunByID(root, runID)
 	if err != nil {
 		printLine(stderr, "pawl abandon:", err.Error())
-		return 1
+		return exitForLookupErr(err)
+	}
+	if ref.State.Terminal() {
+		// Unlike pawl submit/poll, pawl abandon has no engine call to let
+		// discover this on its own (it appends RUN_END directly) — a
+		// terminal run is a refusal it must check for itself, exit 4, with
+		// its own clear message rather than silently re-ending an already-
+		// finished run with a second RUN_END event.
+		printLine(stderr, fmt.Sprintf("pawl abandon: run %s has already ended (%s); nothing to abandon", runID, ref.State.Status()))
+		return exitForEngineErr(fmt.Errorf("%w: run %q ended %s", engine.ErrAlreadyTerminal, runID, ref.State.EndStatus))
 	}
 
+	// findRunByID already confirmed runID exists and is live; anything failing from here
+	// on is either the same lock-held refusal every other command can hit
+	// (exit 4) or a broken run directory / journal it could not act on
+	// (exit 5) — docs/cli.md's exit-code table (~line 33), which applies to
+	// pawl abandon exactly as it does to run/submit/poll.
 	lock, err := journal.AcquireLock(ref.Dir, false)
 	if err != nil {
 		printLine(stderr, "pawl abandon:", err.Error())
-		return 1
+		return exitForEngineErr(err)
 	}
 	defer lock.Release()
 
 	log, err := journal.OpenLog(ref.Dir)
 	if err != nil {
 		printLine(stderr, "pawl abandon:", err.Error())
-		return 1
+		return exitForEngineErr(err)
 	}
 	defer log.Close()
 
@@ -83,7 +97,7 @@ func cmdAbandon(args []string, cwd string, stdout, stderr io.Writer) int {
 		Reason: reason,
 	}); err != nil {
 		printLine(stderr, "pawl abandon:", err.Error())
-		return 1
+		return exitForEngineErr(err)
 	}
 
 	fmt.Fprint(stdout, formatTerminal(engine.Terminal{

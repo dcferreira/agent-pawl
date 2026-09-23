@@ -62,11 +62,19 @@ func cmdSubmit(args []string, cwd string, stdout, stderr io.Writer) int {
 		printLine(stderr, err.Error())
 		return 1
 	}
-	ref, err := findLiveRun(root, runID)
+	ref, err := findRunByID(root, runID)
 	if err != nil {
 		printLine(stderr, "pawl submit:", err.Error())
-		return 1
+		return exitForLookupErr(err)
 	}
+	// findRunByID finds a run whether it is live or already terminal
+	// (journal.FindRun), deliberately: submitting against a run that has
+	// already finished is not "no such run" (exit 1) but a refusal (exit
+	// 4) — engine.Submit/SubmitHuman's own rs.Terminal() check already
+	// returns engine.ErrAlreadyTerminal for exactly this once the run is
+	// replayed below, which cli's exitForEngineErr maps to 4. Letting a
+	// terminal ref through to loadPinnedWorkflow/engine.Submit rather than
+	// refusing it here reuses that one message instead of a second one.
 
 	// C1/C2: never re-resolve the workflow by the run directory's own
 	// workflow: id — that id need not be a resolvable filename at all (C1),
@@ -77,12 +85,17 @@ func cmdSubmit(args []string, cwd string, stdout, stderr io.Writer) int {
 	// performs the same digest check Engine.Resume gives pawl run.
 	pinned, err := loadPinnedWorkflow(ref.Dir)
 	if err != nil {
+		// findLiveRun already confirmed this run exists and is live; a
+		// plan.json that has since become unreadable or unparsable is not
+		// "unknown run" (exit 1) but a broken run directory (exit 5) —
+		// docs/cli.md's exit-code table (~line 33).
 		printLine(stderr, "pawl submit:", err.Error())
-		return 1
+		return 5
 	}
 	if pinned.Changed {
 		printLine(stderr, fmt.Sprintf("pawl submit: workflow file changed since run %s started (changed: %s); this run cannot continue safely — abandon it with `pawl abandon --run %s` and start a fresh run", runID, pinned.Detail, runID))
-		return 1
+		// Same refusal engine.ErrDigestMismatch names for pawl run — exit 4.
+		return 4
 	}
 	w := pinned.Workflow
 	step := w.StepByID(stepID)
@@ -96,23 +109,21 @@ func cmdSubmit(args []string, cwd string, stdout, stderr io.Writer) int {
 	}
 	if err != nil {
 		printLine(stderr, "pawl submit:", err.Error())
-		return 1
+		return exitForEngineErr(err)
 	}
 	fmt.Fprint(stdout, formatInstruction(instr, w, root))
-	return 0
+	return instructionExitCode(instr)
 }
 
-// findLiveRun locates runID among root's non-terminal runs, across every
-// workflow id, for commands (submit, abandon) that take only a run id.
-func findLiveRun(root, runID string) (*journal.RunRef, error) {
-	live, err := journal.Live(root)
-	if err != nil {
-		return nil, err
-	}
-	for i := range live {
-		if live[i].RunID == runID {
-			return &live[i], nil
-		}
-	}
-	return nil, fmt.Errorf("no live run %q for this working copy", runID)
+// findRunByID locates runID among every run directory for this working
+// copy — live or already terminal — across every workflow id, for commands
+// (submit, poll, abandon) that take only a run id. It is journal.FindRun
+// under a name matching this package's other lookups; unlike an earlier
+// version of this function (then named findLiveRun), it does not filter out
+// a terminal run itself — each caller decides what a terminal ref means for
+// it (pawl submit/poll let the engine or a quiet no-op handle it; pawl
+// abandon refuses it explicitly), rather than this function silently
+// reporting "no run" for a run that in fact exists but has ended.
+func findRunByID(root, runID string) (*journal.RunRef, error) {
+	return journal.FindRun(root, runID)
 }

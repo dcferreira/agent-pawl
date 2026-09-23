@@ -44,7 +44,12 @@ func cmdValidate(args []string, cwd string, stdout, stderr io.Writer) int {
 	fmt.Fprint(stdout, w.String())
 
 	if len(report.Errors) > 0 {
-		return 1
+		// docs/cli.md's exit-code table (~line 33): "validation failed" is
+		// its own clause under 2 (usage/validation), not 1 (resolution) —
+		// the file resolved fine; spec.Validate is what refused it. (This
+		// command previously returned 1 here, inconsistent with the table
+		// and with pawl run's own gate on the same report.)
+		return 2
 	}
 	return 0
 }

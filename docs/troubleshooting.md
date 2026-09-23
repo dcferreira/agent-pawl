@@ -2,6 +2,11 @@
 
 ## Hooks not live
 
+This section describes the target system's enforcement layer, not this build — see README.md's
+Status section: `pawl hook` doesn't exist as a command, and `pawl run` neither pings a hook nor
+refuses to start over one being missing (it prints `enforcement: off (milestone 1)` and starts
+anyway).
+
 ```
 pawl: Stop hook did not respond. Refusing to start.
     Install the plugin (`/plugin install pawl@…`) or copy the /pawl skill into ~/.claude/skills/pawl/.
@@ -10,16 +15,6 @@ pawl: Stop hook did not respond. Refusing to start.
 `pawl run` pings both hooks at start and refuses if either is missing. Check: the plugin is installed
 and enabled; you restarted the session after installing it; `~/.claude/plugins/pawl/hooks/hooks.json`
 exists. A `brew`- or `go`-installed `pawl` alone always fails this check — it ships no hooks.
-
-## Version mismatch
-
-```
-pawl: binary 0.4.2 does not match plugin pin 0.5.0. Run `/pawl` to fetch the pinned build,
-    or `brew upgrade pawl`.
-```
-
-The skill text, hook payloads, and engine change together, so a mismatch is refused. A `PATH` `pawl`
-shadowing the plugin needs upgrading to the pin, or removing.
 
 ## "submit refused: step not current"
 
@@ -74,11 +69,20 @@ not undone either way, and `pawl validate` on the edited file is free.
 
 ## The run is fine but the session ended
 
+This section also describes the target system (no `Stop` hook exists in this build — see README.md's
+Status section); today, nothing stops a session from ending mid-run either way, which is the same
+point the paragraph below makes.
+
 The `Stop` hook exits 2 while a run is non-terminal, so Claude Code won't end the turn — it prints
 `pawl abandon --run <id>`. If the session was killed anyway, nothing is lost: `pawl run <name>` resumes
 from the journal.
 
 ## Enforcement looks off
+
+This section assumes the target system's guard/hook enforcement, not this build's (see README.md's
+Status section: there is no enforcement layer, so nothing here is checked against `root` today) — the
+`root` `pawl status` reports is still worth comparing against the tree you think you're in, for the
+same working-copy-root reasons `pawl run`/`pawl status` share, guards or not.
 
 Compare `root` in `pawl status` against the tree you think you're in — guards and `Stop` resolve the
 working-copy root the same way, and a git worktree or jj workspace is its own root with its own runs.

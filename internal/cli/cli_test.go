@@ -447,8 +447,8 @@ func TestRun_DigestMismatchOffersFresh(t *testing.T) {
 	writeWorkflow(t, root, "sample", changed)
 
 	_, stderr, code2 := runCLI(t, []string{"pawl", "run", "sample"})
-	if code2 == 0 {
-		t.Fatalf("expected a digest-mismatch refusal; stderr = %q", stderr)
+	if code2 != 4 {
+		t.Fatalf("exit = %d, want 4 (a refusal, docs/cli.md's exit-code table); stderr = %q", code2, stderr)
 	}
 	if !strings.Contains(stderr, "--fresh") || !strings.Contains(stderr, "greet") {
 		t.Errorf("stderr = %q, want it to name step %q and offer --fresh", stderr, "greet")
@@ -483,11 +483,87 @@ steps:
     run: echo hi
 `)
 	stdout, _, code := runCLI(t, []string{"pawl", "validate", "broken"})
-	if code == 0 {
-		t.Fatalf("expected non-zero exit for a step with no route")
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 (validation failed, docs/cli.md's exit-code table)", code)
 	}
 	if !strings.Contains(stdout, `step "a"`) {
 		t.Errorf("stdout missing the failing step id: %q", stdout)
+	}
+}
+
+// TestRun_ValidationFailureExitsUsage pins the same exit-2 clause for pawl
+// run: a workflow that fails spec.Validate never reaches the engine, and
+// the docs/cli.md table's "validation failed" case belongs under 2 (usage),
+// not 1 (resolution) — the file resolved fine; spec.Validate is what
+// refused it.
+func TestRun_ValidationFailureExitsUsage(t *testing.T) {
+	root := setupWorkingCopy(t)
+	writeWorkflow(t, root, "broken", `workflow: broken
+start: a
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+`)
+	_, stderr, code := runCLI(t, []string{"pawl", "run", "broken"})
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 (validation failed); stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stderr, `step "a"`) {
+		t.Errorf("stderr missing the failing step id: %q", stderr)
+	}
+}
+
+// TestRun_ParseErrorExitsUsage is reviewer item 4's pawl-run half: a YAML
+// syntax error or an unknown field (spec.Load's KnownFields(true)) is
+// "validation failed" — exit 2 — not a resolution error (1); only a read
+// failure (missing file, permission denied) stays 1. pawl run gates on
+// loadAndValidate and used to map every error it returned to exit 1
+// regardless of which of the two this was. (pawl validate's own version of
+// this fix lives with pawl validate --path, in the commit that owns
+// internal/cli/validate.go.)
+//
+// TestValidate_EmptyFileExitsUsage checks the other consistency the reviewer
+// asked for: an empty file has no decode error at all (yaml.Decode's io.EOF
+// is deliberately swallowed by spec.Load), so it reaches spec.Validate as a
+// zero-value Workflow — which then reports real rule violations (no start:,
+// no steps) through report.Errors, the same exit 2 a parse error gets, by a
+// different path through the same command.
+func TestValidate_EmptyFileExitsUsage(t *testing.T) {
+	root := setupWorkingCopy(t)
+	writeWorkflow(t, root, "empty", "")
+	_, stderr, code := runCLI(t, []string{"pawl", "validate", "empty"})
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 (validation failed, via report.Errors); stderr = %q", code, stderr)
+	}
+}
+
+func TestRun_ParseErrorExitsUsage(t *testing.T) {
+	root := setupWorkingCopy(t)
+	writeWorkflow(t, root, "broken", "workflow: [this is not valid yaml\n")
+	_, stderr, code := runCLI(t, []string{"pawl", "run", "broken"})
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 (parse error); stderr = %q", code, stderr)
+	}
+}
+
+func TestRun_UnknownFieldExitsUsage(t *testing.T) {
+	root := setupWorkingCopy(t)
+	writeWorkflow(t, root, "broken", sampleWorkflow+"totally_unknown_field: true\n")
+	_, stderr, code := runCLI(t, []string{"pawl", "run", "broken"})
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 (unknown field, KnownFields(true)); stderr = %q", code, stderr)
+	}
+}
+
+// TestRun_MissingWorkflowFileExitsResolution is the read-failure half of
+// item 4's contrast: a file that simply isn't there is exit 1, not 2 — it
+// never reaches spec.Load's decoder at all.
+func TestRun_MissingWorkflowFileExitsResolution(t *testing.T) {
+	setupWorkingCopy(t)
+	_, stderr, code := runCLI(t, []string{"pawl", "run", "does-not-exist"})
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1 (resolution error); stderr = %q", code, stderr)
 	}
 }
 
@@ -582,8 +658,8 @@ func TestSubmitRefusesMidRunEdit(t *testing.T) {
 	writeWorkflow(t, root, "sample", edited)
 
 	stdout2, stderr2, code2 := runCLI(t, []string{"pawl", "submit", "--run", runID, "--step", "greet", "--json", `{"greeting":"hi"}`})
-	if code2 == 0 {
-		t.Fatalf("expected pawl submit to refuse a mid-run edit; stdout = %q", stdout2)
+	if code2 != 4 {
+		t.Fatalf("exit = %d, want 4 (a refusal, docs/cli.md's exit-code table); stdout = %q", code2, stdout2)
 	}
 	if !strings.Contains(stderr2, "changed") || !strings.Contains(stderr2, "abandon") {
 		t.Errorf("stderr = %q, want it to say the workflow changed and suggest abandon", stderr2)
@@ -625,8 +701,8 @@ func TestTerminalBlockedSurfacesDetail(t *testing.T) {
 	writeWorkflow(t, root, "blocked-demo", blockedWorkflow)
 
 	stdout, _, code := runCLI(t, []string{"pawl", "run", "blocked-demo"})
-	if code != 0 {
-		t.Fatalf("pawl run: exit %d, stdout = %q", code, stdout)
+	if code != 3 {
+		t.Fatalf("pawl run: exit %d, want 3 (BLOCKED terminal, docs/cli.md's exit-code table); stdout = %q", code, stdout)
 	}
 	if !strings.Contains(stdout, "TERMINAL") || !strings.Contains(stdout, " blocked") {
 		t.Fatalf("expected a blocked TERMINAL; stdout = %q", stdout)

@@ -1,12 +1,24 @@
 package journal
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 )
+
+// ErrIO marks a Live/FindRun failure that is a genuine I/O problem reading
+// the state directory itself (e.g. permission denied listing it) — as
+// opposed to "no run by that id/for this working copy", which both
+// functions report by simply returning zero matches, not an error at all.
+// A caller (cli) that reaches this sentinel is looking at a broken/
+// unreadable run directory tree, not an unknown run: docs/cli.md's
+// exit-code table calls the former an engine error (5), the latter a
+// resolution error (1) — the two exits this package's own callers used to
+// conflate by mapping every Live/FindRun error to 1.
+var ErrIO = errors.New("journal: reading run directory tree")
 
 // RunRef identifies one run directory found under a working copy's slug,
 // together with its replayed state.
@@ -46,9 +58,12 @@ func Live(root string) ([]RunRef, error) {
 // live or terminal — across every workflow id. Unlike Live, it does not
 // filter out terminal runs: `pawl status --run <id>` needs to find a run
 // that has already ended (e.g. an abandoned one, to report its recorded end
-// reason), not just one still in progress. (`pawl abandon` itself still
-// uses findLiveRun in internal/cli/submit.go, deliberately: it must only
-// ever act on a run that is still live.)
+// reason), not just one still in progress. `pawl submit`, `pawl poll` and
+// `pawl abandon` (internal/cli's findRunByID) use it too, for the same
+// reason: each needs to tell "no run by this id at all" (a resolution
+// error) apart from "that run exists but has already ended" (each
+// command's own refusal or no-op to decide), which filtering to live-only
+// at the lookup, the way an earlier findLiveRun did, could not do.
 //
 // Run ids are only 4 hex characters (see journal/rundir.go), so a live run
 // in one workflow can collide with an old, terminal run of the same id in a
@@ -108,7 +123,7 @@ func allRuns(root string) ([]RunRef, error) {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("journal: listing runs for %s: %w", root, err)
+		return nil, fmt.Errorf("%w: listing runs for %s: %w", ErrIO, root, err)
 	}
 
 	var all []RunRef
