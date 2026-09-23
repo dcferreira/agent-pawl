@@ -31,8 +31,8 @@ describes the target system (enforcement, full distribution, `foreach:` fan-out)
   enforcement layer to invoke it).
 - No `install.sh`, no release binaries, no `-ldflags` version stamping — `pawl version` always
   prints `pawl dev`.
-- Only `examples/green-tests` is a verified-runnable artefact (covered by `e2e/`); the other
-  `examples/` are authoring exercises, not proven to run.
+- Only `docs/examples/green-tests` is a verified-runnable artefact (covered by `e2e/`); the other
+  `docs/examples/` are authoring exercises, not proven to run.
 
 If you're implementing something that DESIGN.md describes but the README's Status section doesn't
 list as built, that's a real gap to either build properly (with tests) or flag — don't paper over
@@ -49,11 +49,11 @@ it by writing the design doc's version of reality into code comments or docs.
 - `internal/engine` — cursor, outcome routing, counters, shell execution, postcondition
   evaluation.
 - `internal/cli` — the `pawl` subcommands.
-- `e2e/` — end-to-end test(s) that actually run `examples/green-tests`.
-- `examples/` — workflow YAML + scripts; each has a `NOTES.md` with the author's design rulings.
+- `e2e/` — end-to-end test(s) that actually run `docs/examples/green-tests`.
+- `docs/examples/` — workflow YAML + scripts; each has a `NOTES.md` with the author's design rulings.
   Only `green-tests` is proven-runnable.
 - `testdata/fixture/` — a tiny Go module (a two-line `Add` that subtracts) used by
-  `examples/green-tests` and `e2e/`.
+  `docs/examples/green-tests` and `e2e/`.
 - `design/format-spec.md` — **normative** for what a workflow author writes.
 - `DESIGN.md` — the engine design (handshake, execution, resume, enforcement, testing,
   distribution). Target system, not current build.
@@ -128,8 +128,8 @@ runtime either — see the next section.
   `render.ShellQuote`), never by re-parsing already-shell-quoted output; a value like
   `x'/y $(touch PWNED)'` desynchronised an earlier hand-rolled re-quoting scanner. Read the comment
   at the top of `scriptpath.go` before touching that function.
-- **`jq` is a hard prerequisite of `examples/green-tests`** (not of `pawl` itself):
-  `examples/green-tests/scripts/run-tests.sh` shells out to `jq -Rs .` to JSON-encode a possibly
+- **`jq` is a hard prerequisite of `docs/examples/green-tests`** (not of `pawl` itself):
+  `docs/examples/green-tests/scripts/run-tests.sh` shells out to `jq -Rs .` to JSON-encode a possibly
   multi-line test failure. Missing `jq` doesn't crash the script — it reports a named `FAIL` saying
   so — but you'll never see a real test failure until it's installed. CI installs it explicitly.
 - **`pawl version` always prints `pawl dev`** when built from source; that's expected, not a

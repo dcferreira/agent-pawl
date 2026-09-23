@@ -23,7 +23,7 @@ state:
 steps:
   - id: kick_off_build
     kind: deterministic
-    run: scripts/kick_off_build.sh examples/wait-for-build/.run/status ${force_result}
+    run: scripts/kick_off_build.sh docs/examples/wait-for-build/.run/status ${force_result}
     # ${force_result} carries no quotes of its own: design/format-spec.md §B.2
     # substitutes a value in a shell context as *one shell-quoted token*
     # already, so wrapping it in "…" here handed the script the literal
@@ -38,14 +38,14 @@ steps:
     # {"build_started_at": "..."} on its last stdout line (emits: json,
     # the default — no outcomes: here, so no TOKEN per §B.1).
     writes: [build_started_at]
-    postcondition: "[ -f examples/wait-for-build/.run/status ]"   # the effect
+    postcondition: "[ -f docs/examples/wait-for-build/.run/status ]"   # the effect
                                         # that matters: the marker/status file
                                         # exists for wait_for_build to poll
     next: wait_for_build
 
   - id: wait_for_build
     kind: wait
-    poll: scripts/check_build.sh examples/wait-for-build/.run/status
+    poll: scripts/check_build.sh docs/examples/wait-for-build/.run/status
     every: 5s
     timeout: 5m
     emits: pairs                       # routed lines: "PASSED build_status=PASSED"
