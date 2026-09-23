@@ -49,9 +49,7 @@ it by writing the design doc's version of reality into code comments or docs.
 - `internal/engine` — cursor, outcome routing, counters, shell execution, postcondition
   evaluation.
 - `internal/cli` — the `pawl` subcommands.
-- `e2e/` — end-to-end tests: one actually runs `examples/green-tests` (via `testdata/fixture`);
-  another validates this repo's own `.claude/workflows/review-pr.yaml` and exercises its scripts
-  against temp git/jj repos with a fake `gh`.
+- `e2e/` — end-to-end test(s) that actually run `examples/green-tests`.
 - `examples/` — workflow YAML + scripts; each has a `NOTES.md` with the author's design rulings.
   Only `green-tests` is proven-runnable.
 - `testdata/fixture/` — a tiny Go module (a two-line `Add` that subtracts) used by

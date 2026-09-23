@@ -53,6 +53,11 @@ not_ff() {
 case "$vcs" in
   jj)
     jj git fetch --remote origin --branch "exact:\"${branch}\"" >&2
+    # A fetched remote bookmark is untracked by default
+    # (git.auto-local-bookmark=false), and `jj git push --bookmark` refuses
+    # to push while a non-tracking <branch>@origin exists. Track it before
+    # anything is committed; already tracked, this is a harmless no-op.
+    jj bookmark track "${branch}@origin" >&2 2>&1
     remote_rev="\"${branch}\"@origin"
     remote_head=$(jj log --no-graph -r "$remote_rev" -T commit_id)
     if [ -n "$(jj diff -r @ --summary)" ]; then

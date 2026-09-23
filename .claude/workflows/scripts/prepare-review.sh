@@ -12,9 +12,10 @@
 #    reviewers see, and fix-push.sh would push unrelated history onto the PR
 #    branch. "Local head" is `HEAD` under git and `@-` under jj (the
 #    workflow's convention: @ is the empty working-copy commit on top of the
-#    PR head — `jj new <branch>` gets you there). Right after a push GitHub
-#    can briefly still report the previous head, so a mismatch is re-checked
-#    a few times before failing.
+#    PR head — `jj bookmark track <branch>@origin && jj new <branch>` gets
+#    you there; fix-push.sh also tracks it). Right after a push GitHub can
+#    briefly still report the previous head, so a mismatch is re-checked a
+#    few times before failing.
 # 3. The PR diff is fetched with `gh pr diff` into a file and its path is
 #    written to state. The reviewers read it as a plain-file context: entry,
 #    which — unlike a `!cmd` entry, whose failure silently degrades to empty
@@ -77,7 +78,7 @@ while :; do
   if [ "$tries" -ge "$tries_max" ]; then
     {
       echo "prepare-review.sh: local head ${local_head} is not PR #${pr_number}'s head ${pr_head}."
-      echo "Check out the PR head first (git: gh pr checkout ${pr_number}; jj: jj new <pr-branch>)."
+      echo "Check out the PR head first (git: gh pr checkout ${pr_number}; jj: jj bookmark track <pr-branch>@origin && jj new <pr-branch>)."
     } >&2
     exit 1
   fi
