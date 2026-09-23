@@ -31,7 +31,7 @@ Every command uses the same table (`pawl status` is the one deliberate exception
 | 1 | resolution error: unknown workflow, or another non-flag problem hit while resolving it |
 | 2 | usage error: bad/unrecognised flag, missing a flag's value, missing required arg, or validation failed |
 | 3 | run is `BLOCKED` — paused, resumable, not an error (`pawl run`/`pawl submit`/`pawl poll` only) |
-| 4 | refused: lock held, file changed, submit for a non-current step or kind, a poll of a current step that is not `kind: wait`, or a run that has already finished (`pawl submit`/`pawl abandon` only — `pawl poll` exits 0 quietly instead, see below); `pawl update` refusing a source build |
+| 4 | refused: lock held, file changed, submit for a non-current step or kind, a poll of a current step that is not `kind: wait`, or a run that has already finished (the last one is `pawl submit`/`pawl abandon` only — `pawl poll` exits 0 quietly instead for the same case, see below); separately, `pawl update` refusing to overwrite a source/`go install` build without `--force` |
 | 5 | engine error — a bug, or a broken/unreadable run directory or journal; for `pawl update`, any failure resolving, downloading, verifying or installing the release |
 
 ---

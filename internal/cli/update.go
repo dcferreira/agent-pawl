@@ -13,7 +13,7 @@ import (
 // updateFlags holds pawl update's own flags. VersionGiven is tracked
 // separately from Pin so that `--version ""` / `--version=` (an
 // explicitly empty value) can be told apart from "no --version at all" —
-// both leave Pin == "", but only the former is a usage error (item 3).
+// both leave Pin == "", but only the former is a usage error.
 type updateFlags struct {
 	Check        bool
 	Pin          string

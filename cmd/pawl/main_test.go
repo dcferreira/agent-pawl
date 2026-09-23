@@ -32,6 +32,18 @@ func TestRun(t *testing.T) {
 			wantExit:      2,
 			wantStderrHas: "pawl validate",
 		},
+		{
+			// A bad flag is a pure usage error internal/cli.CmdUpdate
+			// rejects before any network access, so this is safe to run
+			// against the real production config main.go wires up
+			// (cfg == nil) without touching the network or the test
+			// binary itself — proves `update` actually dispatches to
+			// CmdUpdate, not just that main.go's switch has a case for it.
+			name:          "update unrecognised flag",
+			args:          []string{"pawl", "update", "--bogus"},
+			wantExit:      2,
+			wantStderrHas: "pawl update: unrecognised argument",
+		},
 	}
 
 	for _, tt := range tests {

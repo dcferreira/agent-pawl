@@ -43,9 +43,10 @@ func buildTarGz(t *testing.T, files map[string]string) []byte {
 }
 
 // newUpdateTestServer serves a fake GitHub API + release assets for the
-// given latest tag, publishing a "pawl" binary containing pawlContent
-// under that tag (and, if pinTag is non-empty and differs, a second
-// release under pinTag too, so rollback tests have something to pin to).
+// given latest tag (and, for each of extraTags, its own release too, so a
+// rollback test has something else to pin to). Each release's "pawl"
+// binary content is "binary-for-<tag>", so a test can assert which one
+// ended up installed just by reading the target file back.
 func newUpdateTestServer(t *testing.T, latestTag string, extraTags ...string) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
@@ -84,6 +85,29 @@ func newTestUpdateConfig(srv *httptest.Server, exePath string) *selfupdate.Confi
 		ExePath:      exePath,
 	}
 	return &cfg
+}
+
+// newGuardConfig builds a *selfupdate.Config that must never be used: its
+// APIBase/DownloadBase point at an httptest.Server that fails the test on
+// any request it receives, and ExePath points at a file inside
+// t.TempDir() that a test can read back afterwards to confirm nothing was
+// ever written there. Every CmdUpdate test that expects a usage error —
+// i.e. a refusal that must happen before any network access or filesystem
+// write — uses this instead of a nil cfg (which resolves to the real
+// GitHub API and the real running binary's own path): with nil, a guard
+// regression stays invisible in this sandboxed test run and would only
+// surface as `pawl update` actually hitting GitHub, and in the worst case
+// overwriting the test binary, the next time someone ran it manually.
+func newGuardConfig(t *testing.T) *selfupdate.Config {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("unexpected HTTP request reached the network guard: %s %s", r.Method, r.URL)
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return newTestUpdateConfig(srv, filepath.Join(t.TempDir(), "pawl"))
 }
 
 func TestCmdUpdate_DevBuildRefusesWithoutForce(t *testing.T) {
@@ -305,7 +329,7 @@ func TestCmdUpdate_PinnedVersionEqualsCurrentAlreadyOn(t *testing.T) {
 
 func TestCmdUpdate_UnrecognisedFlag(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := CmdUpdate([]string{"--bogus"}, &stdout, &stderr, "0.2.0", nil)
+	code := CmdUpdate([]string{"--bogus"}, &stdout, &stderr, "0.2.0", newGuardConfig(t))
 
 	if code != 2 {
 		t.Errorf("exit = %d, want 2", code)
@@ -324,9 +348,9 @@ func TestCmdUpdate_UsageInMainUsage(t *testing.T) {
 // that isn't a clean vX.Y.Z (e.g. path-traversal-shaped input, since it
 // ends up spliced into a download URL by selfupdate.Apply): it must be
 // refused as a usage error, naming the bad value, without ever reaching
-// the network — nil cfg here means a real (unreachable in this sandboxed
-// test) network config would be used if CmdUpdate got that far, so a pass
-// here also proves no network call was attempted.
+// the network — newGuardConfig fails the test if CmdUpdate makes any HTTP
+// request at all, so a pass here proves no network call was attempted,
+// not just that the exit code happened to come out right.
 func TestCmdUpdate_InvalidPinRejectedBeforeNetwork(t *testing.T) {
 	tests := []string{
 		"../../x",
@@ -339,7 +363,7 @@ func TestCmdUpdate_InvalidPinRejectedBeforeNetwork(t *testing.T) {
 	for _, pin := range tests {
 		t.Run(pin, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			code := CmdUpdate([]string{"--version", pin}, &stdout, &stderr, "0.2.0", nil)
+			code := CmdUpdate([]string{"--version", pin}, &stdout, &stderr, "0.2.0", newGuardConfig(t))
 
 			if code != 2 {
 				t.Fatalf("exit = %d, want 2; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
@@ -374,7 +398,7 @@ func TestCmdUpdate_EmptyVersionIsUsageError(t *testing.T) {
 	} {
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			code := CmdUpdate(args, &stdout, &stderr, "0.2.0", nil)
+			code := CmdUpdate(args, &stdout, &stderr, "0.2.0", newGuardConfig(t))
 			if code != 2 {
 				t.Fatalf("exit = %d, want 2; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 			}
@@ -387,7 +411,7 @@ func TestCmdUpdate_EmptyVersionIsUsageError(t *testing.T) {
 // ("did it check the pin or the latest?"); refuse the combination instead.
 func TestCmdUpdate_CheckAndVersionMutuallyExclusive(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := CmdUpdate([]string{"--check", "--version", "v0.2.0"}, &stdout, &stderr, "0.2.0", nil)
+	code := CmdUpdate([]string{"--check", "--version", "v0.2.0"}, &stdout, &stderr, "0.2.0", newGuardConfig(t))
 	if code != 2 {
 		t.Fatalf("exit = %d, want 2; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -397,9 +421,8 @@ func TestCmdUpdate_CheckAndVersionMutuallyExclusive(t *testing.T) {
 // dev-build refusal and --check paths never need (and never attempt) to
 // resolve the running binary's own path: overriding osExecutable to fail
 // must not turn either of them into an unrelated exit-5 "couldn't locate
-// the running binary" error. Before the fix, ExePath resolution ran
-// unconditionally before either check, so this failed with exit 5 on both
-// sub-tests.
+// the running binary" error, since CmdUpdate only calls resolveExePath
+// from the branches that actually write to the binary.
 func TestCmdUpdate_DevRefusalAndCheckDoNotResolveExePath(t *testing.T) {
 	orig := osExecutable
 	osExecutable = func() (string, error) { return "", fmt.Errorf("boom: no /proc/self/exe here") }

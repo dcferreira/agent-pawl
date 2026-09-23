@@ -82,10 +82,13 @@ func CompareVersions(a, b string) (int, error) {
 	if c := cmp(va.Patch, vb.Patch); c != 0 {
 		return c, nil
 	}
-	// Same MAJOR.MINOR.PATCH: a pre-release is conservatively treated as
-	// older than the release it precedes (and than a differently-named
-	// pre-release is treated as equal — this project doesn't tag those,
-	// so there's nothing to order them by).
+	// Same MAJOR.MINOR.PATCH: a pre-release is older than the plain
+	// release it precedes (semver's own rule), and two different
+	// pre-releases are ordered lexically rather than treated as equal —
+	// this project doesn't tag pre-releases, so there's no real ordering
+	// convention to defer to, but "different strings, equal version" was
+	// actively wrong: it made `pawl update --version v0.3.0-rc2` print
+	// "already on 0.3.0-rc1" and install nothing on a v0.3.0-rc1 binary.
 	switch {
 	case va.PreRelease == vb.PreRelease:
 		return 0, nil
@@ -94,7 +97,7 @@ func CompareVersions(a, b string) (int, error) {
 	case vb.PreRelease == "":
 		return -1, nil
 	default:
-		return 0, nil
+		return strings.Compare(va.PreRelease, vb.PreRelease), nil
 	}
 }
 

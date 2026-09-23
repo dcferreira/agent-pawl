@@ -64,6 +64,13 @@ func TestCompareVersions(t *testing.T) {
 		{"a newer patch", "1.2.4", "1.2.3", 1, false},
 		{"prerelease is older than release", "1.2.3-rc1", "1.2.3", -1, false},
 		{"release is newer than prerelease", "1.2.3", "1.2.3-rc1", 1, false},
+		// Two different pre-releases of the same X.Y.Z must not compare
+		// equal — "already on X" for a pin that's actually a different
+		// pre-release would silently refuse a real rollback/switch (e.g.
+		// 0.3.0-rc1 -> --version v0.3.0-rc2).
+		{"different prereleases, same core, a lexically before b", "1.2.3-rc1", "1.2.3-rc2", -1, false},
+		{"different prereleases, same core, a lexically after b", "1.2.3-rc2", "1.2.3-rc1", 1, false},
+		{"identical prereleases are equal", "1.2.3-rc1", "1.2.3-rc1", 0, false},
 		{"dev unparseable errors", "dev", "1.2.3", 0, true},
 		{"other unparseable errors", "1.2.3", "dev", 0, true},
 	}
