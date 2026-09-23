@@ -32,11 +32,11 @@ func (r *Report) SoftPercent() float64 {
 
 // Validate runs the static checks against w and returns a Report. The
 // checks implemented are design/format-spec.md §H rules 1, 2, 3, 3b, 4, 5,
-// 6, 7, 8, 9, 9b, 10, 11, 12, 13, 14 (Ruling R4), plus the R8
+// 6, 7, 8, 9, 9b, 10, 11, 12, 13, 14, 18 (Ruling R4), plus the R8
 // guards:/invariants: rejection and the kind: parallel branches: validation
-// (checkParallelBranches). deterministic, agentic, wait, human and parallel
-// are all supported (Ruling R3); wait's own required fields (poll:) and
-// duration parsing (every:, timeout:) are checked alongside rule 7, and
+// (checkParallelBranches, rule 17). deterministic, agentic, wait, human and
+// parallel are all supported (Ruling R3); wait's own required fields (poll:)
+// and duration parsing (every:, timeout:) are checked alongside rule 7, and
 // human's own required fields and options routing are checked by rule 8.
 // Rules 15, 16 and the two warnings are deferred per R4.
 func Validate(w *Workflow) (*Report, error) {
@@ -84,6 +84,7 @@ func Validate(w *Workflow) (*Report, error) {
 	checkRule12(w, &errs)
 	checkRule13(w, &errs)
 	checkRule14(w, &errs)
+	checkRule18(w, &errs)
 
 	report := &Report{TotalSteps: len(w.Steps)}
 	for _, s := range w.Steps {
@@ -962,6 +963,58 @@ func checkRule14(w *Workflow, errs *[]string) {
 		if n := p.altCount(); n != 1 {
 			*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
 				"rule 14: postcondition: must use exactly one of command, all_set, equals (found %d); remove the extra key(s) or add the missing one", n)))
+		}
+	}
+}
+
+// checkRule18 implements §H rule 18: only the YAML tag "!cmd" makes a
+// context: entry a command (internal/spec/context.go); everything else
+// naming what looks like a command is a validation error, in either of two
+// shapes an author actually wrote:
+//
+//   - A QUOTED string whose value merely starts with "!", e.g.
+//     "!git diff main...HEAD". YAML resolves this to a plain "!!str" scalar
+//     (ContextEntry.Tag == "!!str"), read as a FILE PATH literally named
+//     "!git diff main...HEAD" — the case this rule originally covered, and
+//     the live mistake found in review-pr's own dogfood run and several
+//     docs/examples fixed alongside this rule.
+//   - An UNQUOTED entry starting with "!", e.g. !git diff main. YAML reads
+//     this not as that literal text but as a custom tag "!git" applied to
+//     the scalar "diff main" (ContextEntry.Tag == "!git") — a shape that
+//     silently passed validation before ContextEntry started capturing Tag,
+//     since node.Decode discards the tag and leaves only the (wrong) bare
+//     value indistinguishable from a plain file path.
+//
+// Both cases used to reach pawl run undetected, which then blocked at
+// runtime with an opaque "no such file" error pointing at the whole command
+// line (or, worse for the unquoted case, silently tried to read a file named
+// after whatever text followed the tag). Catching both here, each with its
+// own corrected !cmd form spelled out, turns that into an immediate,
+// actionable validation error instead.
+func checkRule18(w *Workflow, errs *[]string) {
+	for _, s := range w.Steps {
+		for i, c := range s.Context {
+			switch {
+			case c.IsCmd:
+				// c.Tag == "!cmd": already the one recognised command form.
+			case c.Tag == "!!str" || c.Tag == "":
+				if !strings.HasPrefix(c.Value, "!") {
+					continue
+				}
+				*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
+					"rule 18: context[%d]: %q is a plain string starting with \"!\", which names a FILE PATH, not a command; tag it with !cmd to run it as a command: !cmd %q",
+					i, c.Value, strings.TrimPrefix(c.Value, "!"))))
+			default:
+				// Any other custom tag ("!git", "!bash", ...) on an
+				// unquoted entry: YAML has already stripped the "!name"
+				// prefix off into c.Tag, so the corrected form re-attaches
+				// the tag name (minus its leading "!") to the front of the
+				// remaining value under !cmd.
+				suggested := strings.TrimPrefix(c.Tag, "!") + " " + c.Value
+				*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
+					"rule 18: context[%d]: tagged %s %q, which is not a recognised command form; only the YAML tag !cmd runs a command — use !cmd %q instead",
+					i, c.Tag, c.Value, suggested)))
+			}
 		}
 	}
 }

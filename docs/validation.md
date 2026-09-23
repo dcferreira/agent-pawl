@@ -74,6 +74,22 @@ means denied everywhere).
 the workflow's `start:` step, and declaring none of `next:`/`outcomes:`/`catch:`/`attempts:`/
 `attempt_key:`/`max_visits:` itself — see [steps/parallel.md](steps/parallel.md).
 
+**18 — a `context:` entry starts with `!` but does not carry the YAML tag `!cmd`.** A `context:`
+entry is a command only when it carries the YAML tag `!cmd` (e.g. `!cmd "git diff"`). Every plain
+entry starting with `!` is rejected, and so is any custom YAML tag other than `!cmd`, in either
+shape an author might write it:
+
+- A *quoted* string that merely starts with `!` (e.g. `"!git diff main...HEAD"`) is read as a FILE
+  PATH literally named `!git diff main...HEAD`, not executed.
+- An *unquoted* entry starting with `!` (e.g. `!git diff main`) isn't even that literal text — YAML
+  reads it as a custom tag `!git` applied to the scalar `diff main`. Any custom tag other than
+  `!cmd` is rejected the same way.
+
+`pawl validate` rejects both and names the corrected `!cmd "..."` form. A real file whose name
+starts with `!` is not a case this rule can special-case away (there is no way to tell "this author
+really means a file" from "this author typo'd a command" from the YAML alone) — reference it as
+`./!name` instead, which does not start with `!` and so is unambiguously a file path.
+
 ## Warnings
 
 Two, printed as `warning:` and exit 0 — unless `--strict`, which makes them errors.

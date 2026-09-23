@@ -48,7 +48,7 @@ steps:
       absent. Do not resolve the story against Shortcut, do not touch top-of-mind.md, and do
       nothing else — later steps handle context-gathering, preflight and the file edit.
     context:
-      - "!cat ~/Obsidian/vault/00-home/top-of-mind.md"
+      - !cmd "cat ~/Obsidian/vault/00-home/top-of-mind.md"
     subagent_args: {tools: [Read], model: sonnet}
     writes:
       action_text:    {type: string}
@@ -75,8 +75,8 @@ steps:
       (touches a repo, needs a workspace) or non-code (a follow-up, draft, design, analysis).
       Derive a short kebab-case slug from the action, e.g. flaky-ui-suite.
     context:
-      - "!cat ~/Obsidian/vault/00-home/top-of-mind.md"
-      - "!qmd search \"${action_text}\" -n 5 --md"
+      - !cmd "cat ~/Obsidian/vault/00-home/top-of-mind.md"
+      - !cmd "qmd search \"${action_text}\" -n 5 --md"
     subagent_args: {tools: [Read, "Bash(qmd:*)"], model: sonnet}
     writes:
       task_type:         {type: string}

@@ -112,10 +112,10 @@ steps:
       state — only edit source/dependency files, and run tests yourself before returning. Keep
       the fix minimal and scoped to what the upgrade broke.
     context:
-      - "!uv run pytest -q 2>&1 | tail -n 150"
-      - "!git diff HEAD -- pyproject.toml uv.lock"
+      - !cmd "uv run pytest -q 2>&1 | tail -n 150"
+      - !cmd "git diff HEAD -- pyproject.toml uv.lock"
       - CHANGELOG.md
-      - "!echo Failing-test signature for this attempt: ${failing_signature}"
+      - !cmd "echo Failing-test signature for this attempt: ${failing_signature}"
     subagent_args:
       tools:
         - Read

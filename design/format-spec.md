@@ -338,7 +338,7 @@ Reserved outcome tokens, usable anywhere: `success`, `failure`, `timeout`, `exha
 | `run` | yes | deterministic | string | A command. Exit 0 → token/`success`; non-zero → `failure`. | — |
 | `emits` | no | deterministic, wait | enum | Payload grammar: `json` \| `pairs`; the *maximum* payload shape (§B.1). | `json` |
 | `description` | **yes** | agentic | string | Inline, multi-line string: intent, constraints, definition of done; `${key}` substituted at dispatch time. Never handed to the subagent verbatim (§B.6). | — |
-| `context` | no | agentic | list | Files/`!cmd` output gathered by `pawl` and included in the `DISPATCH` block; `${key}` resolved first. | `[]` |
+| `context` | no | agentic | list | Files/`!cmd`-tagged command output gathered by `pawl` and included in the `DISPATCH` block; `${key}` resolved first. A plain scalar names a file; only a scalar carrying the YAML tag `!cmd` (e.g. `!cmd "git diff"`) is run as a command — every plain entry starting with `!` (quoted or not) is rejected by rule 18, not just ones that "look like" an attempt at a command. A real file whose name starts with `!` needs the `./!name` escape hatch instead. | `[]` |
 | `subagent_args` | no | agentic | map | Extra arguments passed through verbatim for the subagent launch — in Claude Code typically `model`, `tools`, `effort`; other harnesses use whatever they need. Not interpreted or enforced by the engine (§B.6). | `{}` |
 | `poll` | yes | wait | string | Command re-run every `every:`; its last stdout line is read per §B.1. | — |
 | `every` | no | wait | duration | Poll interval. | `60s` |
@@ -496,6 +496,11 @@ work to an agent. See `docs/quickstart.md`.
     `agentic`; a branch is listed more than once in the same `branches:`; a branch is claimed by more
     than one `parallel` step; a branch is the workflow's `start:` step; or a branch declares
     `next:`/`outcomes:`/`catch:`/`attempts:`/`attempt_key:`/`max_visits:` of its own.
+18. A `context:` entry starts with `!` but does not carry the YAML tag `!cmd` — either a *quoted*
+    string that merely starts with `!` (e.g. `"!git diff main...HEAD"`, read as a FILE PATH, not a
+    command), or an *unquoted* entry (e.g. `!git diff main`), which YAML parses as some other
+    custom tag (`!git`) applied to the rest of the scalar (`diff main`), not as that literal text.
+    The error names the corrected `!cmd "..."` form either way.
 
 Plus two warnings: a key written and never read; a key read on some path before anything writes it.
 And one census, printed every time: the `soft:` count, percentage and list.

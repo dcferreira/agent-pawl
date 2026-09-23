@@ -167,7 +167,7 @@ This is the main deliverable, so I'm being exhaustive:
 9. **Templating a JSON value from `context:`.** B's `context:` examples are
    always either a bare file path or a fixed `!cmd` string; nothing shows
    whether `${key}` substitution is allowed *inside* a `context:` entry
-   (e.g. `context: ["!qmd search \"${action_text}\" -n 5 --md"]`) the way it
+   (e.g. `context: [!cmd "qmd search \"${action_text}\" -n 5 --md"]`) the way it
    plainly is inside `goal:`, `run:`, and `postcondition:`. I avoided this
    by putting the dynamic `qmd search` inside the *goal prompt* instead
    (telling the agent to run it itself via its `Bash(qmd:*)` tool) rather
@@ -318,7 +318,7 @@ A-C and H-K (rationale, changelog, roadmap, open questions) were not read.
 - **Gap 9 (`${key}` inside `context:`).** Resolved — the field table says
   `${key}` is "resolved first" in `context:` entries. Moved the `qmd search`
   from inside the agentic prompt (a workaround) into
-  `context: ["!qmd search \"${action_text}\" -n 5 --md"]` directly, and
+  `context: [!cmd "qmd search \"${action_text}\" -n 5 --md"]` directly, and
   updated `prompts/gather_and_classify.md` to read the results from context
   instead of running the search itself.
 

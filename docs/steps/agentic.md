@@ -10,7 +10,9 @@ the five kinds compare.
   `context:` and session knowledge. Don't restate `writes:`, write the literal subagent prompt, or
   smuggle in routing logic.
 - **`context:`** — files/command output `pawl` gathers into `DISPATCH`: `CHANGELOG.md` (verbatim),
-  `"!uv run pytest -q | tail -n 150"` (stdout). `${key}` inside `!cmd` resolves first. Keep it small.
+  `!cmd "uv run pytest -q | tail -n 150"` (stdout). Only a scalar carrying the YAML tag `!cmd` is run
+  as a command — a plain quoted string is always a file path, even one starting with `!`. `${key}`
+  inside `!cmd` resolves first. Keep it small.
 - **`subagent_args:`** — extra arguments passed through verbatim for the subagent launch; the engine
   does not interpret or enforce any of it. In Claude Code these are typically `model`, `tools`,
   `effort:`; other harnesses use whatever they need. The one subagent rule the `PreToolUse` hook
@@ -35,8 +37,8 @@ the five kinds compare.
       Description: what changed, why, and how it was verified. Write the description to a temp
       file yourself and return its path.
     context:
-      - "!git diff \"${target_branch}\"...HEAD"
-      - "!git log \"${target_branch}\"..HEAD --format=%B"
+      - !cmd "git diff \"${target_branch}\"...HEAD"
+      - !cmd "git log \"${target_branch}\"..HEAD --format=%B"
     subagent_args: {tools: [Read, "Bash(git diff:*)", "Bash(git log:*)"], model: sonnet}
     writes:
       title:            {type: string, max_length: 72}

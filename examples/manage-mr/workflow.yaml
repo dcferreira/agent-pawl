@@ -120,7 +120,7 @@ steps:
       if absent) from the branch's diff and commits, matching existing wording style; for type
       none or has_changelog false, do nothing. Make the judgement call yourself if the format is
       ambiguous — do not ask for confirmation.
-    context: ["!bash scripts/check-changelog.sh"]
+    context: [!cmd "bash scripts/check-changelog.sh"]
     subagent_args: {tools: [Read, Write, Edit, "Bash(bash scripts/check-changelog.sh)"], model: sonnet}
     writes: {changelog_updated: {type: boolean}}
     postcondition: "[ \"${changelog_updated}\" = true ]"
@@ -162,7 +162,7 @@ steps:
         ## Screenshots (optional)
         ## Breaking changes (optional)
       Write the description to a temp file yourself (a single `cat > file <<'EOF' ... EOF`).
-    context: ["!git diff \"${target_branch}\"...HEAD", "!git log \"${target_branch}\"..HEAD --format=%B"]
+    context: [!cmd "git diff \"${target_branch}\"...HEAD", !cmd "git log \"${target_branch}\"..HEAD --format=%B"]
     subagent_args: {tools: [Read, "Bash(git diff:*)", "Bash(git log:*)", "Bash(jj diff:*)", "Bash(jj log:*)"], model: sonnet}
     writes:
       title: {type: string, max_length: 72}
@@ -195,7 +195,7 @@ steps:
       security | standards-violation | type-annotation. Check the MR's pipeline status via
       `glab mr view <iid> --output json | jq '.head_pipeline.status'`; treat only "failed" as
       failing.
-    context: ["!git symbolic-ref --short refs/remotes/origin/HEAD"]
+    context: [!cmd "git symbolic-ref --short refs/remotes/origin/HEAD"]
     subagent_args: {tools: ["Bash(codex review:*)", "Bash(git worktree:*)", "Bash(command git:*)", "Bash(glab mr view:*)", Read], model: opus}
     writes:
       findings: {type: json}

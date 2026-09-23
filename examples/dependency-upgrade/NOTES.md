@@ -340,7 +340,7 @@ it's required, not a guess.
   above (v2 §B.13 says so by name).
 - **§6.4 "does `context:` support `${key}`?"** Settled in §B.3: yes, resolved
   before the `!cmd` runs. I used this in `fix_tests`'s new context entry
-  (`"!echo Failing-test signature for this attempt: ${failing_signature}"`),
+  (`!cmd "echo Failing-test signature for this attempt: ${failing_signature}"`),
   which I would not have written under v1 without guessing.
 - **§6.5 "`${blocked_reason}` in the terminal message — engine magic or
   undeclared bug?"** Settled: it's a listed engine pseudo-key (§B.3), exactly
