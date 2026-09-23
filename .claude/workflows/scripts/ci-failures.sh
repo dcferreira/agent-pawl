@@ -11,11 +11,16 @@
 # review-route.sh's findings share (critical > major > medium > minor >
 # nitpick) — never a nitpick.
 #
-# Prints {"findings": [...], "ci_round": true} on one line (emits: json;
-# `jq -c` keeps it on the one line the engine parses). `ci_round: true`
-# marks this round as CI-originated, so unchanged_route can tell (if
-# fix_push later reports the tree unchanged) that a decline here means CI
-# on this head will stay red, not that a re-review is worth another try.
+# Prints {"findings": [...], "ci_round": true, "fix_note": ""} on one line
+# (emits: json; `jq -c` keeps it on the one line the engine parses).
+# `ci_round: true` marks this round as CI-originated, so unchanged_route can
+# tell (if fix_push later reports the tree unchanged) that a decline here
+# means CI on this head will stay red, not that a re-review is worth another
+# try. `fix_note: ""` clears any instructions the user gave ask_optional
+# (its picked label, e.g. "skip", or free text): those were about the held
+# optional findings, not these CI failures, and fix_issues would otherwise
+# apply them to this round. This step is the single choke point every
+# CI-originated fix round passes through.
 # If the failing checks can't be listed any more (e.g. re-run in the
 # meantime) it still emits one finding saying so, so a CI failure never
 # turns into an empty fix round.
@@ -159,4 +164,4 @@ if [ -z "$items" ]; then
   }')
 fi
 
-printf '%s\n' "$items" | jq -cs '{findings: ., ci_round: true}'
+printf '%s\n' "$items" | jq -cs '{findings: ., ci_round: true, fix_note: ""}'

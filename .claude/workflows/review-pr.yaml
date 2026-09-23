@@ -26,8 +26,9 @@ start: fetch_pr
 # reviewers on an unchanged tree is pointless). It goes to unchanged_route,
 # which either resolves `stuck` (terminal — something the fixer could not
 # actually change is still outstanding, or this round's declines were
-# against a failing CI check that will stay red regardless) or, only when
-# every non-fix was a clean decline on a review round, `to_ci` (on to
+# against a failing CI check that will stay red regardless) or, only on a
+# review round with no not-fixed/partially-fixed item left (declines, and
+# `fixed:` items that needed no change), `to_ci` (on to
 # wait_for_ci, the same as `pushed` would once CI is checked). `to_ci`
 # introduces one bounded extra cycle per full round: unchanged_route ->
 # wait_for_ci -> ci_failure -> fix_issues -> record_declined -> fix_push,
@@ -441,7 +442,9 @@ steps:
       the next step does that. Return findings: the same items, each with an
       added verify_status, whose value must start with one of these four
       prefixes:
-        - `fixed:` — you made the change and verified it.
+        - `fixed:` — you made the change and verified it. If an item
+          needed no change (it was already resolved), report it as
+          `wont-fix: already resolved` instead.
         - `partially-fixed:` — you made part of the change; say what's left.
         - `not-fixed:` — you tried and couldn't; it will be raised again
           next round, and that's intended.
@@ -484,8 +487,9 @@ steps:
       # doesn't touch the tree — but retrying is pointless when nothing
       # actually changed, so this no longer loops back to review_route:
       # unchanged_route decides whether anything is left worth another
-      # round (`stuck`) or this was a clean review round whose only
-      # non-fixes were declines, safe to send on to CI (`to_ci`).
+      # round (`stuck`) or this was a review round with nothing left
+      # unresolved (declines, or `fixed:` items that needed no change),
+      # safe to send on to CI (`to_ci`).
       unchanged: unchanged_route
 
   - id: unchanged_route
@@ -509,7 +513,9 @@ steps:
   - id: ci_failure
     kind: deterministic
     run: scripts/ci-failures.sh ${pr_number} ${head_sha} ${repo}
-    writes: [findings, ci_round]
+    # fix_note is reset to "": ask_optional's answer (e.g. "skip", or free
+    # text) was about the held optional findings, not these CI failures.
+    writes: [findings, ci_round, fix_note]
     next: fix_issues
 
 terminal:
