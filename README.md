@@ -9,7 +9,7 @@ a postcondition the engine — never the agent that did the work — evaluates.
 ## Status
 
 **It executes.** `pawl run` / `pawl submit` / `pawl status` / `pawl abandon` / `pawl validate` / `pawl list` /
-`pawl version` are real, working code with unit and end-to-end test coverage (`go test ./...`), and
+`pawl version` / `pawl update` are real, working code with unit and end-to-end test coverage (`go test ./...`), and
 `docs/examples/green-tests` runs against `testdata/fixture` — see [docs/dogfood.md](docs/dogfood.md)
 for a real, captured transcript of that run.
 

@@ -38,6 +38,20 @@ The pure parts of `install.sh` (OS/arch detection, asset naming, version resolut
 parsing) are unit-tested without touching the network in `scripts/test-install.sh` — run via
 `make test-install`.
 
+### Upgrading a binary installed this way
+
+Once you have a release binary installed (via `install.sh` above, or otherwise), `pawl update`
+upgrades it in place — same checksum verification as `install.sh`, no need to re-run the curl
+one-liner:
+
+```
+pawl update
+```
+
+See [cli.md](cli.md) for `--check`, `--version` (pin/rollback) and `--force`. A
+binary built from source (`pawl version` prints `pawl dev`) is a different case — see the note
+right below.
+
 ## Build and install the binary
 
 You need Go (this build was developed and tested against Go 1.27) and a clone of this repo.
@@ -74,15 +88,20 @@ pawl version
 prints `pawl dev` for anything built from source with plain `go build`/`go install`/`make
 install`/`make build`, because those don't set the `-ldflags "-X main.Version=..."` that
 `cmd/pawl/main.go` supports — `pawl dev` is what building from source correctly looks like, not a
-symptom of a bad build. A binary installed via `install.sh` prints the tagged version instead
-(e.g. `pawl v0.1.0`), since `.goreleaser.yaml` sets that ldflag when building release archives.
+symptom of a bad build. A binary installed via `install.sh` prints the released version instead
+(e.g. `pawl 0.1.0`, no leading `v` — `.goreleaser.yaml` sets that ldflag to goreleaser's
+`{{.Version}}` template value, which is the tag with its `v` stripped, not the raw git tag).
+
+A `pawl dev` (source) build is exactly what `pawl update` refuses to touch without `--force` — see
+[cli.md](cli.md) — since overwriting a build you made yourself with a
+downloaded release binary is not something `pawl update` should ever do by default.
 
 ```
 pawl
 ```
 
 with no arguments prints the command list — `run`, `validate`, `status`, `abandon`, `list`,
-`submit`, `version`. That is the complete command surface of this build. In particular:
+`submit`, `version`, `update`. That is the complete command surface of this build. In particular:
 
 - **`pawl poll` and `pawl hook` do not exist.** There is no `wait`/`human` step kind to poll for
   (see below), and there are no hooks to invoke.
