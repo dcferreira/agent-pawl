@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# poll-ci.sh <pr_number> <head_sha> <allow_no_ci>
+# poll-ci.sh <pr_number> <head_sha> <allow_no_ci> <repo>
 #
 # `poll:` body for the `wait_for_ci` step: the CI verdict for exactly
 # <head_sha> (the head this round reviewed), never for whatever GitHub last
@@ -29,6 +29,12 @@ set -u
 pr_number="${1:?poll-ci.sh: pr_number argument required}"
 head_sha="${2:?poll-ci.sh: head_sha argument required}"
 allow_no_ci="${3:-false}"
+repo="${4:?poll-ci.sh: repo argument required}"
+
+# Resolved once by fetch-pr.sh from origin's URL; used here instead of
+# letting gh infer a repo from cwd (there is no git repo to infer from in a
+# non-colocated jj workspace).
+export GH_REPO="$repo"
 
 if ! out=$(gh pr view "$pr_number" --json headRefOid,statusCheckRollup 2>&1); then
   echo "poll-ci.sh: gh pr view failed, will retry: ${out}" >&2

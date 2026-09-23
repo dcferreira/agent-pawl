@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# ci-failures.sh <pr_number> <head_sha>
+# ci-failures.sh <pr_number> <head_sha> <repo>
 #
 # Body of the `ci_failure` deterministic step, reached when wait_for_ci saw a
 # failing check. Turns each failing check into a finding for fix_issues —
@@ -23,7 +23,13 @@ set -eu
 
 pr_number="${1:?ci-failures.sh: pr_number argument required}"
 head_sha="${2:?ci-failures.sh: head_sha argument required}"
+repo="${3:?ci-failures.sh: repo argument required}"
 log_lines="${PAWL_CI_LOG_LINES:-80}"
+
+# Resolved once by fetch-pr.sh from origin's URL; used here (and by the
+# `gh run view` call below) instead of letting gh infer a repo from cwd,
+# which fails outright in a non-colocated jj workspace (no .git directory).
+export GH_REPO="$repo"
 
 rollup=$(gh pr view "$pr_number" --json statusCheckRollup)
 

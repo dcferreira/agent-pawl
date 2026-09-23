@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# prepare-review.sh <vcs> <pr_number>
+# prepare-review.sh <vcs> <pr_number> <repo>
 #
 # Body of the `prepare_review` deterministic step, the entry point of every
 # review round. It makes the round's inputs hard rather than best-effort:
@@ -37,8 +37,14 @@ set -eu
 
 vcs="${1:?prepare-review.sh: vcs argument required}"
 pr_number="${2:?prepare-review.sh: pr_number argument required}"
+repo="${3:?prepare-review.sh: repo argument required}"
 tries_max="${PAWL_REVIEW_HEAD_TRIES:-10}"
 sleep_s="${PAWL_REVIEW_HEAD_SLEEP:-3}"
+
+# fetch-pr.sh resolved this once from origin's URL; every gh call here uses
+# it instead of letting gh infer a repo from cwd, which fails outright in a
+# non-colocated jj workspace (no .git directory at all).
+export GH_REPO="$repo"
 
 case "$vcs" in
   jj)

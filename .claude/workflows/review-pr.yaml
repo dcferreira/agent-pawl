@@ -56,6 +56,11 @@ args:
 
 state:
   vcs: {type: string}
+  # owner/repo, resolved once by fetch-pr.sh from origin's remote URL (never
+  # from gh's cwd-based inference — a non-colocated jj workspace has no git
+  # repo for gh to infer from). Every other gh-using script takes this as an
+  # argument (via -R/GH_REPO) instead of guessing.
+  repo: {type: string}
   pr_url: {type: string}
   head_sha: {type: string}
   base_branch: {type: string}
@@ -89,8 +94,8 @@ steps:
   - id: fetch_pr
     kind: deterministic
     run: scripts/fetch-pr.sh ${pr_number}
-    writes: [vcs, pr_url, head_sha, base_branch, branch, title]
-    postcondition: {all_set: [pr_url, head_sha]}
+    writes: [vcs, repo, pr_url, head_sha, base_branch, branch, title]
+    postcondition: {all_set: [pr_url, head_sha, repo]}
     next: choose_reviewers
 
   - id: choose_reviewers          # the one human step that picks the engine(s)
@@ -129,7 +134,7 @@ steps:
   # reviewers see nothing and call the PR clean).
   - id: prepare_review
     kind: deterministic
-    run: scripts/prepare-review.sh ${vcs} ${pr_number}
+    run: scripts/prepare-review.sh ${vcs} ${pr_number} ${repo}
     writes: [head_sha, diff_file, ci_round, fix_note]
     postcondition: {all_set: [head_sha, diff_file]}
     max_visits: 10
@@ -157,8 +162,11 @@ steps:
       reviewer_choices is ${reviewer_choices}. If "claude_subagent" is not
       in it, immediately return findings_claude: [] and stop. Otherwise:
       adversarially review this PR's diff (in context) against
-      ${base_branch}. Cold (you did not write this change) and read-only
-      (analysis only, never edit files). Return findings as a JSON array of
+      ${base_branch}. The GitHub repo is ${repo}; pass -R ${repo} to any
+      `gh pr diff`/`gh pr view` call (the working copy has no git repo for
+      gh to infer it from). Cold (you did not write this change) and
+      read-only (analysis only, never edit files). Return findings as a
+      JSON array of
       {file, line, category, description, fix, severity}, category one of:
       bug | missing-test | other | performance | security |
       standards-violation | type-annotation. severity is one of:
@@ -193,7 +201,9 @@ steps:
       `codex review --base ${base_branch}` (Bash tool) against this PR (the
       working copy is checked out at the PR head) and normalize its output
       into the same findings shape as above (file, line, category,
-      description, fix, severity). severity is one of:
+      description, fix, severity). The GitHub repo is ${repo}; pass
+      -R ${repo} to any `gh pr diff`/`gh pr view` call (the working copy has
+      no git repo for gh to infer it from). severity is one of:
         - "critical": a security hole, data loss, or a destructive action
           (e.g. rewriting a branch), or the main use case is completely
           broken.
@@ -274,7 +284,9 @@ steps:
       nothing behaving wrongly). Stale existing docs are never below
       "minor" — even a small stale claim is at least minor, never a
       nitpick. Classify honestly; do not inflate or deflate severity.
-      Return [] if nothing existing went stale.
+      Return [] if nothing existing went stale. The GitHub repo is ${repo};
+      pass -R ${repo} to any `gh pr diff`/`gh pr view` call (the working
+      copy has no git repo for gh to infer it from).
 
       Findings the fixer already declined, with its reasons, are ${declined}.
       Do not re-raise any of them unless you believe the decline reason is
@@ -368,7 +380,7 @@ steps:
           it without cause.
     subagent_args: {tools: [Read, Edit, Write, Bash]}
     writes: {findings: {type: json}}
-    postcondition: "printf '%s' ${findings} | jq -e 'all(.[]; has(\"verify_status\"))' >/dev/null"
+    postcondition: "printf '%s' ${findings} | jq -e 'all(.[]; (.verify_status // \"\") | test(\"^(fixed|partially-fixed|not-fixed|wont-fix):\"))' >/dev/null"
     soft: true                     # the agent's own claim, not independently re-verified here
     attempts: 3
     next: record_declined
@@ -391,7 +403,7 @@ steps:
     run: scripts/fix-push.sh ${vcs} ${branch} ${round}
     emits: pairs                   # a bare integer — safe under the whitespace-split grammar
     writes: [round]
-    postcondition: scripts/verify-pushed.sh ${vcs} ${branch}
+    postcondition: scripts/verify-pushed.sh ${vcs} ${branch} ${repo}
     outcomes:
       pushed: prepare_review       # re-review the new head; CI runs meanwhile
       # The fixer changed nothing in the tree. That's expected when this
@@ -412,7 +424,7 @@ steps:
 
   - id: wait_for_ci
     kind: wait
-    poll: scripts/poll-ci.sh ${pr_number} ${head_sha} ${allow_no_ci}
+    poll: scripts/poll-ci.sh ${pr_number} ${head_sha} ${allow_no_ci} ${repo}
     every: 30s
     timeout: 2h
     outcomes:
@@ -422,7 +434,7 @@ steps:
 
   - id: ci_failure
     kind: deterministic
-    run: scripts/ci-failures.sh ${pr_number} ${head_sha}
+    run: scripts/ci-failures.sh ${pr_number} ${head_sha} ${repo}
     writes: [findings, ci_round]
     next: fix_issues
 
