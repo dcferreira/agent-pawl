@@ -13,9 +13,9 @@ start: fetch_pr
 # branches, reviewers_left_tree_clean, review_route, then one of:
 #   - `blocking` (-> fix_issues, record_declined, fix_push) — 11 entries to
 #     reach fix_push once.
-#   - `nitpicks_only` (-> ask_nitpicks, then either take_nitpicks ->
+#   - `optional_only` (-> ask_optional, then either take_optional ->
 #     fix_issues -> record_declined -> fix_push [13 entries], or
-#     skip_nitpicks -> wait_for_ci [11 entries, skipping fix_issues
+#     skip_optional -> wait_for_ci [11 entries, skipping fix_issues
 #     entirely]).
 #   - `clean` (-> wait_for_ci directly, shortest path).
 # prepare_review's max_visits (10) caps how many of those full rounds can
@@ -36,9 +36,9 @@ start: fetch_pr
 # resolves `stuck` unconditionally and the run ends. So this extra cycle
 # fires at most once per full round, adding at most 6 entries
 # (unchanged_route, wait_for_ci, ci_failure, fix_issues, record_declined,
-# fix_push) beyond the round's base (up to 13 via the nitpicks_only ->
-# take_nitpicks path) — worst case 19 entries for one non-terminating round
-# (nitpicks_only + take_nitpicks, then unchanged + to_ci, then pushed).
+# fix_push) beyond the round's base (up to 13 via the optional_only ->
+# take_optional path) — worst case 19 entries for one non-terminating round
+# (optional_only + take_optional, then unchanged + to_ci, then pushed).
 #
 # Visit caps: most steps are entered at most once per full round and keep
 # the default max_visits (10), the same cap as prepare_review's round cap.
@@ -77,21 +77,22 @@ state:
   findings_custom: {type: json, default: []}
   findings_docs: {type: json, default: []}
   findings: {type: json, default: []}
-  # nitpick-severity findings (severity: "nitpick") review_route peeled off
-  # — never sent to fix_issues directly. Held here, carried across rounds
-  # (review-route.sh merges each round's fresh nits into what is already
-  # held, minus anything declined), until ask_nitpicks asks whether to
-  # address them (only reached once a round has no fixable findings at
-  # all); take_nitpicks/skip_nitpicks then consume it and reset it to [].
-  nitpicks: {type: json, default: []}
-  # the user's free-text instructions from ask_nitpicks for this round (may
+  # minor- and nitpick-severity findings (severity: "minor" or "nitpick")
+  # review_route peeled off — never sent to fix_issues directly. Held here,
+  # carried across rounds (review-route.sh merges each round's fresh
+  # minor/nitpick items into what is already held, minus anything
+  # declined), until ask_optional asks whether to address them (only
+  # reached once a round has no fixable findings at all);
+  # take_optional/skip_optional then consume it and reset it to [].
+  optional_findings: {type: json, default: []}
+  # the user's free-text instructions from ask_optional for this round (may
   # be empty); prepare_review resets it to "" at the start of every round so
   # a note only applies to the round it was given in.
   fix_note: {type: string, default: ""}
   # Path of the JSON file holding every finding declined so far (the
-  # fixer's wont-fix items and skipped nitpicks), created holding [] by
-  # fetch-pr.sh. A file rather than a json state key because it grows every
-  # round, and a state key a deterministic step reads is rendered into its
+  # fixer's wont-fix items and skipped optional findings), created holding
+  # [] by fetch-pr.sh. A file rather than a json state key because it grows
+  # every round, and a state key a deterministic step reads is rendered into its
   # one `sh -c` argument and exported as PAWL_<KEY> — each capped at
   # 128 KiB on Linux, so an unbounded list would eventually fail the step
   # with E2BIG. Steps read it with jq --slurpfile or as a context: file.
@@ -154,8 +155,8 @@ steps:
   #
   # Also writes ci_round = false: reaching prepare_review always starts a
   # fresh review round (never a CI-originated one), which unchanged_route
-  # later needs to know. Also resets fix_note to "" — a user's nitpick
-  # instructions apply only to the round ask_nitpicks gave them in.
+  # later needs to know. Also resets fix_note to "" — a user's optional-
+  # findings instructions apply only to the round ask_optional gave them in.
   #
   # Refuses to start a round unless the working copy is clean and its head
   # is the PR's head, then fetches the PR diff into a file (a hard input:
@@ -366,54 +367,56 @@ steps:
 
   - id: review_route
     kind: deterministic
-    run: scripts/review-route.sh ${findings_claude} ${findings_codex} ${findings_custom} ${findings_docs} ${nitpicks} ${declined_file}
-    writes: [findings, nitpicks]
+    run: scripts/review-route.sh ${findings_claude} ${findings_codex} ${findings_custom} ${findings_docs} ${optional_findings} ${declined_file}
+    writes: [findings, optional_findings]
     outcomes:
-      blocking: fix_issues         # any severity other than exactly "nitpick" — missing/unrecognised included (fail-safe)
-      nitpicks_only: ask_nitpicks  # nothing fixable, but at least one nitpick — ask before touching anything
-      clean: wait_for_ci           # nothing fixable and no nitpicks at all — clean is not done until CI is green on this head
+      blocking: fix_issues        # critical, major, or medium — plus missing/unrecognised severity (fail-safe)
+      optional_only: ask_optional # nothing fixable, but at least one minor or nitpick — ask before touching anything
+      clean: wait_for_ci          # nothing fixable and no minor/nitpick findings at all — clean is not done until CI is green on this head
 
   # Reached only when review_route found nothing fixable this round but did
-  # find nitpick-severity items — asks whether to address them before
-  # moving on, since a nitpick round would otherwise be silently dropped.
-  - id: ask_nitpicks
+  # find minor- or nitpick-severity items — asks whether to address them
+  # before moving on, since an optional-findings round would otherwise be
+  # silently dropped.
+  - id: ask_optional
     kind: human
     question: |
-      No findings above nitpick severity on "${title}" (${pr_url}). These
-      nitpicks were raised this round: ${nitpicks}
+      No findings above minor severity on "${title}" (${pr_url}). These
+      minor/nitpick items were raised this round (minor first, then
+      nitpick): ${optional_findings}
 
       Address them now, or skip them for this PR? Free text (the "Other"
-      answer) can give instructions instead — e.g. which of the nitpicks to
-      fix, or how — and will be passed to the fixer as this round's
-      instructions.
+      answer) can give instructions instead — e.g. which of them to fix, or
+      how — and will be passed to the fixer as this round's instructions.
     options: [address, skip]
     timeout: 24h
     writes: [fix_note]
     outcomes:
-      address: take_nitpicks
-      skip: skip_nitpicks
-      chosen: take_nitpicks        # free-text instructions land in fix_note
+      address: take_optional
+      skip: skip_optional
+      chosen: take_optional        # free-text instructions land in fix_note
       timeout: blocked
 
-  # Turns the held nitpicks into the findings fix_issues fixes, and empties
-  # the held list (they are being acted on now; one fix_issues leaves
-  # not-fixed is raised again by the reviewers like any other finding).
-  # fix_note (the "address" pick's label, or the free-text instructions from
-  # ask_nitpicks) is read by fix_issues itself, not here.
-  - id: take_nitpicks
+  # Turns the held minor/nitpick findings into the findings fix_issues
+  # fixes, and empties the held list (they are being acted on now; one
+  # fix_issues leaves not-fixed is raised again by the reviewers like any
+  # other finding). fix_note (the "address" pick's label, or the free-text
+  # instructions from ask_optional) is read by fix_issues itself, not here.
+  - id: take_optional
     kind: deterministic
-    run: "jq -cn --argjson n ${nitpicks} '{findings: $n, nitpicks: []}'"
-    writes: [findings, nitpicks]
+    run: "jq -cn --argjson n ${optional_findings} '{findings: $n, optional_findings: []}'"
+    writes: [findings, optional_findings]
     postcondition: "printf '%s' ${findings} | jq -e 'type==\"array\"' >/dev/null"
     next: fix_issues
 
-  # The user chose not to address the held nitpicks: fold them into the
-  # declined file (so they don't get raised again next round), empty the
-  # held list, and move on to CI without ever dispatching fix_issues.
-  - id: skip_nitpicks
+  # The user chose not to address the held minor/nitpick findings: fold
+  # them into the declined file (so they don't get raised again next
+  # round), empty the held list, and move on to CI without ever
+  # dispatching fix_issues.
+  - id: skip_optional
     kind: deterministic
-    run: scripts/skip-nitpicks.sh ${declined_file} ${nitpicks}
-    writes: [nitpicks]
+    run: scripts/skip-optional.sh ${declined_file} ${optional_findings}
+    writes: [optional_findings]
     postcondition: "jq -e 'type==\"array\"' ${declined_file} >/dev/null"
     next: wait_for_ci
 
@@ -422,7 +425,7 @@ steps:
     description: |
       Fix this round's findings. They are (a JSON array of
       {file, line, category, description, fix} items — review findings,
-      held nitpicks, or failing CI checks with their log tails):
+      held minor/nitpick items, or failing CI checks with their log tails):
 
       ${findings}
 

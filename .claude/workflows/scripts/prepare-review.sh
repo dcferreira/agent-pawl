@@ -39,7 +39,7 @@
 # "ci_round": false, "fix_note": ""} on one line (emits: json). `ci_round: false` marks the round that follows
 # as a review round (a fresh round always starts here), so unchanged_route
 # can tell it apart from a ci_failure-originated one later. `fix_note` is
-# reset to "" here so a prior round's ask_nitpicks instructions never leak
+# reset to "" here so a prior round's ask_optional instructions never leak
 # into a new round.
 # PAWL_REVIEW_HEAD_TRIES / PAWL_REVIEW_HEAD_SLEEP tune the head re-check
 # (defaults 10 tries, 3s apart); tests set them low.
