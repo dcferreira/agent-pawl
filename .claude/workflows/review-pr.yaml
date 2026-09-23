@@ -9,10 +9,22 @@ description: >
   human step where his judgement is the point. Never posts a GitHub
   approval or review decision; it only fixes and pushes.
 start: fetch_pr
-# Per round: prepare_review, fanout_review, review_route, fix_issues,
-# fix_push (+ wait_for_ci, ci_failure on a CI round) — at most 7 entries, so
-# 10 rounds (prepare_review's max_visits) fit comfortably under 100.
-max_steps: 100
+# A full round (via prepare_review): prepare_review, fanout_review, its 4
+# branches, review_route, fix_issues, record_declined, fix_push — 9 entries.
+# prepare_review's max_visits (10) still caps how many of those full rounds
+# can happen. But fix_push's `unchanged` outcome now re-enters review_route
+# directly (declines got filtered out, nothing else changed — see fix_push
+# below), without going through prepare_review: that inner loop
+# (review_route -> fix_issues -> record_declined -> fix_push -> review_route)
+# is capped instead by review_route's own default max_visits (10) — a budget
+# it shares with the full-round path, since every full round also enters
+# review_route once. Worst case is bounded well short of infinite (at most
+# 10 prepare_review rounds and, independently, at most 10 review_route
+# entries total), but the two caps together can add up to more entries than
+# a single 10-round accounting would suggest, so max_steps has headroom
+# above the "10 rounds x ~9 steps" estimate rather than being sized exactly
+# to it.
+max_steps: 150
 
 args:
   pr_number: {type: string}
@@ -34,6 +46,7 @@ state:
   findings_custom: {type: json, default: []}
   findings_docs: {type: json, default: []}
   findings: {type: json, default: []}
+  declined: {type: json, default: []}
   round: {type: integer, default: 0}
 
 steps:
@@ -61,11 +74,15 @@ steps:
       chosen: prepare_review
       timeout: blocked
 
-  # Entry point of every round — every cycle in this graph passes through
-  # it, so its max_visits is THE round cap (the default 10, stated
-  # explicitly): the 11th entry is `exhausted` -> blocked. Every other step
-  # in the cycle is entered at most once per round, so their own default
-  # caps of 10 can never bind first.
+  # Entry point of every FULL round (one that starts from a clean, PR-head
+  # checkout) — its max_visits is the cap on those (the default 10, stated
+  # explicitly): the 11th entry is `exhausted` -> blocked. It is no longer
+  # the only cycle-breaker in the graph: fix_push's `unchanged` outcome
+  # re-enters review_route directly, skipping prepare_review entirely (see
+  # fix_push below), so that inner loop is capped by review_route's own
+  # default max_visits instead. Every other step in the full-round cycle is
+  # still entered at most once per round, so their own default caps of 10
+  # can never bind first on that path.
   #
   # Refuses to start a round unless the working copy is clean and its head
   # is the PR's head, then fetches the PR diff into a file (a hard input:
@@ -106,6 +123,11 @@ steps:
       {file, line, category, description, fix}, category one of:
       bug | missing-test | other | performance | security |
       standards-violation | type-annotation.
+
+      Findings the fixer already declined, with its reasons, are ${declined}.
+      Do not re-raise any of them unless you believe the decline reason is
+      wrong — in that case, re-raise the item and explain in `description`
+      why the reason is wrong.
     context:
       - "${diff_file}"
     subagent_args: {tools: [Read, "Bash(gh pr diff:*)", "Bash(gh pr view:*)"], model: opus}
@@ -121,6 +143,12 @@ steps:
       working copy is checked out at the PR head) and normalize its output
       into the same findings shape as above (file, line, category,
       description, fix).
+
+      Once you know you are actually running (reviewer_choices includes
+      "codex"): findings the fixer already declined, with its reasons, are
+      ${declined}. Do not re-raise any of them unless you believe the
+      decline reason is wrong — in that case, re-raise the item and explain
+      in `description` why the reason is wrong.
     subagent_args: {tools: [Read, "Bash(codex review:*)", "Bash(gh pr diff:*)"], model: haiku}
     writes: {findings_codex: {type: json}}
     postcondition: "printf '%s' ${findings_codex} | jq -e 'type==\"array\"' >/dev/null"
@@ -135,6 +163,12 @@ steps:
       the PR head), and normalize whatever it prints into the same findings
       shape as above. If there is no such entry, immediately return
       findings_custom: [] and stop.
+
+      Once you know you are actually running (there is such an entry):
+      findings the fixer already declined, with its reasons, are ${declined}.
+      Do not re-raise any of them unless you believe the decline reason is
+      wrong — in that case, re-raise the item and explain in `description`
+      why the reason is wrong.
     subagent_args: {tools: [Read, Bash], model: haiku}
     writes: {findings_custom: {type: json}}
     postcondition: "printf '%s' ${findings_custom} | jq -e 'type==\"array\"' >/dev/null"
@@ -158,6 +192,11 @@ steps:
       point at the stale doc text, description quotes the stale claim and
       names the change that invalidated it, fix is the minimal edit to make
       it true again. Return [] if nothing existing went stale.
+
+      Findings the fixer already declined, with its reasons, are ${declined}.
+      Do not re-raise any of them unless you believe the decline reason is
+      wrong — in that case, re-raise the item and explain in `description`
+      why the reason is wrong.
     context:
       - "${diff_file}"
     subagent_args: {tools: [Read, Grep, Glob, "Bash(gh pr diff:*)", "Bash(gh pr view:*)"], model: sonnet}
@@ -166,7 +205,7 @@ steps:
 
   - id: review_route
     kind: deterministic
-    run: scripts/review-route.sh ${findings_claude} ${findings_codex} ${findings_custom} ${findings_docs}
+    run: scripts/review-route.sh ${findings_claude} ${findings_codex} ${findings_custom} ${findings_docs} ${declined}
     writes: [findings]
     outcomes:
       blocking: fix_issues
@@ -186,14 +225,35 @@ steps:
       (and say why) if it is wrong. Run the repo's own verify command (or
       its test suite) as your feedback loop, and iterate until it passes or
       further local iteration clearly won't help. Never commit or push —
-      the next step does that. Return findings: the same items, each with
-      an added verify_status reporting honestly what you did and how you
-      verified it.
+      the next step does that. Return findings: the same items, each with an
+      added verify_status, whose value must start with one of these four
+      prefixes:
+        - `fixed:` — you made the change and verified it.
+        - `partially-fixed:` — you made part of the change; say what's left.
+        - `not-fixed:` — you tried and couldn't; it will be raised again
+          next round, and that's intended.
+        - `wont-fix: <reason>` — you're declining this finding: it's wrong,
+          not applicable, or out of scope for this repo. The reason is
+          mandatory and travels with the finding so reviewers don't re-raise
+          it without cause.
     subagent_args: {tools: [Read, Edit, Write, Bash]}
     writes: {findings: {type: json}}
     postcondition: "printf '%s' ${findings} | jq -e 'all(.[]; has(\"verify_status\"))' >/dev/null"
     soft: true                     # the agent's own claim, not independently re-verified here
     attempts: 3
+    next: record_declined
+
+  # Carries forward every finding fix_issues just declined (verify_status
+  # starting "wont-fix"), merged with whatever was already declined in
+  # earlier rounds, deduplicated on (file, category, description) — so
+  # review_route can filter re-raised-but-declined findings out before
+  # deciding blocking/clean, and cold reviewers next round are told what not
+  # to re-raise without cause.
+  - id: record_declined
+    kind: deterministic
+    run: scripts/record-declined.sh ${declined} ${findings}
+    writes: [declined]
+    postcondition: "printf '%s' ${declined} | jq -e 'type==\"array\"' >/dev/null"
     next: fix_push
 
   - id: fix_push
@@ -204,7 +264,14 @@ steps:
     postcondition: scripts/verify-pushed.sh ${vcs} ${branch}
     outcomes:
       pushed: prepare_review       # re-review the new head; CI runs meanwhile
-      unchanged: blocked           # the fixer changed nothing — a human should look
+      # The fixer changed nothing in the tree. That's expected when this
+      # round's only non-fixes were declines (wont-fix), since declining
+      # doesn't touch the tree: route back to review_route, which now
+      # re-filters findings against the just-updated ${declined} and, if
+      # nothing genuinely unfixed remains, resolves `clean`. If real
+      # not-fixed items remain, review_route resolves `blocking` and we're
+      # back in fix_issues, bounded by its own default max_visits/attempts.
+      unchanged: review_route
 
   - id: wait_for_ci
     kind: wait

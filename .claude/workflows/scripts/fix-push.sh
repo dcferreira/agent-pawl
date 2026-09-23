@@ -16,11 +16,15 @@
 # Idempotent across a failed/interrupted push (format-spec §B.8 — the
 # engine re-runs the step on resume): with a clean working copy the step
 # compares the local head (git: HEAD; jj: @-) with the freshly fetched
-# remote head. Equal: nothing to do, `unchanged` (fix_issues changed
-# nothing — the workflow routes that to `blocked` so a human looks at why;
-# re-reviewing an unchanged diff would just raise the same findings again).
-# Local ahead of remote (a previous attempt committed the fix but the push
-# never landed): skip the commit and just push it. Anything else: not a
+# remote head. Equal: nothing to do, `unchanged` (fix_issues changed nothing
+# in the tree — expected when this round's only non-fixes were declines,
+# since declining a finding doesn't touch the tree. The workflow routes
+# `unchanged` back to review_route, not straight to `blocked`: review_route
+# re-filters findings against the just-recorded declines, and if nothing
+# genuinely unfixed remains it resolves `clean`; if real not-fixed items
+# remain it resolves `blocking` and we're back in fix_issues). Local ahead
+# of remote (a previous attempt committed the fix but the push never
+# landed): skip the commit and just push it. Anything else: not a
 # fast-forward, refuse.
 #
 # jj (including a colocated jj+git repo): `jj commit` finalizes the
