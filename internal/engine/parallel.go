@@ -245,14 +245,18 @@ func (e *Engine) routeParallel(dir string, log *journal.Log, runID string, step 
 
 // resumeParallel re-derives, from rs.PendingBranches[step.ID] (already
 // post-replay), which of step's branches are still outstanding after a
-// crash or blocked-run intervention: an already-transitioned branch is
-// never re-run or re-dispatched. A still-outstanding deterministic branch is
-// safely re-exec'd inline (the same fix-forward caveat DESIGN.md §4 states
-// generally for any interrupted step); a still-outstanding agentic branch is
-// re-collected into a DispatchParallel{Interrupted: true}. If re-executing
-// the deterministic stragglers leaves no agentic branch outstanding, the
-// group resolves right here via routeParallel instead of returning an
-// instruction with nothing to dispatch.
+// crash (only — Resume routes a blocked-run intervention straight to
+// dispatchParallel instead, since every branch has already transitioned by
+// the time RUN_END{blocked} is journaled and there is nothing left in
+// PendingBranches to re-derive; see Resume's "parallel" case): an
+// already-transitioned branch is never re-run or re-dispatched. A
+// still-outstanding deterministic branch is safely re-exec'd inline (the
+// same fix-forward caveat DESIGN.md §4 states generally for any interrupted
+// step); a still-outstanding agentic branch is re-collected into a
+// DispatchParallel{Interrupted: true}. If re-executing the deterministic
+// stragglers leaves no agentic branch outstanding, the group resolves right
+// here via routeParallel instead of returning an instruction with nothing to
+// dispatch.
 func (e *Engine) resumeParallel(dir string, log *journal.Log, runID string, step *spec.Step, rs *journal.RunState) (Instruction, error) {
 	pending := rs.PendingBranches[step.ID]
 	var agentic []Dispatch

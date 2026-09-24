@@ -514,6 +514,103 @@ terminal: {done: {status: ok}}
 	}
 }
 
+// TestInvariant_BlockedResumeRerunsParallelGroup: an invariant that reads a
+// branch-written state key blocks at a kind: parallel join, then a blocked
+// resume must re-run the whole group (not just re-derive the — already
+// empty — PendingBranches set) so the branch can produce fresh WRITES the
+// invariant can actually pass against. b1's script writes "bad" the first
+// time it runs and "ok" every time after (tracked via a counter file),
+// mirroring TestInvariant_BlockedResumeRerunsViolatingStep's marker-file
+// idiom but for a parallel step's branch.
+func TestInvariant_BlockedResumeRerunsParallelGroup(t *testing.T) {
+	counter := filepath.Join(t.TempDir(), "counter")
+	yaml := strings.ReplaceAll(`
+workflow: invariant-parallel-resume
+start: p
+state:
+  r1: {type: string, default: ""}
+  r2: {type: string, default: ""}
+invariants:
+  - id: r1-must-be-ok
+    check: test ${r1} = ok
+    message: "r1 not ok yet"
+steps:
+  - id: p
+    kind: parallel
+    branches: [b1, b2]
+    next: done
+  - id: b1
+    kind: deterministic
+    run: sh -c 'if [ -f COUNTER_PATH ]; then echo r1=ok; else touch COUNTER_PATH; echo r1=bad; fi'
+    emits: pairs
+    writes: {r1: {type: string}}
+  - id: b2
+    kind: deterministic
+    run: "echo r2=y"
+    emits: pairs
+    writes: {r2: {type: string}}
+terminal: {done: {status: ok}}
+`, "COUNTER_PATH", counter)
+	e := newTestEngine(t, yaml)
+	instr, err := e.Start("run1", nil)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	term, ok := instr.(Terminal)
+	if !ok || term.Status != "blocked" {
+		t.Fatalf("got %+v, want Terminal{blocked}: r1=bad on the first run", instr)
+	}
+	if term.StepID != "p" {
+		t.Errorf("Terminal.StepID = %q, want %q", term.StepID, "p")
+	}
+
+	instr, err = e.Resume("run1", false)
+	if err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	term, ok = instr.(Terminal)
+	if !ok || term.Status != "ok" {
+		t.Fatalf("got %+v, want Terminal{ok}: the resumed group re-ran b1, which now writes r1=ok", instr)
+	}
+
+	dir := journal.RunDir(e.Root, e.Workflow.Workflow, "run1")
+	events, err := journal.ReadEvents(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pEnters, b1GroupedEnters, b2GroupedEnters int
+	var sawIntervention bool
+	for _, ev := range events {
+		if ev.Kind == journal.KindResume && ev.Intervention {
+			sawIntervention = true
+			if ev.Step != "p" {
+				t.Errorf("RESUME.Step = %q, want %q", ev.Step, "p")
+			}
+		}
+		if ev.Kind == journal.KindStepEnter && ev.Step == "p" && ev.Group == "" {
+			pEnters++
+		}
+		if ev.Kind == journal.KindStepEnter && ev.Step == "b1" && ev.Group == "p" {
+			b1GroupedEnters++
+		}
+		if ev.Kind == journal.KindStepEnter && ev.Step == "b2" && ev.Group == "p" {
+			b2GroupedEnters++
+		}
+	}
+	if !sawIntervention {
+		t.Fatal("no RESUME{intervention:true} event appended")
+	}
+	if pEnters != 2 {
+		t.Errorf("STEP_ENTER count for step p = %d, want 2 (original + resumed re-run)", pEnters)
+	}
+	if b1GroupedEnters != 2 {
+		t.Errorf("grouped STEP_ENTER count for branch b1 = %d, want 2 (the blocked resume must re-run the whole group, not just re-derive an already-empty PendingBranches set)", b1GroupedEnters)
+	}
+	if b2GroupedEnters != 2 {
+		t.Errorf("grouped STEP_ENTER count for branch b2 = %d, want 2", b2GroupedEnters)
+	}
+}
+
 // TestInvariant_NotEvaluatedDuringRetryLoop: while a step's own
 // attempts:-budget retry loop is still going (a postcondition failure with
 // budget left to redispatch), invariants are not evaluated — only once the

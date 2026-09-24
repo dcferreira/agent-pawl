@@ -247,6 +247,21 @@ func (e *Engine) Resume(runID string, force bool) (Instruction, error) {
 		}
 		return instr, nil
 	case "parallel":
+		if resumeEvent.Intervention {
+			// A blocked resume must re-run the whole violating step, exactly
+			// like every other kind (dispatchAgentic/dispatchHuman above,
+			// called unconditionally on intervention): dispatchParallel
+			// journals a fresh STEP_ENTER (attempt already reset to 1 on
+			// resumeEvent above) and re-runs/re-dispatches every branch. This
+			// is the only way to produce fresh branch WRITES for an
+			// invariant's check: to re-evaluate against — by the time a
+			// parallel step's own RUN_END{blocked} is journaled, every
+			// branch has already transitioned and rs.PendingBranches[step.ID]
+			// is empty, so resumeParallel's pending-branch re-derivation
+			// (correct for a crash resume) would otherwise just re-block on
+			// the same state forever.
+			return e.dispatchParallel(dir, log, runID, step, rs.Cursor, true)
+		}
 		return e.resumeParallel(dir, log, runID, step, rs)
 	case "wait":
 		// An idempotent re-print: the run is parked, the engine did no work

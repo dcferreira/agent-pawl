@@ -65,10 +65,14 @@ func (e *Engine) evaluateInvariantCheck(tmpl string, vals render.Values) (holds 
 // for why: a blocked run mid-group would otherwise let an already-dispatched
 // sibling branch's own submit land after the block, which fix-forward
 // crash-resume assumes never happens). Because the check happens at the
-// join, resumeParallel's existing RunState.PendingBranches re-derivation
-// mechanism is exactly what a blocked resume needs — there is no
-// branch-level pending state for invariants to reason about separately.
-// This works because, at the point every caller invokes this function
+// join, every branch has already transitioned by the time a violation here
+// journals RUN_END{blocked} for cursorStep, leaving RunState.PendingBranches
+// empty — resumeParallel's pending-branch re-derivation is therefore *not*
+// what a blocked resume needs (it would just re-block on the exact same
+// state forever); Resume's "parallel" case instead routes a blocked-run
+// intervention to dispatchParallel, which re-enters the whole group, exactly
+// as every other step kind re-runs wholesale on a blocked resume. This works
+// because, at the point every caller invokes this function
 // (including routeParallel), journal.RunState.Cursor is still parked on
 // cursorStep (STEP_ENTER already replayed, no TRANSITION yet) — true
 // uniformly for an ordinary step and for a parallel step's own group join
