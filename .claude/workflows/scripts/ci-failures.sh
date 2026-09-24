@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# ci-failures.sh <pr_number> <head_sha> <repo> <fix_input_file>
+# ci-failures.sh <pr_number> <head_sha> <repo> <fix_input_file> <ledger_file> <round>
 #
 # Body of the `ci_failure` deterministic step, reached when wait_for_ci saw a
 # failing check. Turns each failing check into a finding for fix_issues —
@@ -17,6 +17,17 @@
 # confirm nothing given to the fixer gets silently dropped from its
 # returned findings (see fetch-pr.sh, which creates the file, for why it's
 # a file and not another state key).
+#
+# Each finding is also appended to <ledger_file> (findings ledger — see
+# fetch-pr.sh) as a `status: "open"` entry with an id `r<round>-ci<n>` — the
+# `ci` infix keeps it from ever colliding with review-route.sh's plain
+# `r<round>-<n>` ids for the same round number (fix_push's `unchanged`
+# outcome can send a round back through wait_for_ci/ci_failure without
+# bumping `round`, so ci_failure can run more than once at the same round
+# number; <n> continues from however many `r<round>-ci*` ids are already in
+# the ledger, so a second ci_failure in the same round still gets fresh
+# ids). record-dispositions.sh later updates these same entries by id, same
+# as any other finding's.
 #
 # Prints {"findings": [...], "ci_round": true, "fix_note": ""} on one line
 # (emits: json; `jq -c` keeps it on the one line the engine parses).
@@ -38,7 +49,7 @@
 # (non-zero exit -> blocked) instead of labelling them as <head_sha>'s.
 #
 # Size: the findings printed here become the `findings` state key, which
-# later deterministic steps (record_declined, unchanged_route) and
+# later deterministic steps (record_dispositions, unchanged_route) and
 # fix_issues' postcondition get as one shell-quoted word inside their
 # `sh -c` argument, and as PAWL_FINDINGS — each capped at 128 KiB
 # (MAX_ARG_STRLEN) on Linux. So the failed-step log tail (last
@@ -57,6 +68,8 @@ pr_number="${1:?ci-failures.sh: pr_number argument required}"
 head_sha="${2:?ci-failures.sh: head_sha argument required}"
 repo="${3:?ci-failures.sh: repo argument required}"
 fix_input_file="${4:?ci-failures.sh: fix_input_file argument required}"
+ledger_file="${5:?ci-failures.sh: ledger_file argument required}"
+round="${6:?ci-failures.sh: round argument required}"
 log_lines="${PAWL_CI_LOG_LINES:-200}"
 inline_bytes="${PAWL_CI_INLINE_BYTES:-2048}"
 inline_budget="${PAWL_CI_INLINE_BUDGET:-65536}"
@@ -174,7 +187,22 @@ fi
 
 findings=$(printf '%s\n' "$items" | jq -cs '.')
 
+# Assign ledger ids, continuing the r<round>-ci<n> sequence from whatever is
+# already in the ledger for this round (see the top-of-file comment).
+existing_ci=$(jq -c --arg prefix "r${round}-ci" '[.[] | select((.id // "") | startswith($prefix))] | length' "$ledger_file")
+findings=$(printf '%s' "$findings" | jq -c --argjson round "$round" --argjson start "$existing_ci" '
+  to_entries | map(.value + {
+    id: ("r" + ($round | tostring) + "-ci" + ((.key + 1 + $start) | tostring)),
+    round: $round,
+    pre_existing: false
+  })')
+
 printf '%s' "$findings" >"${fix_input_file}.tmp"
 mv "${fix_input_file}.tmp" "$fix_input_file"
+
+jq -cn --slurpfile ledger "$ledger_file" --argjson findings "$findings" '
+  ($ledger[0] // []) + ($findings | map(. + {status: "open", reason: null}))
+' >"${ledger_file}.tmp"
+mv "${ledger_file}.tmp" "$ledger_file"
 
 printf '%s' "$findings" | jq -c '{findings: ., ci_round: true, fix_note: ""}'

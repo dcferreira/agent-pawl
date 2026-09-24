@@ -162,7 +162,9 @@ work.
 
 **The step carries a `description:`, not a verbatim prompt.** `description:` is an inline, multi-line
 YAML string (`${key}` substituted at dispatch time). The main agent composes the actual subagent
-prompt from it, the gathered `context:`, and session knowledge, then dispatches honouring the
+prompt from it and the gathered `context:` as given — adding only mechanical harness details (working
+directory, how to return JSON), never its own hints, questions or scope rules, which would steer the
+subagent where the author did not ask and which the engine cannot see — then dispatches honouring the
 `subagent_args:` map exactly as given. No engine guarantee rests on the prompt text: they rest on the
 `writes:` return schema (validated by `pawl`), the postcondition (evaluated by `pawl`) and the guards.
 

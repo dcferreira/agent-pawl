@@ -21,10 +21,12 @@
 # fix-push.sh pushes — and every other gh-using script takes it as an
 # argument instead of letting gh guess.
 #
-# Also creates this run's declined-findings file (holding `[]`, only if it
+# Also creates this run's findings-ledger file (holding `[]`, only if it
 # does not exist yet, so a resumed step never wipes it) and writes its path
-# to state as `declined_file`. The declined list grows every round, so it
-# lives in a file rather than in state: a state key read by a
+# to state as `ledger_file`. Every finding any reviewer has ever raised,
+# with its disposition (open/held/fixed/partially-fixed/not-fixed/declined/
+# skipped/suppressed — see review-route.sh), lives there; it grows every
+# round, so it lives in a file rather than in state: a state key read by a
 # deterministic step is rendered into the one `sh -c` argument AND exported
 # as PAWL_<KEY>, and Linux caps each at MAX_ARG_STRLEN (128 KiB) — an
 # unbounded list there would eventually fail the step with E2BIG. The file
@@ -117,10 +119,10 @@ fi
 
 cache_dir="${XDG_CACHE_HOME:-${HOME}/.cache}/pawl-review-pr"
 mkdir -p "$cache_dir"
-declined_file="${cache_dir}/run-${run_id}-declined.json"
-if [ ! -e "$declined_file" ]; then
-  printf '[]\n' >"${declined_file}.tmp"
-  mv "${declined_file}.tmp" "$declined_file"
+ledger_file="${cache_dir}/run-${run_id}-ledger.json"
+if [ ! -e "$ledger_file" ]; then
+  printf '[]\n' >"${ledger_file}.tmp"
+  mv "${ledger_file}.tmp" "$ledger_file"
 fi
 
 # Snapshot of exactly what fix_issues was last asked to fix, kept current by
@@ -128,7 +130,7 @@ fi
 # blocking branch, take-optional.sh, ci-failures.sh) and read back by
 # check-fix-result.sh (fix_issues' postcondition) to confirm nothing the
 # fixer was given got silently dropped. A file, not a state key, for the
-# same reason declined_file is: a state key a step reads is rendered into
+# same reason ledger_file is: a state key a step reads is rendered into
 # its `sh -c` argument AND exported as PAWL_<KEY>, both capped at 128 KiB
 # (MAX_ARG_STRLEN) on Linux, and CI findings alone can already be ~64 KiB —
 # a second full copy on check-fix-result.sh's command line (input AND
@@ -139,10 +141,10 @@ if [ ! -e "$fix_input_file" ]; then
   mv "${fix_input_file}.tmp" "$fix_input_file"
 fi
 
-printf '%s' "$view" | jq -c --arg vcs "$vcs" --arg repo "$repo" --arg declined_file "$declined_file" --arg fix_input_file "$fix_input_file" '{
+printf '%s' "$view" | jq -c --arg vcs "$vcs" --arg repo "$repo" --arg ledger_file "$ledger_file" --arg fix_input_file "$fix_input_file" '{
     vcs: $vcs,
     repo: $repo,
-    declined_file: $declined_file,
+    ledger_file: $ledger_file,
     fix_input_file: $fix_input_file,
     pr_url: .url,
     head_sha: .headRefOid,
