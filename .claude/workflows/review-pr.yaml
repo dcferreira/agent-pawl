@@ -113,16 +113,23 @@ state:
   # "" until the first round completes; read by prepare-review.sh to decide
   # review_pass (see below) and written back by it every round.
   last_reviewed_head: {type: string, default: ""}
-  # This round's REVIEW-SCOPED diff: the full PR diff on a "full" pass
-  # (last_reviewed_head was ""), or the local-VCS delta
+  # This round's REVIEW-SCOPED diff: a small placeholder file (there is no
+  # delta yet — reviewers are told to review diff_file instead) on a "full"
+  # pass (last_reviewed_head was ""), or the local-VCS delta
   # last_reviewed_head..head_sha on a "delta" pass. Always given to both
   # reviewers as context alongside diff_file (which stays the full PR diff
-  # either way, for orientation) — see prepare-review.sh.
+  # either way, for orientation) — see prepare-review.sh. Deliberately NOT
+  # equal to diff_file on a full pass: both are listed in each reviewer's
+  # context:, and inlining the ~100 KB PR diff twice per reviewer would be
+  # wasteful for no benefit.
   delta_file: {type: string}
   # "full" (review everything) or "delta" (review-route.sh enforces this
   # deterministically too: only critical/major/medium findings on paths
-  # inside delta_file are routed; everything else is suppressed — see
-  # review-route.sh). Set by prepare-review.sh every round.
+  # inside delta_file are routed; everything else is suppressed — except a
+  # "stale-docs" finding, or one carrying a *valid* `reraise_of` (an id in
+  # the prior ledger with status fixed/partially-fixed/declined/skipped),
+  # both of which bypass the file-in-delta check. Set by prepare-review.sh
+  # every round.
   review_pass: {type: string, default: "full"}
   findings_claude: {type: json, default: []}
   findings_docs: {type: json, default: []}
@@ -136,7 +143,12 @@ state:
   optional_findings: {type: json, default: []}
   # the user's free-text instructions from ask_optional for this round (may
   # be empty); prepare_review resets it to "" at the start of every round so
-  # a note only applies to the round it was given in.
+  # a note only applies to the round it was given in. Picking the "address"
+  # option (rather than free text) writes the literal option label
+  # "address" here per design/format-spec.md §B.5 ("writes: is populated on
+  # every non-timeout path a declared key exists for, not only via the
+  # chosen: route") — take-optional.sh rewrites that one literal case back
+  # to "" so it never renders as a bogus fixer instruction.
   fix_note: {type: string, default: ""}
   # Path of the JSON file holding every finding any reviewer has ever
   # raised, each with its disposition (open/held/fixed/partially-fixed/
@@ -354,8 +366,8 @@ steps:
 
   - id: take_optional
     kind: deterministic
-    run: scripts/take-optional.sh ${fix_input_file} ${optional_findings}
-    writes: [findings, optional_findings]
+    run: scripts/take-optional.sh ${fix_input_file} ${optional_findings} ${fix_note}
+    writes: [findings, optional_findings, fix_note]
     postcondition: "printf '%s' ${findings} | jq -e 'type==\"array\"' >/dev/null"
     next: fix_issues
 

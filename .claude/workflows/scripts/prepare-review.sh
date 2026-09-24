@@ -29,9 +29,15 @@
 # 4. Delta scoping (`review_pass`/`delta_file`), the mechanism that keeps a
 #    fix-and-push cycle from re-triggering a full re-review every time:
 #      - <last_reviewed_head> (state key `last_reviewed_head`, "" until a
-#        round has completed once) empty  -> review_pass=full,
-#        delta_file=diff_file (the reviewers' delta context is just the
-#        full PR diff again — there is nothing narrower yet).
+#        round has completed once) empty  -> review_pass=full, delta_file
+#        is a small placeholder file (there is nothing narrower yet, and
+#        the reviewers are told to review diff_file instead) — NOT
+#        diff_file itself, which would otherwise be inlined into each
+#        reviewer's context twice (diff_file and delta_file both, per the
+#        step `context:` lists in review-pr.yaml) for the price of one.
+#        review-route.sh's delta-scope enforcement only reads delta_file's
+#        paths when review_pass is "delta" (see its `case` there), so a
+#        full pass's placeholder content is never parsed as a diff.
 #      - <last_reviewed_head> non-empty   -> review_pass=delta, delta_file
 #        is a *second* diff, <prev>..<head>, computed from the local VCS
 #        (`jj diff --git --from <prev> --to <head>`, or
@@ -130,7 +136,8 @@ mv "${diff_file}.tmp" "$diff_file"
 
 if [ -z "$last_reviewed_head" ]; then
   review_pass="full"
-  delta_file="$diff_file"
+  delta_file="${cache_dir}/pr-${pr_number}-${pr_head}.full-pass.txt"
+  echo "This is a full pass: there is no delta. Review ${diff_file} in full." >"$delta_file"
 else
   review_pass="delta"
   delta_file="${cache_dir}/pr-${pr_number}-${last_reviewed_head}..${pr_head}.delta.diff"

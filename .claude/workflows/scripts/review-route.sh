@@ -11,8 +11,11 @@
 # Every finding this step ever sees becomes a ledger entry:
 #   {id, round, file, line, category, severity, description, fix,
 #    pre_existing, status, reason}
-# `id` is `r<round>-<n>`, assigned in this call. This step's own prior
-# entries for THIS round (if it is being re-run after a crash — the engine
+# — plus `reraise_of` and `reraise_valid` (bool), carried through unchanged
+# from the finding, whenever the finding named a `reraise_of` at all (see
+# "Reraise validation" below). `id` is `r<round>-<n>`, assigned in this
+# call. This step's own prior entries for THIS round (if it is being
+# re-run after a crash — the engine
 # re-runs a deterministic step on resume, format-spec §B.8) are dropped and
 # recomputed from scratch before appending — `review_route` only ever runs
 # once per round (a round only re-enters it via prepare_review, which bumps
@@ -34,26 +37,45 @@
 #     anything nearby is never swallowed as a duplicate of a lesser one — a
 #     new medium next to a held pre-existing minor must still block.
 # A string `line` ("12-15", "L12") is read as its leading number.
-# A finding WITH `reraise_of` bypasses dedup entirely (always kept — it is
-# already an explicit "this needs another look" claim from the reviewer,
-# evidenced in its `description`). A `fixed` ledger entry is deliberately
-# NOT one of the dedup-triggering statuses above: a finding at/near the same
-# spot re-raised after something was marked fixed means the fix didn't
-# hold, and must always get through.
+# A finding with a *valid* `reraise_of` (see "Reraise validation" below)
+# bypasses dedup entirely (always kept — it is already an explicit "this
+# needs another look" claim from the reviewer, evidenced in its
+# `description`). A finding whose `reraise_of` is invalid, or absent, gets
+# no such exemption and is deduped normally. A `fixed` ledger entry is
+# deliberately NOT one of the dedup-triggering statuses above: a finding
+# at/near the same spot re-raised after something was marked fixed means the
+# fix didn't hold, and must always get through.
+#
+# ## Reraise validation
+#
+# A finding's `reraise_of` (an earlier round's ledger `id`) only counts when
+# it names an entry in <ledger_prev> (the ledger as of the START of this
+# round — not including anything this call itself is about to add) whose
+# `status` is one of fixed|partially-fixed|declined|skipped — the
+# dispositions the reviewer prompts invite re-raising against. Anything
+# else — an unknown/missing id, or an id whose entry has another status
+# (e.g. held/suppressed/open/not-fixed) — is INVALID: the finding is
+# treated exactly as if it had no `reraise_of` at all (normal dedup, normal
+# delta-scope rules). Either way, when a finding names a `reraise_of` its
+# ledger entry keeps the field and gains `reraise_valid: true`/`false`, so a
+# human reading the ledger can see which reraises actually held up.
 #
 # ## Disposition
 #
 # For each surviving fresh finding, in order:
 #   1. Delta-scope enforcement (only when <review_pass> is "delta" — see
 #      prepare-review.sh): a finding whose severity is minor/nitpick, OR
-#      (unless its category is "stale-docs" — docs_review flags existing
-#      docs the delta made stale, which are rarely files the delta touched)
-#      whose `file` is not one of <delta_file>'s `+++ b/<path>` paths, is
-#      NOT routed — it becomes a ledger entry with status "suppressed" and
-#      a reason, and is otherwise dropped. This is the deterministic
-#      backstop for the reviewers' own delta-pass instructions (they are
-#      told the same rule in their `description:`); a reviewer that
-#      disregards it doesn't get through anyway.
+#      (unless its category is "stale-docs", OR it carries a *valid*
+#      `reraise_of` per "Reraise validation" above — docs_review flags
+#      existing docs the delta made stale, which are rarely files the delta
+#      touched, and a legitimately re-raised item shouldn't be re-suppressed
+#      by scope just because the id it names happens to sit outside the
+#      delta) whose `file` is not one of <delta_file>'s `+++ b/<path>`
+#      paths, is NOT routed — it becomes a ledger entry with status
+#      "suppressed" and a reason, and is otherwise dropped. This is the
+#      deterministic backstop for the reviewers' own delta-pass
+#      instructions (they are told the same rule in their `description:`);
+#      a reviewer that disregards it doesn't get through anyway.
 #   2. `pre_existing: true` -> status "held", regardless of severity: a
 #      pre-existing finding is never blocking, in any pass.
 #   3. Otherwise, severity "minor"/"nitpick" -> "held"; everything else
@@ -145,15 +167,25 @@ result=$(jq -cn \
   def is_dedup_target($e): (["declined","skipped","held","suppressed","open"] | index($e.status)) != null;
   def is_dup($f; $ledger_prev):
     $ledger_prev | any(.[]; is_dedup_target(.) and loc_match($f; .) and cat_or_sev($f; .));
+  # A reraise_of only counts when it names a $ledger_prev entry (a finding
+  # raised earlier this same call has no id yet, so a same-round reraise
+  # is never valid) whose status invites re-raising.
+  def reraise_ok($rid; $ledger_prev):
+    ($rid != "") and ($ledger_prev | any(.[]; . as $e | $e.id == $rid and ((["fixed","partially-fixed","declined","skipped"] | index($e.status)) != null)));
+  def has_valid_reraise($f): ($f.reraise_valid // false) == true;
 
   ($ledger[0] // []) as $ledger_all
   | ($ledger_all | map(select(.round != $round))) as $ledger_prev
-  | (($a + $d) | map(. + {pre_existing: (.pre_existing // false)})) as $merged
-  | ($merged | map(select((((.reraise_of // "") != "")) or (is_dup(.; $ledger_prev) | not)))) as $kept
+  | (($a + $d) | map(. + {pre_existing: (.pre_existing // false)})) as $merged0
+  | ($merged0 | map(
+      (.reraise_of // "") as $rid
+      | if $rid == "" then . else . + {reraise_valid: reraise_ok($rid; $ledger_prev)} end
+    )) as $merged
+  | ($merged | map(select(has_valid_reraise(.) or (is_dup(.; $ledger_prev) | not)))) as $kept
   | ($kept | to_entries | map(.value + {id: ("r" + ($round | tostring) + "-" + ((.key + 1) | tostring)), round: $round})) as $with_ids
   | ($with_ids | map(
       . as $it
-      | if ($review_pass == "delta") and (($it.severity == "minor") or ($it.severity == "nitpick") or (($it.category != "stale-docs") and (($it.reraise_of // "") == "") and ($delta_paths | index($it.file) == null)))
+      | if ($review_pass == "delta") and (($it.severity == "minor") or ($it.severity == "nitpick") or (($it.category != "stale-docs") and (has_valid_reraise($it) | not) and ($delta_paths | index($it.file) == null)))
       then . + {status: "suppressed", reason: ("delta pass: " + (if ($it.severity == "minor" or $it.severity == "nitpick") then "minor/nitpick findings are not routed in a delta pass" else "file is outside this delta (" + ($it.file // "?") + ")" end))}
       elif .pre_existing then . + {status: "held", reason: "pre-existing"}
       elif (.severity == "minor") or (.severity == "nitpick")
