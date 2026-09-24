@@ -196,9 +196,10 @@ correct.
 ## What this walkthrough does not show
 
 Nothing here demonstrates enforcement, because there isn't any — see the warning at the top.
-Nothing here shows `wait` or `human` steps, `guards:`, `invariants:`, or `retry:`, because none of
-them exist in this build; a workflow file that declares any of them is rejected outright by both
-`pawl validate` and `pawl run`.
+Nothing here shows `wait` or `human` steps: both are implemented in this build (see the README's
+Status section), but `docs/examples/green-tests` doesn't happen to use either kind. Nothing here
+shows `guards:` either — it is now parsed and validated (rule 15, above), but still not enforced —
+or `invariants:`/`retry:`, which are still rejected outright by both `pawl validate` and `pawl run`.
 
 ---
 

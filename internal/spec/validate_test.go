@@ -356,6 +356,22 @@ func TestValidate_GoldenMessages(t *testing.T) {
 			},
 		},
 		{
+			name: "rule15: guard match matches the empty string",
+			file: "rule15_guard_empty_match.yaml",
+			want: []string{
+				`testdata/rule15_guard_empty_match.yaml: guard "matches-everything": match: "git push|" matches the empty string, so it would match (and deny) every command; use a pattern that requires something concrete`,
+			},
+		},
+		{
+			name: "rule15: guard missing id, match and only_in together reports one error per field",
+			file: "rule15_guard_missing_all_fields.yaml",
+			want: []string{
+				`testdata/rule15_guard_missing_all_fields.yaml: guards[0]: id: is required; add a unique id`,
+				`testdata/rule15_guard_missing_all_fields.yaml: guards[0]: match: is required; add a match: regexp`,
+				`testdata/rule15_guard_missing_all_fields.yaml: guards[0]: only_in: is required; use only_in: [] to deny it in every step`,
+			},
+		},
+		{
 			name: "R8: invariants are not implemented in this build",
 			file: "r8_invariants_rejected.yaml",
 			want: []string{
@@ -522,7 +538,7 @@ func TestValidate_GoldenMessages(t *testing.T) {
 }
 
 func TestValidate_ValidWorkflowsHaveZeroErrors(t *testing.T) {
-	for _, file := range []string{"tidy.yaml", "valid.yaml", "parallel_ok.yaml", "human_next_valid.yaml", "human_valid_static.yaml", "human_valid_options_from.yaml", "rule15_guards_accepted.yaml"} {
+	for _, file := range []string{"tidy.yaml", "valid.yaml", "parallel_ok.yaml", "human_next_valid.yaml", "human_valid_static.yaml", "human_valid_options_from.yaml", "rule15_guards_accepted.yaml", "rule15_guard_only_in_parallel_branch.yaml"} {
 		t.Run(file, func(t *testing.T) {
 			w, err := Load(filepath.Join("testdata", file))
 			if err != nil {

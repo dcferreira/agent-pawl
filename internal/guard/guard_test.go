@@ -71,6 +71,49 @@ func TestDenied_UnanchoredMatch(t *testing.T) {
 	}
 }
 
+// TestDenied_BackslashNewlineContinuationCaught proves the format-spec §10
+// normalization: a command split across lines with a trailing `\` (the
+// canonical Bash tool wrapping of a long command) matches a guard the same
+// as its one-line spelling would, even though `.` does not match a literal
+// `\n` under Go's default regexp flags.
+func TestDenied_BackslashNewlineContinuationCaught(t *testing.T) {
+	guards := []spec.GuardDecl{
+		{ID: "merge-guard", Match: "gh pr merge .*", OnlyIn: []string{}},
+	}
+	command := "gh pr merge \\\n  41"
+	if got := Denied(guards, nil, command); got == nil || got.ID != "merge-guard" {
+		t.Fatalf("Denied(%q) = %+v, want denied by merge-guard (backslash-newline continuation normalized)", command, got)
+	}
+}
+
+// TestDenied_BackslashCarriageReturnNewlineContinuationCaught is the same
+// as above but for a `\r\n` line ending.
+func TestDenied_BackslashCarriageReturnNewlineContinuationCaught(t *testing.T) {
+	guards := []spec.GuardDecl{
+		{ID: "merge-guard", Match: "gh pr merge .*", OnlyIn: []string{}},
+	}
+	command := "gh pr merge \\\r\n  41"
+	if got := Denied(guards, nil, command); got == nil || got.ID != "merge-guard" {
+		t.Fatalf("Denied(%q) = %+v, want denied by merge-guard (\\r\\n continuation normalized)", command, got)
+	}
+}
+
+// TestDenied_PlainNewlineStillMatchedOnItsOwnLine documents the other half
+// of the decision: a bare newline with no preceding backslash is not a
+// continuation, so it is left alone. An unanchored match: still finds it,
+// because substring search does not stop at `\n` — only `.` and the
+// anchors do — so this is unchanged from before the normalization was
+// added.
+func TestDenied_PlainNewlineStillMatchedOnItsOwnLine(t *testing.T) {
+	guards := []spec.GuardDecl{
+		{ID: "no-push", Match: "git push", OnlyIn: []string{}},
+	}
+	command := "echo hi\ngit push origin"
+	if got := Denied(guards, nil, command); got == nil || got.ID != "no-push" {
+		t.Fatalf("Denied(%q) = %+v, want denied (plain newline-separated second command still matched)", command, got)
+	}
+}
+
 func TestDenied_EmptyActiveSteps(t *testing.T) {
 	guards := []spec.GuardDecl{
 		{ID: "push-only-in-commit", Match: "git push", OnlyIn: []string{"commit_and_pr"}},

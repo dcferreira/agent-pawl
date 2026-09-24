@@ -162,6 +162,11 @@ func guardRef(g GuardDecl, i int) string {
 //   - match: is required and must compile as a Go regexp (RE2 syntax —
 //     close to POSIX ERE, no backreferences); it is matched unanchored
 //     against the whole command string at enforcement time (internal/guard).
+//     It must also not match the empty string: since matching is
+//     unanchored, a pattern like `a*`, `x?` or `foo|` matches every
+//     command, which would make the guard deny (or, with a non-empty
+//     only_in:, effectively deny outside its listed steps) unconditionally
+//     — almost certainly a typo, not an intended "block everything" guard.
 //   - only_in: is a required key (a project ruling, not implied by §D's
 //     table): a missing only_in: is far more likely to be an author who
 //     forgot it than one who means "never active", so the validator makes
@@ -195,9 +200,12 @@ func checkGuards(w *Workflow, errs *[]string) {
 
 		if g.Match == "" {
 			*errs = append(*errs, fileErr(w, fmt.Sprintf("%s: match: is required; add a match: regexp", ref)))
-		} else if _, err := regexp.Compile(g.Match); err != nil {
+		} else if re, err := regexp.Compile(g.Match); err != nil {
 			*errs = append(*errs, fileErr(w, fmt.Sprintf(
 				"%s: match: %q does not compile as a regexp: %s", ref, g.Match, err)))
+		} else if re.MatchString("") {
+			*errs = append(*errs, fileErr(w, fmt.Sprintf(
+				"%s: match: %q matches the empty string, so it would match (and deny) every command; use a pattern that requires something concrete", ref, g.Match)))
 		}
 
 		if g.OnlyIn == nil {

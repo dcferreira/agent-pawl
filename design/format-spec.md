@@ -220,6 +220,16 @@ canonical spelling of an action and nothing else: variable indirection, `$()`, b
 binary all defeat it. **Invariants are the layer that holds**, because an invariant runs a command
 that re-observes real external state.
 
+Before matching, `internal/guard.Table.Denied` normalises shell backslash-newline line
+continuations — a `\` immediately followed by `\n` or `\r\n` — to a single space, so a command like
+`gh pr merge \` + newline + `  41` matches `gh pr merge .*` the same as the one-line spelling. This
+is a normalisation of the command string, not a change to the regexp engine's flags: `.` still does
+not match `\n`, and `^`/`$` still anchor only at the ends of the whole string. A plain newline with
+no preceding backslash (e.g. two shell commands separated by a bare newline, or a `&&` chain broken
+across lines without a trailing `\`) is left alone; an unanchored `match:` still finds a hit on
+whichever line it falls on, because substring search does not stop at `\n` — only `.` and the
+anchors do.
+
 Invariants are evaluated by the engine after every step completion and after every `pawl submit`.
 Exit 0 holds; non-zero violates; a check that *cannot run* — missing script, unparseable output,
 network error — counts as violated. A violation blocks the run with the invariant's `message:` as the
@@ -341,7 +351,7 @@ Reserved outcome tokens, usable anywhere: `success`, `failure`, `timeout`, `exha
 | `max_steps` | no | file | integer | Backstop on total step entries in a run. | `200` |
 | `args` | no | file | map | Run arguments, typed like `state:`, read-only, bound as `key=value`. | `{}` |
 | `state` | no | file | map | Every key the run may carry: `{type, default, max_length}`. | `{}` |
-| `guards` | no | file | list | `{id, match, only_in: [steps]}`; `only_in: []` = denied everywhere. | `[]` |
+| `guards` | no | file | list | `{id, match, only_in: [steps]}` — see the guards[] sub-table below. | `[]` |
 | `invariants` | no | file | list | `{id, check, message}`; breaking one → `BLOCKED`. | `[]` |
 | `steps` | yes | file | list | The graph, read top to bottom. | — |
 | `terminal` | no | file | map | `{status: ok\|blocked, message}` per terminal id (§B.12). | implicit |
@@ -370,6 +380,14 @@ Reserved outcome tokens, usable anywhere: `success`, `failure`, `timeout`, `exha
 | `catch` | no | all | list | Ordered `{on: <outcome>, next: <step or terminal>}`; fires on exhaustion. | `failure → blocked` |
 | `next` | one of `next`/`outcomes` | all | step id | Single successor. Mutually exclusive with `outcomes:`. | — (no fall-through — §B.11) |
 | `outcomes` | one of `next`/`outcomes` | all | map | Outcome → step/terminal, covering every outcome the step can produce (§B.11). | — |
+
+### `guards[]` entry fields
+
+| Field | Required | Type | Meaning |
+|---|---|---|---|
+| `id` | yes | string | Unique across the file's `guards:` list; step-id syntax (letters, digits, `_`, `-`, starting with a letter or digit — same `stepIDPattern` as a step `id:`), since it ends up as a JSON key downstream. |
+| `match` | yes | RE2 regexp string | Compiled with Go's `regexp` package; matched unanchored anywhere in the command string (§B.10). Must not match the empty string — a pattern like `a*`, `x?` or `\|git push` matches every command, which is rejected as validation error rather than accepted as a guard that denies everything. |
+| `only_in` | yes | list of step ids | The steps where the pattern is allowed; denied everywhere else. The key itself is required — a missing `only_in:` is rejected as a likely-forgotten field, not treated as "deny nowhere". `only_in: []` is the explicit spelling for "deny everywhere, in every step" (§B.10). Rule 15 checks every entry names a declared step — including a `parallel` step's `branches:` steps, which are ordinary top-level steps. |
 
 ---
 
@@ -501,7 +519,11 @@ work to an agent. See `docs/quickstart.md`.
     `max_visits:` raised above `max_steps:` — a cap that can never bind.
 13. `attempts:` is less than 1.
 14. A `postcondition:` map uses a key other than `command` / `all_set` / `equals`.
-15. `guards[].only_in` names a step that does not exist.
+15. `guards[]`: `id:` is required, unique across the file, and uses step-id syntax; `match:` is
+    required, must compile as a Go RE2 regexp (matched unanchored — §B.10), and must not match the
+    empty string; `only_in:` is a required key — `only_in: []` is the explicit spelling for "deny
+    everywhere", distinct from omitting the key — and every entry in it must name a declared step
+    (a `parallel` branch counts; it is a top-level step like any other).
 16. A referenced file (`context:`, `run:`, `poll:`, `check:`) does not exist or is not executable.
 17. `kind: parallel` (§B.15, §H checkParallelBranches): `branches:` has fewer than 2 entries; a
     branch name does not resolve to a declared step; a branch's kind is not `deterministic` or

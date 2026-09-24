@@ -27,6 +27,25 @@ enforces guards in the current build (currently: nothing yet).
 `only_in:` lists the steps where the pattern is allowed — `[commit_and_pr]` allows it there, denies
 elsewhere; `[]` (empty) denies it for the whole run: "never do this by hand".
 
+### Multi-line commands
+
+Before matching, a `\` immediately followed by a newline (`\n` or `\r\n`) — a shell line
+continuation — is normalised to a single space, so a command split across lines with a trailing
+backslash still matches the same as its one-line spelling:
+
+```
+gh pr merge \
+  41
+```
+
+matches `match: "gh pr merge .*"` exactly like `gh pr merge 41` would. This is a normalisation of
+the command text `internal/guard.Table.Denied` matches against, not a change to the regexp's
+flags — `.` still does not match a literal `\n`, and `^`/`$` still anchor only at the start/end of
+the whole string. A bare newline with nothing before it isn't touched: two commands separated by a
+plain newline (no `&&`, no trailing `\`) still each get their own chance to match, since an
+unanchored `match:` finds a hit on whichever line it lands on — only `.` and the anchors treat `\n`
+specially, and this normalisation doesn't change that.
+
 A denied call does not run:
 
 ```

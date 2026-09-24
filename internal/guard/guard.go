@@ -28,6 +28,30 @@ type Table struct {
 	guards []compiledGuard
 }
 
+// continuationPattern matches a shell backslash-newline line continuation —
+// a `\` immediately followed by `\n` or `\r\n` — the same spelling a shell
+// itself joins into one logical line before running a command. It is
+// intentionally narrower than "any newline": a bare newline with no
+// preceding backslash is left untouched (see normalizeContinuations).
+var continuationPattern = regexp.MustCompile(`\\\r?\n`)
+
+// normalizeContinuations collapses every shell backslash-newline
+// continuation in command to a single space, so a command split across
+// lines with a trailing `\` (the canonical way a long Bash tool call wraps)
+// matches a guard's match: the same as its one-line spelling would —
+// design/format-spec.md §10. This changes the command text Denied matches
+// against, not the regexp engine's flags: `.` still does not match a
+// literal `\n`, and `^`/`$` still anchor only at the ends of the whole
+// string. A plain newline with nothing before it is left alone on purpose:
+// two commands separated by a bare newline (no trailing `\`) still each get
+// their own chance to match on their own line, since an unanchored
+// match: finds a hit anywhere in the string regardless of embedded
+// newlines — only `.` and the anchors treat `\n` specially, and this
+// normalization doesn't change that.
+func normalizeContinuations(command string) string {
+	return continuationPattern.ReplaceAllString(command, " ")
+}
+
 // Compile compiles every guard's match: as a Go regexp (RE2 syntax — close
 // to POSIX ERE, no backreferences). It returns an error naming the first
 // guard (in declaration order) whose match: fails to compile.
@@ -55,13 +79,16 @@ func Compile(guards []spec.GuardDecl) (*Table, error) {
 // step. activeSteps may be empty (no step is currently active) or carry
 // several entries (a parallel step's branches are all active at once);
 // either way, a guard denies unless at least one active step is
-// permitted.
+// permitted. Before matching, command has its shell backslash-newline line
+// continuations normalized to a single space (normalizeContinuations); a
+// plain newline with no preceding backslash is left alone.
 //
 // A nil *Table (an empty guard set) always returns nil: nothing to deny.
 func (t *Table) Denied(activeSteps []string, command string) *spec.GuardDecl {
 	if t == nil {
 		return nil
 	}
+	command = normalizeContinuations(command)
 	for _, cg := range t.guards {
 		if !cg.re.MatchString(command) {
 			continue
