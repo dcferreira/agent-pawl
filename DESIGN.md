@@ -338,6 +338,13 @@ subshell, a wrapper such as `bash -c`) marks the command "unsure", which is neve
 That union is over-permissive, and acceptable because guards are advisory; the banner says so:
 `guards: N advisory (pattern-matched)`.
 
+A run's *active steps*, for `only_in:`, are its cursor step plus every still-outstanding branch of
+the `kind: parallel` step it is parked on (`activeSteps` in `internal/cli/hook.go`). Replay keeps the
+cursor on the `parallel` step for the whole fan-out, so that step's own id is active until the join
+transitions: `only_in: [p]` for a `parallel` step `p` permits the pattern in every branch for the
+entire fan-out, while `only_in: [b]` for a branch `b` permits it only until `b` resolves (its grouped
+TRANSITION is journaled).
+
 `PreToolUse` also denies VCS-mutating `Bash` from a subagent (`agent_id` present in the payload)
 whenever any run is live for this working copy, not only while an agentic step is live — the one
 subagent rule the hook keeps. The classifier (`internal/hook.IsVCSMutation`, `gitMutates`,

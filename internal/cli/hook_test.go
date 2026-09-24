@@ -362,3 +362,46 @@ func TestHookPre_PrunesStaleLiveIndexWithNoRuns(t *testing.T) {
 		t.Fatalf("stale live index entry survived: err=%v", err)
 	}
 }
+
+// TestHookPre_UncompilableGuardFailsClosed: guard.Compile returns a nil
+// *Table on error, and a nil table's Denied allows everything — so a run
+// whose plan.json carries a guard that fails to compile must never have
+// such a table consulted. It must fail closed instead: every non-pawl Bash
+// command is denied, naming the run, even one no guard would ever match.
+// plan.json is rewritten directly because spec.Validate would reject the
+// bad pattern before any run could start with it.
+func TestHookPre_UncompilableGuardFailsClosed(t *testing.T) {
+	root, runID := startHookRun(t)
+	planPath := filepath.Join(journal.RunDir(root, "hookwf", runID), "plan.json")
+	raw, err := os.ReadFile(planPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var plan journal.Plan
+	if err := json.Unmarshal(raw, &plan); err != nil {
+		t.Fatal(err)
+	}
+	if plan.Workflow == nil || len(plan.Workflow.Guards) != 1 {
+		t.Fatalf("precondition: plan.json should carry hookwf's one guard: %s", raw)
+	}
+	plan.Workflow.Guards[0].Match = "(" // not a valid RE2 regexp
+	raw, err = json.Marshal(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(planPath, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, cmd := range []string{"ls", "echo hello"} {
+		code, out, errs := hookCall(t, "pre", prePayload(root, "s1", cmd, ""))
+		reason, ok := preDenyReason(t, code, out)
+		if !ok || !strings.Contains(reason, runID) || !strings.Contains(reason, "could not be loaded") {
+			t.Fatalf("%q: want a fail-closed deny naming run %s; code=%d out=%q err=%q", cmd, runID, code, out, errs)
+		}
+	}
+	// The pawl-only exemption still lets the driver abandon the run.
+	if code, out, errs := hookCall(t, "pre", prePayload(root, "s1", "pawl abandon --run "+runID, "")); code != 0 || strings.Contains(out, "deny") {
+		t.Fatalf("pawl abandon must stay allowed; code=%d out=%q err=%q", code, out, errs)
+	}
+}

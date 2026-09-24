@@ -27,6 +27,13 @@ pattern-matched — see [install.md#hooks](install.md#hooks) for wiring the hook
 `only_in:` lists the steps where the pattern is allowed — `[commit_and_pr]` allows it there, denies
 elsewhere; `[]` (empty) denies it for the whole run: "never do this by hand".
 
+"Active" means the step the run's cursor is on, plus — while a `kind: parallel` step fans out — each
+of its branches that hasn't resolved yet. The cursor stays parked on the `parallel` step itself for
+the whole fan-out, so the `parallel` step's own id counts as active until the join transitions:
+`only_in: [p]`, where `p` is a `parallel` step, permits the pattern in every branch for the entire
+fan-out. `only_in: [some_branch]` permits it only while that branch is still outstanding (not yet
+resolved).
+
 ### Multi-line commands
 
 Before matching, a `\` immediately followed by a newline (`\n` or `\r\n`) — a shell line

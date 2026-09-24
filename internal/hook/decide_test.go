@@ -242,3 +242,26 @@ func TestDecidePre_UnionIsPerGuardNotPerCommand(t *testing.T) {
 		t.Fatalf("same match: permitted by A must be allowed; got %+v", d)
 	}
 }
+
+// TestCompileGuards_FailureNeverYieldsANilTable: guard.Compile returns a nil
+// *guard.Table on error, and a nil table's Denied allows everything. So
+// CompileGuards must not return a partial slice whose failing entry wraps a
+// nil table (or any slice at all) alongside its error — and a LiveRun built
+// from its result must fail closed, denying a non-pawl command that no
+// guard would ever match, rather than consulting a nil table.
+func TestCompileGuards_FailureNeverYieldsANilTable(t *testing.T) {
+	bad := spec.GuardDecl{ID: "broken", Match: "(", OnlyIn: []string{}}
+	gs, err := CompileGuards([]spec.GuardDecl{pushOnlyInCommit, bad})
+	if err == nil {
+		t.Fatal("CompileGuards accepted an uncompilable match:")
+	}
+	if gs != nil {
+		t.Fatalf("CompileGuards returned guards alongside its error: %+v", gs)
+	}
+	runs := []LiveRun{{RunID: "ab12", CursorStep: "commit", ActiveSteps: []string{"commit"}, Guards: gs, GuardsErr: err}}
+	for _, cmd := range []string{"ls", "git push"} {
+		if d := DecidePre(runs, bash(cmd)); d.Allow || !strings.Contains(d.Reason, "ab12") {
+			t.Fatalf("%q: want fail-closed deny, got %+v", cmd, d)
+		}
+	}
+}
