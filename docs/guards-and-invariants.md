@@ -30,9 +30,12 @@ elsewhere; `[]` (empty) denies it for the whole run: "never do this by hand".
 ### Multi-line commands
 
 Before matching, a `\` immediately followed by a newline (`\n` or `\r\n`) — a shell line
-continuation — is deleted entirely, the way POSIX sh itself joins a continued line: nothing is
-inserted in its place, so a command split mid-word across lines with a trailing backslash is
-rejoined into the same word it would run as:
+continuation — is deleted entirely: nothing is inserted in its place, so a command split mid-word
+across lines with a trailing backslash is rejoined into the same word it would run as. `\` + `\n` is
+what POSIX sh itself joins when it splices a continued line; `\` + `\r\n` is deleted the same way,
+but that half is pawl's own allowance for CRLF-terminated input, not something a real shell does —
+the CR in `\` + CR + LF is an ordinary character to POSIX sh, so it does not treat the pair as a
+continuation:
 
 ```
 git pu\
@@ -52,7 +55,9 @@ treat `\n` specially, and this normalisation doesn't change that.
 This is a syntactic join, not a real shell parse, and that is a known imprecision: the matcher does
 not track quoting, so a backslash-newline inside single quotes, a quoted heredoc body, or after an
 escaped backslash is deleted as if it were a continuation, even though a real shell would not join
-the line in any of those cases. For the escaped-backslash case, `echo a\\` + newline + `git push` is,
+the line in any of those cases (and, as above, a real shell would not join a backslash-CRLF pair at
+all — deleting that pair is pawl's own CRLF-input allowance, not something the matcher is mimicking
+from POSIX sh). For the escaped-backslash case, `echo a\\` + newline + `git push` is,
 to a real shell, one command ending in a literal backslash followed by a second command on the next
 line — but this matcher can't tell an escaped backslash from an unescaped one, and deletes that
 newline anyway. The same applies inside single quotes and quoted heredocs, e.g. `echo 'git pu\` +

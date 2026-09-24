@@ -215,9 +215,11 @@ If a workflow file declares top-level `invariants:`, or a step's `retry:`, `pawl
 instead of a DISPATCH/DISPATCH_PARALLEL/ASK/WAIT/TERMINAL block, and there is nothing to drive: fix
 or report the workflow file instead.
 
-Top-level `guards:` is different: it is now parsed and validated (not rejected), but it is not
+Top-level `guards:` is different: it is now parsed and validated (id required+unique, `match:`
+required, RE2-compilable, and not able to match zero characters; `only_in:` required), but it is not
 enforced — there is no `PreToolUse` hook in this build to actually deny a matched command. When a
-workflow declares any, `pawl run`'s start banner prints an extra line, `guards: N declared, NOT
-enforced (no PreToolUse hook in this build)`, right after `enforcement: off (milestone 1)`; the run
-otherwise proceeds normally, and this skill's protocol is unaffected — report that line to the user
-along with the rest of the banner if they ask what it means, but keep driving the run as usual.
+workflow declares any, `pawl run`'s start banner and `pawl validate` print an extra line, `guards: N
+declared, NOT enforced (no PreToolUse hook in this build)`, right after `enforcement: off (milestone
+1)`; the run otherwise proceeds normally, and this skill's protocol is unaffected — report that line
+to the user along with the rest of the banner if they ask what it means, but keep driving the run as
+usual.

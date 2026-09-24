@@ -44,13 +44,17 @@ type Table struct {
 var continuationPattern = regexp.MustCompile(`\\\r?\n`)
 
 // normalizeContinuations deletes every shell backslash-newline continuation
-// in command entirely, matching what POSIX sh itself does with one: a line
-// ending in an unescaped `\` has that backslash and the following newline
-// removed outright, joining the next line directly onto the current one
-// with nothing in between — not a space — so a command split across lines
-// with a trailing `\` (the canonical way a long Bash tool call wraps)
-// matches a guard's match: the same as its one-line spelling would —
-// design/format-spec.md §10. Any whitespace already present next to the
+// in command entirely: a line ending in an unescaped `\` has that backslash
+// and the following newline removed outright, joining the next line
+// directly onto the current one with nothing in between — not a space — so
+// a command split across lines with a trailing `\` (the canonical way a
+// long Bash tool call wraps) matches a guard's match: the same as its
+// one-line spelling would — design/format-spec.md §10. `\` + `\n` is what
+// POSIX sh itself does with a continuation; `\` + `\r\n` is deleted the
+// same way, but that half is pawl's own allowance for CRLF-terminated
+// input, not POSIX sh behaviour — the CR in `\` + CR + LF is an ordinary
+// character to a real shell, so it does not treat the pair as a
+// continuation and does not join the line. Any whitespace already present next to the
 // `\` or at the start of the following line survives the deletion as-is;
 // only the backslash-newline pair itself is removed. This changes the
 // command text Denied matches against, not the regexp engine's flags: `.`
@@ -95,9 +99,10 @@ func Compile(guards []spec.GuardDecl) (*Table, error) {
 // several entries (a parallel step's branches are all active at once);
 // either way, a guard denies unless at least one active step is
 // permitted. Before matching, command has its shell backslash-newline line
-// continuations deleted entirely (normalizeContinuations), joining the
-// split lines the way a POSIX shell would; a plain newline with no
-// preceding backslash is left alone.
+// continuations deleted entirely (normalizeContinuations) — `\`+LF the way
+// POSIX sh itself joins a continued line, `\`+CRLF as pawl's own allowance
+// for CRLF-terminated input; a plain newline with no preceding backslash is
+// left alone.
 //
 // A nil *Table (an empty guard set) always returns nil: nothing to deny.
 func (t *Table) Denied(activeSteps []string, command string) *spec.GuardDecl {

@@ -176,14 +176,23 @@ func guardRef(g GuardDecl, i int) string {
 //     regexp/syntax (the same syntax.Perl flags regexp.Compile itself
 //     uses), Simplifies the tree, and walks it (minMatchWidth, below) to
 //     compute the minimum number of runes any match can consume, rejecting
-//     when that minimum is 0.
+//     when that minimum is 0. This check is deliberately narrow: a match:
+//     that can never match anything at all (impossibleWidth, below — e.g.
+//     a character class that excludes every rune) is a dead guard, not a
+//     zero-width one, and is not rejected here; it is a different mistake
+//     this validator does not currently catch.
 //   - only_in: is a required key (a project ruling, not implied by §D's
-//     table): a missing only_in: is far more likely to be an author who
-//     forgot it than one who means "never active", so the validator makes
-//     the two spellings distinguishable — only_in: [] is the explicit way
-//     to deny a guard everywhere. yaml.v3 already decodes a missing key as
-//     nil and an empty list as a non-nil empty slice, so GuardDecl.OnlyIn
-//     needs no change to tell them apart.
+//     table): a missing, null (only_in: ~ / only_in: null), or bare
+//     (only_in: with nothing after the colon) only_in: is far more likely
+//     to be an author who forgot it than one who means "never active", so
+//     the validator makes that distinguishable from meaning it — only_in:
+//     [] is the explicit way to deny a guard everywhere. yaml.v3 already
+//     decodes all three of missing/null/bare the same way, as a nil slice,
+//     and an empty list as a distinct non-nil empty slice, so
+//     GuardDecl.OnlyIn needs no change to tell them apart; the error
+//     message says "required and must be a list" rather than "missing"
+//     so it reads correctly even when the author's line visibly has
+//     only_in: on it.
 //
 // Unknown fields inside a guards[] entry are rejected earlier, at Load
 // time, by the decoder's KnownFields(true) (internal/spec/load.go) — guards:
@@ -227,7 +236,7 @@ func checkGuards(w *Workflow, errs *[]string) {
 
 		if g.OnlyIn == nil {
 			*errs = append(*errs, fileErr(w, fmt.Sprintf(
-				"%s: only_in: is required; use only_in: [] to deny it in every step", ref)))
+				"%s: only_in: is required and must be a list; use only_in: [] to deny it in every step", ref)))
 			continue
 		}
 		for _, stepID := range g.OnlyIn {
@@ -257,14 +266,21 @@ const impossibleWidth = 1 << 30
 // doc comment for why re.MatchString("") alone is not enough:
 //
 //   - OpLiteral: the literal's rune count.
-//   - OpCharClass, OpAnyCharNotNL, OpAnyChar: 1 — a character class or "any
-//     character" always consumes exactly one rune.
+//   - OpCharClass: 1, unless the class has zero ranges (re.Rune is empty),
+//     in which case impossibleWidth — see the case's own comment below.
+//   - OpAnyCharNotNL, OpAnyChar: 1 — "any character" always consumes
+//     exactly one rune.
 //   - OpBeginLine, OpEndLine, OpBeginText, OpEndText, OpWordBoundary,
 //     OpNoWordBoundary, OpEmptyMatch: 0 — these are all empty-width
 //     assertions or the empty match itself; none of them consumes a rune.
 //   - OpNoMatch: impossibleWidth (above) — a subexpression that can never
 //     match at all is not the same failure as one that matches zero
-//     characters.
+//     characters. In practice regexp/syntax's parser only ever produces
+//     OpNoMatch itself from an empty alternate, which is not reachable by
+//     parsing ordinary author-supplied syntax (Perl-flag parsing rejects
+//     the constructs, like a min>max repeat, that Simplify would otherwise
+//     fold into OpNoMatch) — the OpCharClass case above is the practical
+//     way an impossible-to-match subexpression actually shows up here.
 //   - OpCapture: its single subexpression's width, unchanged.
 //   - OpStar, OpQuest: 0 — both permit zero repetitions.
 //   - OpPlus: its single subexpression's width — one repetition is
@@ -277,7 +293,22 @@ func minMatchWidth(re *syntax.Regexp) int {
 	switch re.Op {
 	case syntax.OpLiteral:
 		return len(re.Rune)
-	case syntax.OpCharClass, syntax.OpAnyCharNotNL, syntax.OpAnyChar:
+	case syntax.OpCharClass:
+		// A character class can end up with zero ranges — regexp/syntax
+		// does not fold this into OpNoMatch the way it does an empty
+		// alternate or a degenerate repeat (see the OpNoMatch case below):
+		// e.g. `[^\x00-\x{10FFFF}]`, whose negation excludes every valid
+		// rune, parses and Simplifies to an OpCharClass with re.Rune ==
+		// nil, not OpNoMatch. Left at the default width of 1, it would
+		// look exactly like a normal one-rune class to OpConcat/OpAlternate,
+		// even though it can never match anything — the same
+		// "impossible, not merely zero-width" case OpNoMatch exists to
+		// flag. So it gets the same sentinel.
+		if len(re.Rune) == 0 {
+			return impossibleWidth
+		}
+		return 1
+	case syntax.OpAnyCharNotNL, syntax.OpAnyChar:
 		return 1
 	case syntax.OpBeginLine, syntax.OpEndLine, syntax.OpBeginText, syntax.OpEndText,
 		syntax.OpWordBoundary, syntax.OpNoWordBoundary, syntax.OpEmptyMatch:

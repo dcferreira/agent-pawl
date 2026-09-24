@@ -3,6 +3,7 @@ package spec
 import (
 	"path/filepath"
 	"reflect"
+	"regexp/syntax"
 	"testing"
 )
 
@@ -338,7 +339,14 @@ func TestValidate_GoldenMessages(t *testing.T) {
 			name: "rule15: guard missing only_in",
 			file: "rule15_guard_missing_only_in.yaml",
 			want: []string{
-				`testdata/rule15_guard_missing_only_in.yaml: guard "no-only-in": only_in: is required; use only_in: [] to deny it in every step`,
+				`testdata/rule15_guard_missing_only_in.yaml: guard "no-only-in": only_in: is required and must be a list; use only_in: [] to deny it in every step`,
+			},
+		},
+		{
+			name: "rule15: guard bare only_in (null) reports the same error as a missing key",
+			file: "rule15_guard_bare_only_in.yaml",
+			want: []string{
+				`testdata/rule15_guard_bare_only_in.yaml: guard "bare-only-in": only_in: is required and must be a list; use only_in: [] to deny it in every step`,
 			},
 		},
 		{
@@ -389,7 +397,7 @@ func TestValidate_GoldenMessages(t *testing.T) {
 			want: []string{
 				`testdata/rule15_guard_missing_all_fields.yaml: guards[0]: id: is required; add a unique id`,
 				`testdata/rule15_guard_missing_all_fields.yaml: guards[0]: match: is required; add a match: regexp`,
-				`testdata/rule15_guard_missing_all_fields.yaml: guards[0]: only_in: is required; use only_in: [] to deny it in every step`,
+				`testdata/rule15_guard_missing_all_fields.yaml: guards[0]: only_in: is required and must be a list; use only_in: [] to deny it in every step`,
 			},
 		},
 		{
@@ -574,4 +582,102 @@ func TestValidate_ValidWorkflowsHaveZeroErrors(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestMinMatchWidth pins minMatchWidth directly against
+// syntax.Parse(p, syntax.Perl).Simplify() — the same pipeline checkGuards
+// uses — rather than only through checkGuards's rejections, so a later
+// change to minMatchWidth (e.g. treating OpQuest like OpPlus, or getting
+// OpRepeat's Min wrong post-Simplify) that starts falsely rejecting real
+// guards, or falsely accepting a zero-width one, fails here even if the
+// handful of guard fixtures in TestValidate_GoldenMessages don't happen to
+// exercise the changed path.
+func TestMinMatchWidth(t *testing.T) {
+	// accepted: width-sensitive patterns a real guard author would write,
+	// where every reachable match consumes at least one rune (width >= 1).
+	accepted := []string{
+		`git push( --force)?`,
+		`x{2}`,
+		`(a|bc)+`,
+		`glab mr update .*--ready([=[:space:]]|$)`,
+		`\bgit\b`,
+		`[[:space:]]`,
+		`(sed|awk) .*CHANGELOG.md`,
+	}
+	for _, p := range accepted {
+		t.Run("accepted/"+p, func(t *testing.T) {
+			re, err := syntax.Parse(p, syntax.Perl)
+			if err != nil {
+				t.Fatalf("syntax.Parse(%q): %v", p, err)
+			}
+			if got := minMatchWidth(re.Simplify()); got < 1 {
+				t.Fatalf("minMatchWidth(%q) = %d, want >= 1", p, got)
+			}
+		})
+	}
+
+	// rejected: the docs' and checkGuards's own named examples of a
+	// zero-width match: (width == 0), one per width-sensitive op
+	// (?, *, {0,n}, a bare empty match, an anchor pair, a boundary
+	// assertion, and an alternate whose cheapest branch is empty).
+	rejected := []string{
+		`a*`,
+		`x?`,
+		`a{0,3}`,
+		`(?:)`,
+		`(?m)^$`,
+		`\b`,
+		`git push|`,
+	}
+	for _, p := range rejected {
+		t.Run("rejected/"+p, func(t *testing.T) {
+			re, err := syntax.Parse(p, syntax.Perl)
+			if err != nil {
+				t.Fatalf("syntax.Parse(%q): %v", p, err)
+			}
+			if got := minMatchWidth(re.Simplify()); got != 0 {
+				t.Fatalf("minMatchWidth(%q) = %d, want 0", p, got)
+			}
+		})
+	}
+
+	// OpNoMatch / impossibleWidth: subexpressions that can never match at
+	// all are a different failure than matching zero characters, and must
+	// never be mistaken for the cheapest (zero-width) branch of an
+	// alternate. `[^\x00-\x{10FFFF}]` negates every valid rune, so
+	// regexp/syntax parses and Simplifies it to an OpCharClass with zero
+	// ranges rather than OpNoMatch (Simplify only ever produces OpNoMatch
+	// itself from constructs Perl-flag parsing already rejects, like a
+	// min>max repeat) — this is the practical way an "impossible" node
+	// reaches minMatchWidth, so it is pinned here rather than through a
+	// literal OpNoMatch node.
+	t.Run("no-match branch loses to a real literal", func(t *testing.T) {
+		re, err := syntax.Parse(`[^\x00-\x{10FFFF}]|foo`, syntax.Perl)
+		if err != nil {
+			t.Fatalf("syntax.Parse: %v", err)
+		}
+		// The alternate's only escape is "foo" (width 3); the char class
+		// branch must not be counted as a cheaper, zero-width match.
+		if got := minMatchWidth(re.Simplify()); got != 3 {
+			t.Fatalf("minMatchWidth([^\\x00-\\x{10FFFF}]|foo) = %d, want 3 (width of \"foo\")", got)
+		}
+	})
+
+	t.Run("a match: that can only ever fail is not treated as zero-width", func(t *testing.T) {
+		// checkGuards's job is narrowly "reject match: that can match
+		// zero characters", not "reject match: that can never match at
+		// all" (see checkGuards's doc comment) — a guard whose pattern
+		// never matches anything is a dead guard, a different author
+		// mistake this validator does not currently catch. Pin that a
+		// match:-only-no-match pattern is NOT reported as width 0 (which
+		// would misfile it under the wrong error), by asserting it comes
+		// back at the impossibleWidth sentinel instead.
+		re, err := syntax.Parse(`[^\x00-\x{10FFFF}]`, syntax.Perl)
+		if err != nil {
+			t.Fatalf("syntax.Parse: %v", err)
+		}
+		if got := minMatchWidth(re.Simplify()); got != impossibleWidth {
+			t.Fatalf("minMatchWidth([^\\x00-\\x{10FFFF}]) = %d, want impossibleWidth (%d)", got, impossibleWidth)
+		}
+	})
 }

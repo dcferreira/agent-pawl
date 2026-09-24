@@ -222,9 +222,12 @@ that re-observes real external state.
 
 Before matching, `internal/guard.Table.Denied` normalises shell backslash-newline line
 continuations — a `\` immediately followed by `\n` or `\r\n` — by deleting the backslash and the
-newline entirely, the same as POSIX sh does when it joins a continued line: nothing is inserted in
-their place, so whatever whitespace already sits on either side of the continuation is all that
-remains. A guard whose `match:` only fires once the two halves are joined into one word, e.g. `git
+newline entirely: nothing is inserted in their place, so whatever whitespace already sits on either
+side of the continuation is all that remains. `\` + `\n` is what POSIX sh itself joins when it
+splices a continued line; `\` + `\r\n` is deleted the same way, but that half is a pawl-specific
+allowance for CRLF-terminated input, not something a real shell does — in `\` + CR + LF the CR is an
+ordinary character, so POSIX sh does not treat the pair as a continuation and does not join the
+line. A guard whose `match:` only fires once the two halves are joined into one word, e.g. `git
 push` against `git pu\` + newline + `sh origin`, is denied; the same command with the continuation
 left alone does not contain `git push` as a substring at all. This is a normalisation of the command
 string, not a change to the regexp engine's flags: `.` still does not match `\n`, and `^`/`$` still
@@ -237,7 +240,9 @@ substring search does not stop at `\n` — only `.` and the anchors do.
 This normalisation is syntactic, not a full shell parse, and that is a known imprecision: the matcher
 does not track quoting, so a backslash-newline inside single quotes, a quoted heredoc body, or after
 an escaped backslash is deleted as if it were a continuation, even though POSIX sh would not join the
-line in any of those cases. For the escaped-backslash case, `echo a\\` + newline + `git push` is, to a
+line in any of those cases (and, as above, POSIX sh would not join a backslash-CRLF pair at all —
+deleting that pair is pawl's own CRLF-input allowance, not a POSIX sh behaviour this is mimicking).
+For the escaped-backslash case, `echo a\\` + newline + `git push` is, to a
 real shell, a literal trailing backslash ending one command followed by a second command on the next
 line — but `internal/guard` still deletes that newline, because the regexp has no way to tell an
 escaped backslash from an unescaped one. The same blind spot applies inside single quotes and quoted
