@@ -25,8 +25,9 @@
 # existing ledger entry (from ANY earlier round) whose status is one of
 # declined|skipped|held|suppressed|open, when both:
 #   - same `file`, and both `line`s are numbers within +-5 of each other
-#     (or either `line` is null/missing/non-numeric — a location-free
-#     finding can't be distance-compared, so it's treated as matching);
+#     (or exactly one `line` is null/missing/non-numeric and both entries
+#     share the same `category` — a location-free finding otherwise never
+#     matches a different category; both null still always matches);
 #   - same `category`, OR the fresh finding is NO MORE severe than the
 #     matched entry (an equal or higher rank on critical(0) > major(1) >
 #     medium(2) > minor(3) > nitpick(4)). A fresh finding MORE severe than
