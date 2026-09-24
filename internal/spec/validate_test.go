@@ -359,14 +359,28 @@ func TestValidate_GoldenMessages(t *testing.T) {
 			name: "rule15: guard match matches the empty string",
 			file: "rule15_guard_empty_match.yaml",
 			want: []string{
-				`testdata/rule15_guard_empty_match.yaml: guard "matches-everything": match: "git push|" matches the empty string; a guard's match: must require at least one character`,
+				`testdata/rule15_guard_empty_match.yaml: guard "matches-everything": match: "git push|" can match zero characters; a guard's match: must require at least one character`,
 			},
 		},
 		{
 			name: "rule15: guard match is an anchored empty-only pattern",
 			file: "rule15_guard_empty_match_anchored.yaml",
 			want: []string{
-				`testdata/rule15_guard_empty_match_anchored.yaml: guard "blank-only": match: "^$" matches the empty string; a guard's match: must require at least one character`,
+				`testdata/rule15_guard_empty_match_anchored.yaml: guard "blank-only": match: "^$" can match zero characters; a guard's match: must require at least one character`,
+			},
+		},
+		{
+			name: "rule15: guard match is a bare word boundary (zero-width, but re.MatchString(\"\") alone would miss it)",
+			file: "rule15_guard_word_boundary.yaml",
+			want: []string{
+				`testdata/rule15_guard_word_boundary.yaml: guard "boundary-only": match: "\\b" can match zero characters; a guard's match: must require at least one character`,
+			},
+		},
+		{
+			name: "rule15: guard match alternates a real literal with a bare word boundary",
+			file: "rule15_guard_alternate_word_boundary.yaml",
+			want: []string{
+				`testdata/rule15_guard_alternate_word_boundary.yaml: guard "push-or-boundary": match: "git push|\\b" can match zero characters; a guard's match: must require at least one character`,
 			},
 		},
 		{

@@ -1,7 +1,6 @@
 package guard
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 
@@ -216,73 +215,5 @@ func TestTable_NilTableDeniedReturnsNil(t *testing.T) {
 	var table *Table
 	if got := table.Denied([]string{"a"}, "git push"); got != nil {
 		t.Fatalf("(*Table)(nil).Denied = %+v, want nil", got)
-	}
-}
-
-func TestNormalize_NilOnlyInBecomesEmptySlice(t *testing.T) {
-	in := []spec.GuardDecl{
-		{ID: "a", Match: "x", OnlyIn: nil},
-		{ID: "b", Match: "y", OnlyIn: []string{"step1"}},
-	}
-	out := Normalize(in)
-	if out[0].OnlyIn == nil {
-		t.Fatalf("Normalize: OnlyIn is still nil, want a non-nil empty slice")
-	}
-	if len(out[0].OnlyIn) != 0 {
-		t.Fatalf("Normalize: OnlyIn = %v, want empty", out[0].OnlyIn)
-	}
-	if len(out[1].OnlyIn) != 1 || out[1].OnlyIn[0] != "step1" {
-		t.Fatalf("Normalize: OnlyIn = %v, want [step1] preserved", out[1].OnlyIn)
-	}
-	// The input must not be mutated.
-	if in[0].OnlyIn != nil {
-		t.Fatalf("Normalize mutated its input's OnlyIn")
-	}
-}
-
-// TestGuardsJSON_RoundTrip proves []spec.GuardDecl marshals with the
-// id/match/only_in keys the guards.json contract (DESIGN.md §9's static
-// hooks reading guards.json) relies on, and that a nil OnlyIn needs
-// Normalize to avoid writing "only_in": null.
-func TestGuardsJSON_RoundTrip(t *testing.T) {
-	guards := []spec.GuardDecl{
-		{ID: "never-rewrite-changelog", Match: "(sed|awk) .*CHANGELOG.md", OnlyIn: nil},
-	}
-
-	rawWithoutNormalize, err := json.Marshal(guards)
-	if err != nil {
-		t.Fatalf("json.Marshal: %v", err)
-	}
-	var withoutNormalize []map[string]any
-	if err := json.Unmarshal(rawWithoutNormalize, &withoutNormalize); err != nil {
-		t.Fatalf("json.Unmarshal: %v", err)
-	}
-	if withoutNormalize[0]["only_in"] != nil {
-		t.Fatalf("plain marshal of a nil OnlyIn wrote %v, want null (documenting why Normalize is needed)", withoutNormalize[0]["only_in"])
-	}
-
-	raw, err := json.Marshal(Normalize(guards))
-	if err != nil {
-		t.Fatalf("json.Marshal(Normalize(...)): %v", err)
-	}
-	var decoded []map[string]any
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		t.Fatalf("json.Unmarshal: %v", err)
-	}
-	entry := decoded[0]
-	for _, key := range []string{"id", "match", "only_in"} {
-		if _, ok := entry[key]; !ok {
-			t.Fatalf("marshalled guard missing key %q: %v", key, entry)
-		}
-	}
-	if entry["id"] != "never-rewrite-changelog" {
-		t.Fatalf("id = %v, want never-rewrite-changelog", entry["id"])
-	}
-	onlyIn, ok := entry["only_in"].([]any)
-	if !ok {
-		t.Fatalf("only_in = %v (%T), want an array after Normalize", entry["only_in"], entry["only_in"])
-	}
-	if len(onlyIn) != 0 {
-		t.Fatalf("only_in = %v, want empty array", onlyIn)
 	}
 }

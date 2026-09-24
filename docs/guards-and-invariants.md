@@ -43,7 +43,8 @@ matches `match: "git push"` exactly like `git push origin` would — even though
 appear anywhere in the un-joined text above (it reads "pu", then a newline, then "sh"). This is a
 normalisation of the command text `internal/guard.Table.Denied` matches against, not a change to the
 regexp's flags — `.` still does not match a literal `\n`, and `^`/`$` still anchor only at the
-start/end of the whole string. A bare newline with nothing before it isn't touched: two commands
+start/end of the whole string, unless the pattern itself sets `(?s)`/`(?m)` (RE2 inline flags, which
+an author's `match:` may use). A bare newline with nothing before it isn't touched: two commands
 separated by a plain newline (no `&&`, no trailing `\`) still each get their own chance to match,
 since an unanchored `match:` finds a hit on whichever line it lands on — only `.` and the anchors
 treat `\n` specially, and this normalisation doesn't change that.

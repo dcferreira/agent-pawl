@@ -55,8 +55,10 @@ var continuationPattern = regexp.MustCompile(`\\\r?\n`)
 // only the backslash-newline pair itself is removed. This changes the
 // command text Denied matches against, not the regexp engine's flags: `.`
 // still does not match a literal `\n`, and `^`/`$` still anchor only at the
-// ends of the whole string. A plain newline with nothing before it is left
-// alone on purpose: two commands separated by a bare newline (no trailing
+// ends of the whole string — unless the guard's own match: sets `(?s)`/`(?m)`
+// itself (RE2 inline flags), which changes exactly those behaviours. A
+// plain newline with nothing before it is left alone on purpose: two
+// commands separated by a bare newline (no trailing
 // `\`) still each get their own chance to match on their own line, since an
 // unanchored match: finds a hit anywhere in the string regardless of
 // embedded newlines — only `.` and the anchors treat `\n` specially, and
@@ -169,23 +171,4 @@ func firstCompileFailure(guards []spec.GuardDecl) *spec.GuardDecl {
 	}
 	decl := invalidGuardTableDecl
 	return &decl
-}
-
-// Normalize returns a copy of guards with every nil OnlyIn replaced by a
-// non-nil empty slice, so that encoding/json marshals only_in: as [] rather
-// than null. Plain json.Marshal of a []spec.GuardDecl with a nil OnlyIn
-// writes "only_in":null (proven by TestGuardsJSON_RoundTrip in this
-// package's test file) — the guards.json contract another worker's
-// enforcement hook reads expects only_in to always be an array, so any
-// writer of that file must call Normalize first. Normalize does not mutate
-// its input.
-func Normalize(guards []spec.GuardDecl) []spec.GuardDecl {
-	out := make([]spec.GuardDecl, len(guards))
-	for i, g := range guards {
-		out[i] = g
-		if out[i].OnlyIn == nil {
-			out[i].OnlyIn = []string{}
-		}
-	}
-	return out
 }

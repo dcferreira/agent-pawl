@@ -3,6 +3,7 @@ package spec
 import (
 	"fmt"
 	"regexp"
+	"regexp/syntax"
 	"sort"
 	"strings"
 	"time"
@@ -162,11 +163,20 @@ func guardRef(g GuardDecl, i int) string {
 //   - match: is required and must compile as a Go regexp (RE2 syntax —
 //     close to POSIX ERE, no backreferences); it is matched unanchored
 //     against the whole command string at enforcement time (internal/guard).
-//     It must also not match the empty string: since matching is
-//     unanchored, a pattern like `a*`, `x?` or `foo|` matches every
-//     command, which would make the guard deny (or, with a non-empty
-//     only_in:, effectively deny outside its listed steps) unconditionally
-//     — almost certainly a typo, not an intended "block everything" guard.
+//     It must also not be able to match zero characters: since matching is
+//     unanchored, a pattern like `a*`, `x?`, `foo|`, or one that can only
+//     ever produce a zero-width match such as `\b` or `git push|\b`,
+//     matches every command, which would make the guard deny (or, with a
+//     non-empty only_in:, effectively deny outside its listed steps)
+//     unconditionally — almost certainly a typo, not an intended "block
+//     everything" guard. Probing with re.MatchString("") alone would miss
+//     `\b`: it finds no boundary in the empty string, yet still matches
+//     (zero-width) inside any command containing a word character, since
+//     matching is unanchored. So the check instead parses match: with
+//     regexp/syntax (the same syntax.Perl flags regexp.Compile itself
+//     uses), Simplifies the tree, and walks it (minMatchWidth, below) to
+//     compute the minimum number of runes any match can consume, rejecting
+//     when that minimum is 0.
 //   - only_in: is a required key (a project ruling, not implied by §D's
 //     table): a missing only_in: is far more likely to be an author who
 //     forgot it than one who means "never active", so the validator makes
@@ -200,12 +210,19 @@ func checkGuards(w *Workflow, errs *[]string) {
 
 		if g.Match == "" {
 			*errs = append(*errs, fileErr(w, fmt.Sprintf("%s: match: is required; add a match: regexp", ref)))
-		} else if re, err := regexp.Compile(g.Match); err != nil {
+		} else if _, err := regexp.Compile(g.Match); err != nil {
 			*errs = append(*errs, fileErr(w, fmt.Sprintf(
 				"%s: match: %q does not compile as a regexp: %s", ref, g.Match, err)))
-		} else if re.MatchString("") {
+		} else if syn, perr := syntax.Parse(g.Match, syntax.Perl); perr == nil && minMatchWidth(syn.Simplify()) == 0 {
+			// perr is deliberately swallowed rather than reported as its own
+			// error: regexp.Compile above already proved g.Match compiles,
+			// and Compile itself parses with these same syntax.Perl flags,
+			// so a syntax.Parse failure here would mean the two parsers
+			// disagree — not something an author did wrong. Skipping the
+			// width check rather than rejecting is the fail-open choice for
+			// an internal inconsistency, not for anything an author wrote.
 			*errs = append(*errs, fileErr(w, fmt.Sprintf(
-				"%s: match: %q matches the empty string; a guard's match: must require at least one character", ref, g.Match)))
+				"%s: match: %q can match zero characters; a guard's match: must require at least one character", ref, g.Match)))
 		}
 
 		if g.OnlyIn == nil {
@@ -219,6 +236,78 @@ func checkGuards(w *Workflow, errs *[]string) {
 					"%s: rule 15: only_in: %q does not name a declared step; declare step %q or fix the typo", ref, stepID, stepID)))
 			}
 		}
+	}
+}
+
+// impossibleWidth is the sentinel minMatchWidth returns for a subexpression
+// that regexp/syntax says can never match anything at all (OpNoMatch) —
+// deliberately not 0. A guard whose match: matches nothing is a different,
+// separate problem from one whose match: matches zero characters; giving
+// OpNoMatch a width of 0 would make an enclosing OpConcat or OpAlternate
+// look like it can match empty when in fact it can never match anything,
+// which is the opposite kind of guard mistake. It is large enough to
+// survive OpConcat's summing and OpRepeat's multiplication without ever
+// looking like a genuine small width, and small enough to never overflow a
+// plain int doing that arithmetic on any regexp this validator will see.
+const impossibleWidth = 1 << 30
+
+// minMatchWidth returns the minimum number of runes any match of re can
+// consume, by recursively walking the regexp/syntax parse tree (re must
+// already have been through Simplify, per checkGuards) — see checkGuards's
+// doc comment for why re.MatchString("") alone is not enough:
+//
+//   - OpLiteral: the literal's rune count.
+//   - OpCharClass, OpAnyCharNotNL, OpAnyChar: 1 — a character class or "any
+//     character" always consumes exactly one rune.
+//   - OpBeginLine, OpEndLine, OpBeginText, OpEndText, OpWordBoundary,
+//     OpNoWordBoundary, OpEmptyMatch: 0 — these are all empty-width
+//     assertions or the empty match itself; none of them consumes a rune.
+//   - OpNoMatch: impossibleWidth (above) — a subexpression that can never
+//     match at all is not the same failure as one that matches zero
+//     characters.
+//   - OpCapture: its single subexpression's width, unchanged.
+//   - OpStar, OpQuest: 0 — both permit zero repetitions.
+//   - OpPlus: its single subexpression's width — one repetition is
+//     mandatory.
+//   - OpRepeat: Min times its single subexpression's width.
+//   - OpConcat: the sum of every subexpression's width.
+//   - OpAlternate: the minimum width across its branches — a match only
+//     has to take the cheapest one.
+func minMatchWidth(re *syntax.Regexp) int {
+	switch re.Op {
+	case syntax.OpLiteral:
+		return len(re.Rune)
+	case syntax.OpCharClass, syntax.OpAnyCharNotNL, syntax.OpAnyChar:
+		return 1
+	case syntax.OpBeginLine, syntax.OpEndLine, syntax.OpBeginText, syntax.OpEndText,
+		syntax.OpWordBoundary, syntax.OpNoWordBoundary, syntax.OpEmptyMatch:
+		return 0
+	case syntax.OpNoMatch:
+		return impossibleWidth
+	case syntax.OpCapture:
+		return minMatchWidth(re.Sub[0])
+	case syntax.OpStar, syntax.OpQuest:
+		return 0
+	case syntax.OpPlus:
+		return minMatchWidth(re.Sub[0])
+	case syntax.OpRepeat:
+		return re.Min * minMatchWidth(re.Sub[0])
+	case syntax.OpConcat:
+		total := 0
+		for _, sub := range re.Sub {
+			total += minMatchWidth(sub)
+		}
+		return total
+	case syntax.OpAlternate:
+		min := impossibleWidth
+		for _, sub := range re.Sub {
+			if width := minMatchWidth(sub); width < min {
+				min = width
+			}
+		}
+		return min
+	default:
+		return 0
 	}
 }
 

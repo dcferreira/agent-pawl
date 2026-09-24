@@ -133,17 +133,30 @@ func formatBanner(rw *resolvedWorkflow, report *spec.Report, guardCount int) str
 	w := &blockWriter{}
 	w.line(0, "workflow:", rw.Path, "("+rw.Source+")")
 	w.literal("enforcement: off (milestone 1)\n")
-	if guardCount > 0 {
-		// guardCount is an int, never attacker-controlled content, but this
-		// still goes through w.line rather than w.literal — literal is
-		// reserved for this package's own hardcoded string literals (see
-		// its doc comment), and mixing a Sprintf result into a literal call
-		// is exactly the pattern that doc comment asks reviewers to be able
-		// to rule out at a glance.
-		w.line(0, fmt.Sprintf("guards: %d declared, NOT enforced (no PreToolUse hook in this build)", guardCount))
-	}
+	writeGuardsLine(w, guardCount)
 	writeSoftCensus(w, report)
 	return w.String()
+}
+
+// writeGuardsLine appends the "guards: N declared, NOT enforced (no
+// PreToolUse hook in this build)" line to w whenever guardCount > 0, and
+// nothing at all when guardCount == 0 — factored out of formatBanner so
+// pawl run and pawl validate share the exact same wording rather than risk
+// drifting apart. pawl validate needs this too: it is the command an
+// author runs while writing guards:, and a workflow that declares guards
+// but never mentions their enforcement status leaves exactly the
+// silent-acceptance gap Ruling R8 exists to prevent (see checkGuards's doc
+// comment in internal/spec).
+//
+// guardCount is an int, never attacker-controlled content, but this still
+// goes through w.line rather than w.literal — literal is reserved for this
+// package's own hardcoded string literals (see its doc comment), and
+// mixing a Sprintf result into a literal call is exactly the pattern that
+// doc comment asks reviewers to be able to rule out at a glance.
+func writeGuardsLine(w *blockWriter, guardCount int) {
+	if guardCount > 0 {
+		w.line(0, fmt.Sprintf("guards: %d declared, NOT enforced (no PreToolUse hook in this build)", guardCount))
+	}
 }
 
 // writeSoftCensus appends the soft: count, percentage and list

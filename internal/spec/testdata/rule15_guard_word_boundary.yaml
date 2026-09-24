@@ -1,0 +1,12 @@
+workflow: rule15guardwordboundary
+start: a
+guards:
+  - id: boundary-only
+    match: '\b'
+    only_in: []
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    next: done
+terminal: {done: {status: ok}}

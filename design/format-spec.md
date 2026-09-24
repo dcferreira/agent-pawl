@@ -228,7 +228,8 @@ remains. A guard whose `match:` only fires once the two halves are joined into o
 push` against `git pu\` + newline + `sh origin`, is denied; the same command with the continuation
 left alone does not contain `git push` as a substring at all. This is a normalisation of the command
 string, not a change to the regexp engine's flags: `.` still does not match `\n`, and `^`/`$` still
-anchor only at the ends of the whole string. A plain newline with no preceding backslash (e.g. two
+anchor only at the ends of the whole string — unless the pattern itself sets `(?s)`/`(?m)`, which RE2
+inline flags let an author's `match:` do. A plain newline with no preceding backslash (e.g. two
 shell commands separated by a bare newline, or a `&&` chain broken across lines without a trailing
 `\`) is left alone; an unanchored `match:` still finds a hit on whichever line it falls on, because
 substring search does not stop at `\n` — only `.` and the anchors do.
@@ -403,7 +404,7 @@ Reserved outcome tokens, usable anywhere: `success`, `failure`, `timeout`, `exha
 | Field | Required | Type | Meaning |
 |---|---|---|---|
 | `id` | yes | string | Unique across the file's `guards:` list; step-id syntax (letters, digits, `_`, `-`, starting with a letter or digit — same `stepIDPattern` as a step `id:`), since it ends up as a JSON key downstream. |
-| `match` | yes | RE2 regexp string | Compiled with Go's `regexp` package; matched unanchored anywhere in the command string (§B.10). Must not match the empty string — a pattern like `a*`, `x?` or `\|git push` matches every command, which is rejected as validation error rather than accepted as a guard that denies everything. |
+| `match` | yes | RE2 regexp string | Compiled with Go's `regexp` package; matched unanchored anywhere in the command string (§B.10). Must not be able to match zero characters — a pattern like `a*`, `x?`, `\|git push`, or one that can only ever produce a zero-width match such as `\b`, matches every command, which is rejected as a validation error rather than accepted as a guard that denies everything. |
 | `only_in` | yes | list of step ids | The steps where the pattern is allowed; denied everywhere else. The key itself is required — a missing `only_in:` is rejected as a likely-forgotten field, not treated as "deny nowhere". `only_in: []` is the explicit spelling for "deny everywhere, in every step" (§B.10). Rule 15 checks every entry names a declared step — including a `parallel` step's `branches:` steps, which are ordinary top-level steps. |
 
 ---
@@ -537,8 +538,8 @@ work to an agent. See `docs/quickstart.md`.
 13. `attempts:` is less than 1.
 14. A `postcondition:` map uses a key other than `command` / `all_set` / `equals`.
 15. `guards[]`: `id:` is required, unique across the file, and uses step-id syntax; `match:` is
-    required, must compile as a Go RE2 regexp (matched unanchored — §B.10), and must not match the
-    empty string; `only_in:` is a required key — `only_in: []` is the explicit spelling for "deny
+    required, must compile as a Go RE2 regexp (matched unanchored — §B.10), and must not be able to
+    match zero characters; `only_in:` is a required key — `only_in: []` is the explicit spelling for "deny
     everywhere", distinct from omitting the key — and every entry in it must name a declared step
     (a `parallel` branch counts; it is a top-level step like any other).
 16. A referenced file (`context:`, `run:`, `poll:`, `check:`) does not exist or is not executable.

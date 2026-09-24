@@ -547,6 +547,32 @@ func TestValidate_Clean(t *testing.T) {
 	if !strings.Contains(stdout, "soft: 0/1 steps") {
 		t.Errorf("stdout missing soft census: %q", stdout)
 	}
+	if strings.Contains(stdout, "guards:") {
+		t.Errorf("stdout has a guards: line for a guards:-free workflow: %q", stdout)
+	}
+}
+
+// TestValidate_ReportsDeclaredGuardsNotEnforced is pawl validate's half of
+// the same fix TestRun_BannerReportsDeclaredGuardsNotEnforced covers for
+// pawl run: validate is the command an author runs while writing guards:,
+// so it needs the same "NOT enforced" line pawl run's banner prints,
+// through the same shared helper (writeGuardsLine), rather than reporting
+// a guards:-declaring workflow as clean with no mention of enforcement.
+func TestValidate_ReportsDeclaredGuardsNotEnforced(t *testing.T) {
+	root := setupWorkingCopy(t)
+	writeWorkflow(t, root, "sample-guards", sampleWorkflowWithGuards)
+
+	stdout, stderr, code := runCLI(t, []string{"pawl", "validate", "sample-guards"})
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr = %q", code, stderr)
+	}
+	want := fmt.Sprintf(`workflow: %s/.claude/workflows/sample-guards.yaml (repo-local)
+guards: 2 declared, NOT enforced (no PreToolUse hook in this build)
+soft: 0/1 steps (0.0%%): (none)
+`, root)
+	if stdout != want {
+		t.Errorf("stdout = %q, want %q", stdout, want)
+	}
 }
 
 func TestValidate_Errors(t *testing.T) {
