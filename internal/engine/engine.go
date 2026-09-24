@@ -3,6 +3,7 @@ package engine
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -63,6 +64,24 @@ type Engine struct {
 	// struct literal still works.
 	Now   func() time.Time
 	Sleep func(time.Duration)
+
+	// Stderr, if set, receives a one-line progress notice per deterministic
+	// retry: try (design/format-spec.md §B.16) — a blocking pawl run/submit/
+	// resume call otherwise prints nothing while a hard-failed run: sleeps
+	// out its backoff, which can total minutes. A nil Stderr (the zero
+	// value, and every engine test's struct literal) means "print nothing",
+	// exactly as before this field existed.
+	Stderr io.Writer
+}
+
+// logRetry writes a single line to e.Stderr, if set, and is a no-op
+// otherwise. It never returns an error: a progress notice is best-effort
+// and must not be able to fail a retry.
+func (e *Engine) logRetry(format string, args ...any) {
+	if e.Stderr == nil {
+		return
+	}
+	fmt.Fprintf(e.Stderr, format+"\n", args...)
 }
 
 // now reads the (possibly injected) clock.

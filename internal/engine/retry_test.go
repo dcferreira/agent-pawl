@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -120,6 +121,46 @@ terminal: {done: {status: ok}}
 	}
 	if rs.Visits["a"] != 1 {
 		t.Errorf("Visits[a] = %d, want 1: a hard-failure retry must not consume max_visits:", rs.Visits["a"])
+	}
+}
+
+// TestRetry_DeterministicLogsProgressToStderr: a deterministic retry: sleeps
+// and re-execs synchronously inside one blocking Start/Submit/Poll call with
+// nothing on stdout — Engine.Stderr, when set, must get one progress line
+// per retried try so a long backoff isn't silent. A nil Stderr (the default,
+// and every other test in this file) must stay a no-op — covered implicitly
+// by every other test here never setting it and never panicking.
+func TestRetry_DeterministicLogsProgressToStderr(t *testing.T) {
+	const yamlTmpl = `
+workflow: retry-hard-failure-log
+start: a
+steps:
+  - id: a
+    kind: deterministic
+    run: '%s'
+    retry: {max_attempts: 3, backoff: 10s}
+    max_visits: 1
+    next: done
+terminal: {done: {status: ok}}
+`
+	e := newTestEngine(t, sprintfYAML(yamlTmpl, counterRun("counter", 1)))
+	clock := newFakeClock()
+	clock.install(e)
+	var stderr bytes.Buffer
+	e.Stderr = &stderr
+
+	instr, err := e.Start("run1", nil)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if term, ok := instr.(Terminal); !ok || term.Status != "ok" {
+		t.Fatalf("got %+v, want Terminal{ok}", instr)
+	}
+
+	got := stderr.String()
+	want := `pawl: step "a" hard-failed (try 1 of 3); retrying in 10s` + "\n"
+	if got != want {
+		t.Errorf("stderr = %q, want %q", got, want)
 	}
 }
 

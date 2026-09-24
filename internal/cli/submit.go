@@ -101,6 +101,10 @@ func cmdSubmit(args []string, cwd string, stdout, stderr io.Writer) int {
 	step := w.StepByID(stepID)
 
 	e := engine.New(w, root)
+	// Submit can drive the run on into a following deterministic step's own
+	// retry: loop, which is just as silent on stdout for the same reason
+	// pawl run is — see the comment in cmdRun.
+	e.Stderr = stderr
 	var instr engine.Instruction
 	if step != nil && step.Kind == "human" {
 		instr, err = e.SubmitHuman(runID, stepID, ref.State.Cursor.Attempt, json.RawMessage(result))

@@ -166,7 +166,9 @@ func (e *Engine) advanceDeterministic(dir string, log *journal.Log, runID string
 				// that skipped Validate.
 				return nil, nil, fmt.Errorf("engine: step %q: retry.backoff: %q is not a duration (validator should have rejected this): %w", step.ID, step.Retry.Backoff, berr)
 			}
-			e.sleep(backoff * time.Duration(tryNumber))
+			sleepFor := backoff * time.Duration(tryNumber)
+			e.logRetry("pawl: step %q hard-failed (try %d of %d); retrying in %s", step.ID, tryNumber, step.Retry.MaxAttempts, sleepFor)
+			e.sleep(sleepFor)
 			hardRetry = tryNumber
 			if _, err := log.Append(journal.Event{
 				Kind: journal.KindStepEnter, RunID: runID, Step: step.ID,

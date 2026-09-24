@@ -374,6 +374,21 @@ rejects it, §H rule 19).
 **`backoff:`** is one duration. Retry *n* (n = 1, 2, …) sleeps `backoff × n` — linear, no jitter —
 before the next try.
 
+**Blocking duration and visibility (`deterministic` only).** A `deterministic` retry runs
+synchronously inside whichever `pawl` command is currently executing the step (`pawl run`, `pawl
+submit`, or `pawl poll` continuing on into a later step) — there is no separate command to poll, the
+way `wait`'s `poll:` loop has. In the worst case that call blocks for up to `max_attempts × Timeout`
+(the engine-wide wall-clock ceiling, `DefaultTimeout` = 10m unless overridden) plus
+`backoff × 1 + backoff × 2 + ... + backoff × (max_attempts-1)` of sleep before it returns an
+instruction — a driving session running that command as an ordinary blocking call must budget for
+that, not the few-second ceiling a step without `retry:` would need. The engine writes one line per
+retried try to `Engine.Stderr` (wired to the CLI process's stderr) —
+`pawl: step "<id>" hard-failed (try <k> of <max_attempts>); retrying in <backoff>` — so the call is
+not silent even though nothing is emitted on stdout (the DISPATCH/WAIT/ASK/TERMINAL grammar,
+`internal/emit`) until the retry loop ends. `Engine.Stderr` is nil (no output) unless the caller
+sets it; every `pawl` CLI command that can reach a deterministic step's retry loop (`run`, `submit`,
+`poll`) sets it to its own stderr.
+
 **`deterministic`:** `max_attempts:` counts tries of the *same* `run:` invocation, all under the
 same `attempts:`-level attempt: retries consume neither the `attempts:` budget nor `max_visits:`.
 Once retries are exhausted, the step behaves exactly as an un-retried hard failure always has —
