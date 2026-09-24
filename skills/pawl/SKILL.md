@@ -80,10 +80,13 @@ END DISPATCH 9074 fix_tests
 - `subagent_args:` — printed verbatim, uninterpreted by `pawl`. Honor it when you dispatch (e.g.
   its `tools:` list, `model:`) using whatever your harness's Agent-dispatch mechanism understands.
 
-**What to do:** compose the actual subagent prompt yourself from `description:` plus `context:`
-plus whatever you already know from this session — `pawl` never hands you a prompt to relay
-verbatim. Dispatch the subagent honoring `subagent_args:`. When it returns, submit exactly what it
-returned, as JSON matching `return:`, with the exact command shown on `submit with:`:
+**What to do:** build the subagent prompt from `description:` and `context:` **as given** — the
+description is the workflow author's contract. Don't add your own questions, hints, scope rules,
+author intent or summaries of the change, however much you know from this session: the engine can't
+see them, and they steer the subagent where the author didn't ask. Only mechanical harness details
+(working directory, how to return JSON) may be added. Dispatch the subagent honoring
+`subagent_args:`. When it returns, submit exactly what it returned, as JSON matching `return:`,
+with the exact command shown on `submit with:`:
 
 ```
 pawl submit --run 9074 --step fix_tests --json '{"fix_summary":"..."}'

@@ -1,43 +1,36 @@
 #!/usr/bin/env sh
-# skip-optional.sh <declined_file> <optional_findings>
+# skip-optional.sh <ledger_file> <optional_findings>
 #
 # Body of the `skip_optional` deterministic step, reached when ask_optional's
-# answer was "skip": the user chose not to address the held minor/nitpick
-# findings. Folds each one into the declined list in <declined_file> — same
-# convention record-declined.sh uses for a fixer's "wont-fix", and the same
-# file (see record-declined.sh for why it is a file, not a state key) — so
-# a later round's cold reviewers and review_route's declined-drop don't
-# re-raise the same item every round.
+# answer was "skip": the user chose not to address the held findings. Unlike
+# the old declined-list design, there is nothing to append: <optional_findings>
+# (review-route.sh's rendered view of the ledger's "held" entries) already
+# names each item's ledger `id` — this just flips those SAME ledger entries'
+# `status` to "skipped" (with a reason), in place, by id.
 #
-# Each item gets verify_status "wont-fix: <severity> finding skipped by the
-# user" (record-declined.sh's dedup convention keys only on file/category/
-# description, so this value travels with the item regardless; the
-# "wont-fix:" prefix is what the decline logic keys on).
-#
-# The new list is the prior declined items plus the skipped optional
-# findings, deduplicated on the triple (file, category, description). On a
-# duplicate the LATEST occurrence wins (reverse + group_by + take-first +
-# reverse, since group_by's sort is stable within equal keys) — same
-# convention as record-declined.sh. Written atomically (temp file + mv);
-# idempotent on a re-run.
+# Written atomically (temp file + mv); idempotent on a re-run (setting an
+# already-"skipped" entry to "skipped" again is a no-op).
 #
 # Prints {"optional_findings": []} on one line (emits: json, the default):
-# the held minor/nitpick findings are consumed, so review-route.sh does not
-# carry them into the next round.
+# the held findings are consumed, so review-route.sh does not carry them
+# into the next round (they stay in the ledger forever as "skipped", which
+# is itself one of the dedup-triggering statuses — see review-route.sh — so
+# a reviewer re-raising the same thing without `reraise_of` is dropped).
 set -eu
 
-declined_file="${1:?skip-optional.sh: declined_file argument required}"
+ledger_file="${1:?skip-optional.sh: ledger_file argument required}"
 optional_findings="${2:?skip-optional.sh: optional_findings argument required}"
 
-jq -cn --slurpfile declined "$declined_file" --argjson optional "$optional_findings" '
-  ($optional | map(. + {verify_status: ("wont-fix: " + (.severity // "optional") + " finding skipped by the user")})) as $new
-  | ($declined[0] + $new) as $all
-  | $all
-  | reverse
-  | group_by([.file, .category, .description])
-  | map(.[0])
-  | reverse
-' >"${declined_file}.tmp"
-mv "${declined_file}.tmp" "$declined_file"
+jq -cn --slurpfile ledger "$ledger_file" --argjson optional "$optional_findings" '
+  ($optional | map(.id)) as $skipped_ids
+  | ($ledger[0] // []) | map(
+      .id as $iid
+      | if ($skipped_ids | index($iid)) != null
+      then . + {status: "skipped", reason: "skipped by the user"}
+      else .
+      end
+    )
+' >"${ledger_file}.tmp"
+mv "${ledger_file}.tmp" "$ledger_file"
 
 printf '%s\n' '{"optional_findings": []}'
