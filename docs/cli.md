@@ -178,10 +178,11 @@ Ends a run. Always available, always terminal, never prompts. `--reason` is jour
 pawl dev
 ```
 
-Prints `Version` (`main.Version` in `cmd/pawl`), always exit 0. This build has no `-ldflags`
-version stamping and no plugin-pin comparison — a binary built from source always prints `pawl dev`,
-whatever the plugin manifest's pin says, and there is no refusal tied to it (see README.md's Status
-section).
+Prints `Version` (`main.Version` in `cmd/pawl`), always exit 0. Release binaries print the released
+version (stamped at build time by goreleaser's `-ldflags -X main.Version`); a binary built from
+source (`go build`/`go install`/`make install`) always prints `pawl dev`. There is still no
+plugin-pin comparison: the plugin manifest's pin is not checked against `Version`, and there is no
+refusal tied to it (see README.md's Status section).
 
 ## `pawl update` — human
 

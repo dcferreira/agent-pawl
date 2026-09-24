@@ -96,6 +96,20 @@ func TestRun_MissingRequiredArg(t *testing.T) {
 	}
 }
 
+// TestRun_UsageMentionsStatusJSONAndAbandonReason pins two flags that are
+// implemented (internal/cli/status.go's --json, internal/cli/abandon.go's
+// --reason) but were missing from the usage const: a session reading only
+// `pawl` with no args must still learn these flags exist.
+func TestRun_UsageMentionsStatusJSONAndAbandonReason(t *testing.T) {
+	_, stderr, _ := runCLI(t, []string{"pawl"})
+	if !strings.Contains(stderr, "pawl status [--run <id>] [--json]") {
+		t.Errorf("usage should show pawl status [--run <id>] [--json]: %q", stderr)
+	}
+	if !strings.Contains(stderr, "--reason") {
+		t.Errorf("usage should mention --reason on the abandon line: %q", stderr)
+	}
+}
+
 // extractRunID pulls the run id out of a DISPATCH/TERMINAL line, the way
 // the /pawl skill would.
 func extractRunID(t *testing.T, line string) string {

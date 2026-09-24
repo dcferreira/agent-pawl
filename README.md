@@ -27,8 +27,7 @@ describe:
   [docs/dogfood.md](docs/dogfood.md) for what that means in practice.
 - `install.sh` and the release pipeline behind it exist (`.goreleaser.yaml`,
   `.github/workflows/release.yml`, cross-compiling `pawl` for linux/darwin ×
-  amd64/arm64), but no tag has been pushed yet, so there are no release binaries on GitHub for it
-  to fetch today. Until a tag is pushed, install with `make install` / `go install ./cmd/pawl` —
+  amd64/arm64), and tagged releases are published on GitHub for `install.sh` to fetch —
   see [docs/install.md](docs/install.md). There is also a Claude Code plugin (see Installation
   below) that ships the `/agent-pawl:pawl` skill, but a plugin cannot ship a compiled Go binary, so
   it still depends on one of the binary installs above.
@@ -42,7 +41,7 @@ verified-runnable artefacts.
 
 ### The CLI
 
-Once a release is tagged, the recommended install is `install.sh`, which fetches a prebuilt
+The recommended install is `install.sh`, which fetches a prebuilt
 `pawl` binary from GitHub Releases — no Go toolchain required:
 
 ```
@@ -54,7 +53,7 @@ against the release's `checksums.txt`, and prints a `PATH` reminder if needed. S
 [docs/install.md](docs/install.md) for the full walkthrough, including pinning a version with
 `PAWL_VERSION`.
 
-Until a release exists, or if you'd rather build from source, the `pawl` binary is also a normal
+If you'd rather build from source, the `pawl` binary is also a normal
 Go build:
 
 ```
