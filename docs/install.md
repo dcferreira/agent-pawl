@@ -1,18 +1,15 @@
 # Install
 
 **`install.sh` and tagged release binaries exist as of this build** (`.goreleaser.yaml`,
-`.github/workflows/release.yml`), but no tag has been pushed to this repo yet, so there is
-currently nothing for `install.sh` to fetch — until a release is cut, build from source as below.
-DESIGN.md §9 describes a fuller Claude Code plugin story (self-installing a pinned release binary
-via two static hooks) as the intended end state; that hook-based auto-install is still not built —
-what exists is the plain `install.sh` / GitHub Releases pair below, plus a Claude Code plugin (see
-the README's Installation section) that ships the `/agent-pawl:pawl` skill — the plugin does not
-and cannot ship the `pawl` binary itself, so you still install it separately, with either
-`install.sh` or `go install`.
+`.github/workflows/release.yml`), and tagged releases are published on GitHub for `install.sh` to
+fetch. DESIGN.md §9 describes a fuller Claude Code plugin story (self-installing a pinned release
+binary via two static hooks) as the intended end state; that hook-based auto-install is still not
+built — what exists is the plain `install.sh` / GitHub Releases pair below, plus a Claude Code
+plugin (see the README's Installation section) that ships the `/agent-pawl:pawl` skill — the
+plugin does not and cannot ship the `pawl` binary itself, so you still install it separately, with
+either `install.sh` or `go install`.
 
 ## Install via install.sh
-
-Once a release is tagged:
 
 ```
 curl -fsSL https://raw.githubusercontent.com/dcferreira/agent-pawl/main/install.sh | sh
@@ -61,15 +58,16 @@ make install
 ```
 
 This is exactly `go install ./cmd/pawl` (see the `Makefile`). It builds `cmd/pawl` and drops `pawl` at
-`$(go env GOPATH)/bin/pawl` — make sure that directory is on your `PATH`. Equivalent, if you don't
-want to clone the repo yourself and it's published somewhere your `go install` can reach:
+`$(go env GOPATH)/bin/pawl` — make sure that directory is on your `PATH`. Equivalently, if you don't
+want to clone the repo yourself, install straight from the published module:
 
 ```
 go install github.com/dcferreira/agent-pawl/cmd/pawl@latest
 ```
 
-There is no `go install ./cmd/pawl@latest`-with-version story: nothing here is tagged or released,
-so `@latest` means "whatever is on the default branch," not a pinned build.
+`@latest` resolves to the latest tagged release (pin one with `@vX.Y.Z` instead), but it's still a
+source build, so `pawl version` still prints `pawl dev` rather than the tag — use `install.sh` if
+you want a stamped release binary.
 
 If you'd rather not touch `$GOPATH/bin`, `make build` puts the binary at `./dist/pawl` in the repo
 instead (not `./bin/`, which is a committed plugin directory — see the plugin section below):

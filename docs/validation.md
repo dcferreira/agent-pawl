@@ -1,7 +1,7 @@
 # `pawl validate`
 
 ```
-pawl validate <workflow-name> [--path <file>]
+pawl validate <workflow-name> | --path <file>
 ```
 
 Static only: no commands run, no network, no model. It parses the file, walks the graph, and checks

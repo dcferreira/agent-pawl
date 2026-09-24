@@ -525,18 +525,20 @@ fault, and shows structured forms by example.
 ```
 pawl run <name> [key=value …] [--fresh] [--force]   start, or resume a non-terminal run — BLOCKED
              [--run <id>]                          included — when exactly one resolves
-pawl validate <name>                                the checks in §H
-pawl status [--run <id>]                            where a run is, and its trust surface
-pawl abandon --run <id>                             always available, always terminal
+pawl validate <name> | --path <file>                the checks in §H
+pawl status [--run <id>] [--json]                   where a run is, and its trust surface
+pawl abandon --run <id> [--reason <text>]           always available, always terminal
 pawl list                                           resolvable workflows and their source
 ```
 
-`--fresh` starts a new run and resets every counter; `pawl run` refuses to resume a run whose workflow
-file has changed since it started, and offers `--fresh`. `--force` breaks a stale lock. `pawl run` also
-refuses to start if the installed binary's version does not match the plugin's pinned version, naming
-both. `--run <id>` is needed only to disambiguate when several runs resolve (§B.12). Internal
-commands, which the model calls and an author never writes: `pawl submit --run … --step … --json …`, `pawl poll --run …
---step …` (§B.13), and `pawl hook pre|stop`.
+`--fresh` starts a new run and resets every counter; `pawl run` refuses to resume a run whose
+workflow file has changed since it started, and offers `--fresh`. `--force` breaks a stale lock.
+Refusing to start when the installed binary's version doesn't match the plugin's pinned version,
+naming both, is designed but not yet built (see docs/cli.md's `pawl version`). `--run <id>` is
+needed only to disambiguate when several runs resolve (§B.12). Internal commands, which the model
+calls and an author never writes: `pawl submit --run … --step … --json …`, `pawl poll --run … --step
+…` (§B.13), and `pawl hook pre|stop` (designed, not yet built — no enforcement layer; see
+README.md's Status).
 
 Milestone 1 covers the five kinds (`kind: parallel`'s single-group, all-or-nothing `branches:`
 included — §B.15), `state:` and `args:`, the stdout grammar, `${…}` substitution, postconditions with

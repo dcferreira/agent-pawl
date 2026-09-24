@@ -29,8 +29,9 @@ describes the target system (enforcement, full distribution, `foreach:` fan-out)
   `docs/dogfood.md`.
 - `pawl poll --run … --step …` drives a `wait` step; `pawl hook` still doesn't exist (no
   enforcement layer to invoke it).
-- No `install.sh`, no release binaries, no `-ldflags` version stamping — `pawl version` always
-  prints `pawl dev`.
+- `install.sh` and goreleaser-built release binaries exist (tagged releases are published on
+  GitHub); release builds are version-stamped via `-ldflags -X main.Version`, but a source build
+  (`go build`/`go install`/`make install`) still prints `pawl dev`.
 - Only `docs/examples/green-tests` is a verified-runnable artefact (covered by `e2e/`); the other
   `docs/examples/` are authoring exercises, not proven to run.
 
@@ -103,9 +104,9 @@ runtime either — see the next section.
 
 - **Commits are Conventional Commits** (`feat:`, `fix:`, `ci:`, `docs:`, `test:`), imperative
   subject line, a body explaining *why* and any non-obvious trade-off, trailers for
-  `Co-Authored-By:`/`Claude-Session:` where applicable — verified against this repo's actual `jj
-  log`/`git log`, not assumed.
-- **git is the assumed VCS for contributors; jj is supported but optional.**
+  `Co-Authored-By:`/`Claude-Session:` where applicable — verified against this repo's actual
+  commit history, not assumed.
+- **Contributors may use git, jj, or no VCS at all; nothing here assumes one.**
   `internal/journal.ResolveRoot` never shells out to either: it walks up from cwd looking for the
   nearest directory containing a `.git` or `.jj` entry (either can be a plain file, e.g. a git
   worktree/submodule's `.git`) and returns the first one found; with neither anywhere above cwd it
@@ -132,8 +133,9 @@ runtime either — see the next section.
   `docs/examples/green-tests/scripts/run-tests.sh` shells out to `jq -Rs .` to JSON-encode a possibly
   multi-line test failure. Missing `jq` doesn't crash the script — it reports a named `FAIL` saying
   so — but you'll never see a real test failure until it's installed. CI installs it explicitly.
-- **`pawl version` always prints `pawl dev`** when built from source; that's expected, not a
-  broken build (no `-ldflags` version stamping exists yet).
+- **A source build's `pawl version` prints `pawl dev`** (`go build`/`go install`/`make install`);
+  that's expected, not a broken build — only release binaries carry the goreleaser-stamped
+  version (see the Status bullet above).
 - Engine execution detail worth knowing before touching `internal/engine/exec.go`: the wall-clock
   timeout is enforced by an independent `time.AfterFunc` killing the whole process group
   (`Setpgid` + negative-pid `SIGKILL`), not `exec.CommandContext`/`cmd.Cancel` — `sh -c 'cmd &'`

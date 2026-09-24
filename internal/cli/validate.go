@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// cmdValidate implements pawl validate <workflow-name> [--path <file>]
+// cmdValidate implements pawl validate <workflow-name> | --path <file>
 // (design/format-spec.md §H, §I): resolve the workflow — by name under
 // .claude/workflows/ (the ordinary case, resolveWorkflowFile) or, with
 // --path, a specific file instead, skipping name resolution entirely — run
@@ -73,11 +73,11 @@ func cmdValidate(args []string, cwd string, stdout, stderr io.Writer) int {
 		}
 	}
 	if haveName && havePath {
-		fmt.Fprintln(stderr, "usage: pawl validate <workflow-name> [--path <file>] — a name and --path are mutually exclusive")
+		fmt.Fprintln(stderr, "usage: pawl validate <workflow-name> | --path <file> — a name and --path are mutually exclusive")
 		return 2
 	}
 	if !haveName && !havePath {
-		fmt.Fprintln(stderr, "usage: pawl validate <workflow-name> [--path <file>]")
+		fmt.Fprintln(stderr, "usage: pawl validate <workflow-name> | --path <file>")
 		return 2
 	}
 

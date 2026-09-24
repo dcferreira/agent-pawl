@@ -13,7 +13,7 @@ the process exits with nothing driving it — deterministic-only workflows, or i
 
 ```
 pawl run <name> [key=value …] [--run <id>] [--fresh] [--force]
-pawl validate <workflow-name> [--path <file>]
+pawl validate <workflow-name> | --path <file>
 pawl status [--run <id>] [--json]
 pawl list
 pawl abandon --run <id> [--reason <text>]
@@ -75,7 +75,7 @@ pawl abandon: run 7f3a has already ended (ok); nothing to abandon
 ## `pawl validate` — human
 
 ```
-pawl validate <workflow-name> [--path <file>]
+pawl validate <workflow-name> | --path <file>
 ```
 
 Static checks only — nothing runs, no network, no LLM. Takes a workflow name, resolved under
@@ -178,10 +178,11 @@ Ends a run. Always available, always terminal, never prompts. `--reason` is jour
 pawl dev
 ```
 
-Prints `Version` (`main.Version` in `cmd/pawl`), always exit 0. This build has no `-ldflags`
-version stamping and no plugin-pin comparison — a binary built from source always prints `pawl dev`,
-whatever the plugin manifest's pin says, and there is no refusal tied to it (see README.md's Status
-section).
+Prints `Version` (`main.Version` in `cmd/pawl`), always exit 0. Release binaries print the released
+version (stamped at build time by goreleaser's `-ldflags -X main.Version`); a binary built from
+source (`go build`/`go install`/`make install`) always prints `pawl dev`. There is still no
+plugin-pin comparison: the plugin manifest's pin is not checked against `Version`, and there is no
+refusal tied to it.
 
 ## `pawl update` — human
 
