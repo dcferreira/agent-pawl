@@ -205,7 +205,7 @@ func checkGuards(w *Workflow, errs *[]string) {
 				"%s: match: %q does not compile as a regexp: %s", ref, g.Match, err)))
 		} else if re.MatchString("") {
 			*errs = append(*errs, fileErr(w, fmt.Sprintf(
-				"%s: match: %q matches the empty string, so it would match (and deny) every command; use a pattern that requires something concrete", ref, g.Match)))
+				"%s: match: %q matches the empty string; a guard's match: must require at least one character", ref, g.Match)))
 		}
 
 		if g.OnlyIn == nil {

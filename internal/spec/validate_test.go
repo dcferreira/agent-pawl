@@ -359,7 +359,14 @@ func TestValidate_GoldenMessages(t *testing.T) {
 			name: "rule15: guard match matches the empty string",
 			file: "rule15_guard_empty_match.yaml",
 			want: []string{
-				`testdata/rule15_guard_empty_match.yaml: guard "matches-everything": match: "git push|" matches the empty string, so it would match (and deny) every command; use a pattern that requires something concrete`,
+				`testdata/rule15_guard_empty_match.yaml: guard "matches-everything": match: "git push|" matches the empty string; a guard's match: must require at least one character`,
+			},
+		},
+		{
+			name: "rule15: guard match is an anchored empty-only pattern",
+			file: "rule15_guard_empty_match_anchored.yaml",
+			want: []string{
+				`testdata/rule15_guard_empty_match_anchored.yaml: guard "blank-only": match: "^$" matches the empty string; a guard's match: must require at least one character`,
 			},
 		},
 		{

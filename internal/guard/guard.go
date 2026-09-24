@@ -30,16 +30,17 @@ type Table struct {
 
 // continuationPattern matches a shell backslash-newline line continuation —
 // a `\` immediately followed by `\n` or `\r\n`. This is deliberately a
-// syntactic pattern, not a semantic one: POSIX sh also treats a backslash
-// preceded by another backslash (`\\` + newline — a literal backslash, then
-// a new command) as ending in an *escaped* backslash, not a line
-// continuation, but this regexp cannot tell the two apart and still deletes
-// that newline as if it were one. That is a known imprecision, not
-// something this package tries to fix: guards match the canonical spelling
-// of a command and nothing else (design/format-spec.md §10), and this is
-// one more way, alongside `$()`, variable indirection and base64, that a
-// guard's match: can be defeated by someone constructing the command text
-// specifically to dodge it.
+// syntactic pattern, not a semantic one: it does not track quoting, so a
+// backslash-newline inside single quotes, inside a quoted heredoc body, or
+// preceded by another backslash (`\\` + newline — a literal, *escaped*
+// backslash ending one command, followed by a new one, not a continuation)
+// is all deleted the same as an ordinary continuation, even though POSIX sh
+// would not join the line in any of those cases. That is a known
+// imprecision, not something this package tries to fix: guards match the
+// canonical spelling of a command and nothing else (design/format-spec.md
+// §10), and this is one more way, alongside `$()`, variable indirection and
+// base64, that a guard's match: can be defeated by someone constructing the
+// command text specifically to dodge it.
 var continuationPattern = regexp.MustCompile(`\\\r?\n`)
 
 // normalizeContinuations deletes every shell backslash-newline continuation

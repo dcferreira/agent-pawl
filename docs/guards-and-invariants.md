@@ -48,11 +48,14 @@ separated by a plain newline (no `&&`, no trailing `\`) still each get their own
 since an unanchored `match:` finds a hit on whichever line it lands on — only `.` and the anchors
 treat `\n` specially, and this normalisation doesn't change that.
 
-This is a syntactic join, not a real shell parse, and that is a known imprecision: a shell only
-treats `\` + newline as a continuation when the backslash itself isn't escaped, so `echo a\\` +
-newline + `git push` is, to a real shell, one command ending in a literal backslash followed by a
-second command on the next line — but this matcher can't tell an escaped backslash from an
-unescaped one, and deletes that newline as if it were a continuation regardless. Guards match the
+This is a syntactic join, not a real shell parse, and that is a known imprecision: the matcher does
+not track quoting, so a backslash-newline inside single quotes, a quoted heredoc body, or after an
+escaped backslash is deleted as if it were a continuation, even though a real shell would not join
+the line in any of those cases. For the escaped-backslash case, `echo a\\` + newline + `git push` is,
+to a real shell, one command ending in a literal backslash followed by a second command on the next
+line — but this matcher can't tell an escaped backslash from an unescaped one, and deletes that
+newline anyway. The same applies inside single quotes and quoted heredocs, e.g. `echo 'git pu\` +
+newline + `sh'` is joined into `git push` even though it's a single-quoted literal. Guards match the
 canonical spelling of a command and nothing else; this is one more way a `match:` can be defeated (or
 given a surprise hit) by someone constructing the command text specifically to exploit it.
 

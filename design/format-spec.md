@@ -233,13 +233,17 @@ shell commands separated by a bare newline, or a `&&` chain broken across lines 
 `\`) is left alone; an unanchored `match:` still finds a hit on whichever line it falls on, because
 substring search does not stop at `\n` — only `.` and the anchors do.
 
-This normalisation is syntactic, not a full shell parse, and that is a known imprecision: POSIX sh
-treats a backslash-newline as a continuation only when the `\` itself is not escaped, so `echo a\\`
-+ newline + `git push` is, to a real shell, a literal trailing backslash ending one command followed
-by a second command on the next line — but `internal/guard` still deletes that newline as if it were
-a continuation, because the regexp has no way to tell an escaped backslash from an unescaped one.
-Guards match the canonical spelling of a command and nothing else (see the paragraph above); this is
-one more way, alongside `$()`, variable indirection and base64, that a guard's `match:` can be
+This normalisation is syntactic, not a full shell parse, and that is a known imprecision: the matcher
+does not track quoting, so a backslash-newline inside single quotes, a quoted heredoc body, or after
+an escaped backslash is deleted as if it were a continuation, even though POSIX sh would not join the
+line in any of those cases. For the escaped-backslash case, `echo a\\` + newline + `git push` is, to a
+real shell, a literal trailing backslash ending one command followed by a second command on the next
+line — but `internal/guard` still deletes that newline, because the regexp has no way to tell an
+escaped backslash from an unescaped one. The same blind spot applies inside single quotes and quoted
+heredocs: a literal `\` + newline in `echo 'git pu\` + newline + `sh'` is joined the same way, so a
+guard for `git push` can be denied by a quoted string that a real shell would never treat as that
+command. Guards match the canonical spelling of a command and nothing else (see the paragraph above);
+this is one more way, alongside `$()`, variable indirection and base64, that a guard's `match:` can be
 defeated or given a false positive by someone constructing the command text specifically to exploit
 it.
 
