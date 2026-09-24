@@ -135,7 +135,9 @@ result=$(jq -cn \
   def loc_match($f; $e):
     ($f.line | ln) as $fl | ($e.line | ln) as $el
     | ($f.file == $e.file) and (
-      ($fl == null) or ($el == null) or near($fl; $el)
+      if ($fl == null) or ($el == null)
+      then (($fl == null) and ($el == null)) or ($f.category == $e.category)
+      else near($fl; $el) end
     );
   def cat_or_sev($f; $e):
     ($f.category == $e.category) or ($f | sevrank) >= ($e | sevrank);
@@ -150,7 +152,7 @@ result=$(jq -cn \
   | ($kept | to_entries | map(.value + {id: ("r" + ($round | tostring) + "-" + ((.key + 1) | tostring)), round: $round})) as $with_ids
   | ($with_ids | map(
       . as $it
-      | if ($review_pass == "delta") and (($it.severity == "minor") or ($it.severity == "nitpick") or (($it.category != "stale-docs") and ($delta_paths | index($it.file) == null)))
+      | if ($review_pass == "delta") and (($it.severity == "minor") or ($it.severity == "nitpick") or (($it.category != "stale-docs") and (($it.reraise_of // "") == "") and ($delta_paths | index($it.file) == null)))
       then . + {status: "suppressed", reason: ("delta pass: " + (if ($it.severity == "minor" or $it.severity == "nitpick") then "minor/nitpick findings are not routed in a delta pass" else "file is outside this delta (" + ($it.file // "?") + ")" end))}
       elif .pre_existing then . + {status: "held", reason: "pre-existing"}
       elif (.severity == "minor") or (.severity == "nitpick")
