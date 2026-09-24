@@ -9,11 +9,11 @@ import (
 )
 
 // cmdAbandon implements pawl abandon --run <id> [--reason <text>]
-// (design/format-spec.md §I): always available, always terminal. There is no Engine.Abandon — the
-// engine has only Start/Resume/Submit — so this appends the RUN_END event
-// directly via internal/journal, the same package the engine itself uses to
-// end a run, with status "abandoned" (anything but "blocked" is terminal
-// per journal.RunState.Terminal).
+// (design/format-spec.md §I): always available, always terminal. There is no
+// Engine.Abandon — the engine has only Start/Resume/Submit — so this appends
+// the RUN_END event directly via internal/journal, the same package the
+// engine itself uses to end a run, with status "abandoned" (anything but
+// "blocked" is terminal per journal.RunState.Terminal).
 func cmdAbandon(args []string, cwd string, stdout, stderr io.Writer) int {
 	var runID, reason string
 	haveReason := false
