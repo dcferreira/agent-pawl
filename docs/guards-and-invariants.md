@@ -30,21 +30,31 @@ elsewhere; `[]` (empty) denies it for the whole run: "never do this by hand".
 ### Multi-line commands
 
 Before matching, a `\` immediately followed by a newline (`\n` or `\r\n`) — a shell line
-continuation — is normalised to a single space, so a command split across lines with a trailing
-backslash still matches the same as its one-line spelling:
+continuation — is deleted entirely, the way POSIX sh itself joins a continued line: nothing is
+inserted in its place, so a command split mid-word across lines with a trailing backslash is
+rejoined into the same word it would run as:
 
 ```
-gh pr merge \
-  41
+git pu\
+sh origin
 ```
 
-matches `match: "gh pr merge .*"` exactly like `gh pr merge 41` would. This is a normalisation of
-the command text `internal/guard.Table.Denied` matches against, not a change to the regexp's
-flags — `.` still does not match a literal `\n`, and `^`/`$` still anchor only at the start/end of
-the whole string. A bare newline with nothing before it isn't touched: two commands separated by a
-plain newline (no `&&`, no trailing `\`) still each get their own chance to match, since an
-unanchored `match:` finds a hit on whichever line it lands on — only `.` and the anchors treat `\n`
-specially, and this normalisation doesn't change that.
+matches `match: "git push"` exactly like `git push origin` would — even though `git push` does not
+appear anywhere in the un-joined text above (it reads "pu", then a newline, then "sh"). This is a
+normalisation of the command text `internal/guard.Table.Denied` matches against, not a change to the
+regexp's flags — `.` still does not match a literal `\n`, and `^`/`$` still anchor only at the
+start/end of the whole string. A bare newline with nothing before it isn't touched: two commands
+separated by a plain newline (no `&&`, no trailing `\`) still each get their own chance to match,
+since an unanchored `match:` finds a hit on whichever line it lands on — only `.` and the anchors
+treat `\n` specially, and this normalisation doesn't change that.
+
+This is a syntactic join, not a real shell parse, and that is a known imprecision: a shell only
+treats `\` + newline as a continuation when the backslash itself isn't escaped, so `echo a\\` +
+newline + `git push` is, to a real shell, one command ending in a literal backslash followed by a
+second command on the next line — but this matcher can't tell an escaped backslash from an
+unescaped one, and deletes that newline as if it were a continuation regardless. Guards match the
+canonical spelling of a command and nothing else; this is one more way a `match:` can be defeated (or
+given a surprise hit) by someone constructing the command text specifically to exploit it.
 
 A denied call does not run:
 

@@ -72,29 +72,53 @@ func TestDenied_UnanchoredMatch(t *testing.T) {
 }
 
 // TestDenied_BackslashNewlineContinuationCaught proves the format-spec §10
-// normalization: a command split across lines with a trailing `\` (the
-// canonical Bash tool wrapping of a long command) matches a guard the same
-// as its one-line spelling would, even though `.` does not match a literal
-// `\n` under Go's default regexp flags.
+// normalization actually joins the split line back together — not merely
+// that the guard's pattern happens to already match the raw, un-joined
+// text. `git push` only appears as a substring once "pu" and "sh" (split by
+// the backslash-newline) are rejoined with nothing between them, matching
+// what a POSIX shell would actually run. A pattern like `git push.*` would
+// pass this test even with normalizeContinuations deleted entirely (a `.*`
+// swallows the backslash and newline too), which is why this uses a plain
+// literal match instead.
 func TestDenied_BackslashNewlineContinuationCaught(t *testing.T) {
 	guards := []spec.GuardDecl{
-		{ID: "merge-guard", Match: "gh pr merge .*", OnlyIn: []string{}},
+		{ID: "no-push", Match: "git push", OnlyIn: []string{}},
 	}
-	command := "gh pr merge \\\n  41"
-	if got := Denied(guards, nil, command); got == nil || got.ID != "merge-guard" {
-		t.Fatalf("Denied(%q) = %+v, want denied by merge-guard (backslash-newline continuation normalized)", command, got)
+	command := "git pu\\\nsh origin"
+	if got := Denied(guards, nil, command); got == nil || got.ID != "no-push" {
+		t.Fatalf("Denied(%q) = %+v, want denied by no-push (backslash-newline continuation deleted, joining \"pu\" and \"sh\" into \"push\")", command, got)
 	}
 }
 
 // TestDenied_BackslashCarriageReturnNewlineContinuationCaught is the same
-// as above but for a `\r\n` line ending.
+// idea for a `\r\n` line ending, and also pins the deletion (not
+// space-join) semantics: `gh pr merge [0-9]+` requires exactly one space
+// between "merge" and the digits. Joining with a space would leave two
+// spaces (the one already before the backslash, plus the inserted one) and
+// the pattern would not match; deleting the backslash-newline pair
+// entirely — matching what a POSIX shell does — leaves exactly one.
 func TestDenied_BackslashCarriageReturnNewlineContinuationCaught(t *testing.T) {
 	guards := []spec.GuardDecl{
-		{ID: "merge-guard", Match: "gh pr merge .*", OnlyIn: []string{}},
+		{ID: "merge-guard", Match: "gh pr merge [0-9]+", OnlyIn: []string{}},
 	}
-	command := "gh pr merge \\\r\n  41"
+	command := "gh pr merge \\\r\n41"
 	if got := Denied(guards, nil, command); got == nil || got.ID != "merge-guard" {
-		t.Fatalf("Denied(%q) = %+v, want denied by merge-guard (\\r\\n continuation normalized)", command, got)
+		t.Fatalf("Denied(%q) = %+v, want denied by merge-guard (\\r\\n continuation deleted, joining \"merge \" and \"41\")", command, got)
+	}
+}
+
+// TestDenied_BareNewlineNotJoined is the negative case: a newline with no
+// preceding backslash is not a line continuation and must not be deleted.
+// `merge [0-9]+` requires "merge" immediately followed by a space and
+// digits; "gh pr merge\n41" has a newline, not a space, in that position,
+// so it must not be denied.
+func TestDenied_BareNewlineNotJoined(t *testing.T) {
+	guards := []spec.GuardDecl{
+		{ID: "merge-guard", Match: "merge [0-9]+", OnlyIn: []string{}},
+	}
+	command := "gh pr merge\n41"
+	if got := Denied(guards, nil, command); got != nil {
+		t.Fatalf("Denied(%q) = %+v, want nil (bare newline is not a continuation, must not be joined)", command, got)
 	}
 }
 

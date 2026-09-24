@@ -29,27 +29,39 @@ type Table struct {
 }
 
 // continuationPattern matches a shell backslash-newline line continuation —
-// a `\` immediately followed by `\n` or `\r\n` — the same spelling a shell
-// itself joins into one logical line before running a command. It is
-// intentionally narrower than "any newline": a bare newline with no
-// preceding backslash is left untouched (see normalizeContinuations).
+// a `\` immediately followed by `\n` or `\r\n`. This is deliberately a
+// syntactic pattern, not a semantic one: POSIX sh also treats a backslash
+// preceded by another backslash (`\\` + newline — a literal backslash, then
+// a new command) as ending in an *escaped* backslash, not a line
+// continuation, but this regexp cannot tell the two apart and still deletes
+// that newline as if it were one. That is a known imprecision, not
+// something this package tries to fix: guards match the canonical spelling
+// of a command and nothing else (design/format-spec.md §10), and this is
+// one more way, alongside `$()`, variable indirection and base64, that a
+// guard's match: can be defeated by someone constructing the command text
+// specifically to dodge it.
 var continuationPattern = regexp.MustCompile(`\\\r?\n`)
 
-// normalizeContinuations collapses every shell backslash-newline
-// continuation in command to a single space, so a command split across
-// lines with a trailing `\` (the canonical way a long Bash tool call wraps)
+// normalizeContinuations deletes every shell backslash-newline continuation
+// in command entirely, matching what POSIX sh itself does with one: a line
+// ending in an unescaped `\` has that backslash and the following newline
+// removed outright, joining the next line directly onto the current one
+// with nothing in between — not a space — so a command split across lines
+// with a trailing `\` (the canonical way a long Bash tool call wraps)
 // matches a guard's match: the same as its one-line spelling would —
-// design/format-spec.md §10. This changes the command text Denied matches
-// against, not the regexp engine's flags: `.` still does not match a
-// literal `\n`, and `^`/`$` still anchor only at the ends of the whole
-// string. A plain newline with nothing before it is left alone on purpose:
-// two commands separated by a bare newline (no trailing `\`) still each get
-// their own chance to match on their own line, since an unanchored
-// match: finds a hit anywhere in the string regardless of embedded
-// newlines — only `.` and the anchors treat `\n` specially, and this
-// normalization doesn't change that.
+// design/format-spec.md §10. Any whitespace already present next to the
+// `\` or at the start of the following line survives the deletion as-is;
+// only the backslash-newline pair itself is removed. This changes the
+// command text Denied matches against, not the regexp engine's flags: `.`
+// still does not match a literal `\n`, and `^`/`$` still anchor only at the
+// ends of the whole string. A plain newline with nothing before it is left
+// alone on purpose: two commands separated by a bare newline (no trailing
+// `\`) still each get their own chance to match on their own line, since an
+// unanchored match: finds a hit anywhere in the string regardless of
+// embedded newlines — only `.` and the anchors treat `\n` specially, and
+// this normalization doesn't change that.
 func normalizeContinuations(command string) string {
-	return continuationPattern.ReplaceAllString(command, " ")
+	return continuationPattern.ReplaceAllString(command, "")
 }
 
 // Compile compiles every guard's match: as a Go regexp (RE2 syntax — close
@@ -80,8 +92,9 @@ func Compile(guards []spec.GuardDecl) (*Table, error) {
 // several entries (a parallel step's branches are all active at once);
 // either way, a guard denies unless at least one active step is
 // permitted. Before matching, command has its shell backslash-newline line
-// continuations normalized to a single space (normalizeContinuations); a
-// plain newline with no preceding backslash is left alone.
+// continuations deleted entirely (normalizeContinuations), joining the
+// split lines the way a POSIX shell would; a plain newline with no
+// preceding backslash is left alone.
 //
 // A nil *Table (an empty guard set) always returns nil: nothing to deny.
 func (t *Table) Denied(activeSteps []string, command string) *spec.GuardDecl {
