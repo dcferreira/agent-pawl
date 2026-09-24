@@ -11,9 +11,9 @@ the five kinds compare.
   `agentic` step (no nesting: a branch cannot itself be `wait`, `human` or `parallel`). A branch may
   not be the workflow's `start:` step, may not appear twice in the same `branches:`, and may be
   claimed by only one `parallel` step in the whole file.
-- A branch step declares **none** of `next:`, `outcomes:`, `catch:`, `attempts:`, `attempt_key:` or
-  `max_visits:` — the owning `parallel` step is the sole owner of routing and retry for the whole
-  group. A branch may still declare `postcondition:` and `writes:`; those are its own.
+- A branch step declares **none** of `next:`, `outcomes:`, `catch:`, `attempts:`, `attempt_key:`,
+  `max_visits:` or `retry:` — the owning `parallel` step is the sole owner of routing and retry for
+  the whole group. A branch may still declare `postcondition:` and `writes:`; those are its own.
 - **`postcondition:`** on the `parallel` step itself — optional, same as `deterministic`: the group
   outcome (below) is usually check enough.
 

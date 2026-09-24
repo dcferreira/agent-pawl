@@ -541,3 +541,173 @@ terminal:
 		t.Errorf("slept = %v, want no sleep at all: an exit-0 failure token is a clean routed tick, not a hard failure", clock.slept)
 	}
 }
+
+// TestRetry_DeterministicExitZeroFailureTokenIsNotHardFailure pins a review
+// finding: a deterministic run: that exits 0 but prints the reserved
+// "failure" TOKEN on its last line (only possible when the step declares an
+// author-named outcome, making TOKEN parsing active) is not one of §B.16's
+// three hard-failure cases (non-zero exit, the wall-clock timeout, or
+// unintelligible stdout) — mirrors TestRetry_WaitExitZeroFailureTokenIsNotHardFailure.
+// retry: must never retry it, and it must route on the very first try with
+// the run:'s own diagnostic still visible as ${last_error}.
+func TestRetry_DeterministicExitZeroFailureTokenIsNotHardFailure(t *testing.T) {
+	const yaml = `
+workflow: det-retry-failure-token
+start: a
+steps:
+  - id: a
+    kind: deterministic
+    run: "echo diag-message >&2; echo failure"
+    retry: {max_attempts: 3, backoff: 10s}
+    outcomes:
+      PASSED: done
+    catch: [{on: failure, next: blocked}]
+terminal:
+  done:    {status: ok}
+  blocked: {status: blocked, message: "paused: ${blocked_reason}"}
+`
+	e := newTestEngine(t, yaml)
+	clock := newFakeClock()
+	clock.install(e)
+
+	instr, err := e.Start("run1", nil)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	term, ok := instr.(Terminal)
+	if !ok || term.Status != "blocked" {
+		t.Fatalf("got %+v, want Terminal{blocked} on the very first try", instr)
+	}
+
+	dir := journal.RunDir(e.Root, e.Workflow.Workflow, "run1")
+	events, err := journal.ReadEvents(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var enters int
+	for _, ev := range events {
+		if ev.Kind == journal.KindStepEnter && ev.Step == "a" {
+			enters++
+		}
+	}
+	if enters != 1 {
+		t.Errorf("STEP_ENTER count = %d, want exactly 1: an exit-0 failure token must not be retried", enters)
+	}
+	if len(clock.slept) != 0 {
+		t.Errorf("slept = %v, want no sleep at all: an exit-0 failure token is a clean routed tick, not a hard failure", clock.slept)
+	}
+
+	rs, err := journal.Replay(events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rs.LastError, "diag-message") {
+		t.Errorf("last_error = %q, want it to carry the run:'s own diagnostic (diag-message)", rs.LastError)
+	}
+}
+
+// TestRetry_DeterministicExitZeroFailureTokenSkipsFailingPostcondition pins
+// the exact pre-retry: routing for an exit-0 author-printed reserved
+// "failure" token: it is hardFailed (routes straight to routeReserved, the
+// same as a non-zero exit or a timeout always did) and must never run a
+// postcondition or consume an attempts: retry — even when the step declares
+// both a postcondition: that would fail and attempts: > 1 to retry under.
+// If the token instead fell through to postcondition evaluation (the bug
+// this regression pins), the failing postcondition would trigger an
+// attempts:-level retry (a second STEP_ENTER) and last_error would carry
+// the postcondition's own failure text instead of the run:'s diagnostic.
+func TestRetry_DeterministicExitZeroFailureTokenSkipsFailingPostcondition(t *testing.T) {
+	const yaml = `
+workflow: det-retry-failure-token-postcondition
+start: a
+steps:
+  - id: a
+    kind: deterministic
+    run: "echo diag-message >&2; echo failure"
+    retry: {max_attempts: 3, backoff: 10s}
+    attempts: 3
+    postcondition: "false"
+    outcomes:
+      PASSED: done
+    catch: [{on: failure, next: blocked}]
+terminal:
+  done:    {status: ok}
+  blocked: {status: blocked, message: "paused: ${blocked_reason}"}
+`
+	e := newTestEngine(t, yaml)
+	clock := newFakeClock()
+	clock.install(e)
+
+	instr, err := e.Start("run1", nil)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	term, ok := instr.(Terminal)
+	if !ok || term.Status != "blocked" {
+		t.Fatalf("got %+v, want Terminal{blocked} on the very first try", instr)
+	}
+
+	events := eventsOf(t, e, "run1")
+	var enters int
+	for _, ev := range events {
+		if ev.Kind == journal.KindStepEnter && ev.Step == "a" {
+			enters++
+		}
+	}
+	if enters != 1 {
+		t.Errorf("STEP_ENTER count = %d, want exactly 1: a failing postcondition: must never trigger an attempts: retry for a hardFailed exit-0 failure token", enters)
+	}
+	if len(clock.slept) != 0 {
+		t.Errorf("slept = %v, want no sleep at all", clock.slept)
+	}
+
+	rs, err := journal.Replay(events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rs.LastError, "diag-message") {
+		t.Errorf("last_error = %q, want it to carry the run:'s own diagnostic (diag-message), not the postcondition's failure text", rs.LastError)
+	}
+}
+
+// TestRetry_DeterministicHardRetrySuccessClearsLastError pins a review
+// finding: a try that hard-fails (journaling a failure diagnostic into
+// last_error, per I1) and is then retried successfully by retry: must not
+// leave that earlier try's diagnostic stuck in ${last_error} — the step
+// here declares no postcondition:, so nothing else would otherwise journal
+// the POSTCONDITION{OK:true} Replay needs to clear it.
+func TestRetry_DeterministicHardRetrySuccessClearsLastError(t *testing.T) {
+	const yamlTmpl = `
+workflow: retry-hard-failure-clears-last-error
+start: a
+steps:
+  - id: a
+    kind: deterministic
+    run: '%s'
+    retry: {max_attempts: 3, backoff: 10s}
+    next: done
+terminal: {done: {status: ok}}
+`
+	e := newTestEngine(t, sprintfYAML(yamlTmpl, counterRun("counter", 1)))
+	clock := newFakeClock()
+	clock.install(e)
+
+	instr, err := e.Start("run1", nil)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if term, ok := instr.(Terminal); !ok || term.Status != "ok" {
+		t.Fatalf("got %+v, want Terminal{ok} (the retry should have succeeded)", instr)
+	}
+
+	rs, err := journal.Replay(eventsOf(t, e, "run1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rs.LastError != "" {
+		t.Errorf("last_error = %q, want empty: a recovered hard-retry must not leave a stale diagnostic behind", rs.LastError)
+	}
+	if _, stillBudgeted := rs.Attempts[journal.AttemptRef{Step: "a", Key: ""}]; stillBudgeted {
+		t.Errorf("Attempts still holds a budget entry for step %q after a clean non-catch transition; the §B.4 clearing rule should have deleted it", "a")
+	}
+}

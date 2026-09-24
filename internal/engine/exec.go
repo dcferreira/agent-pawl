@@ -86,21 +86,21 @@ func (e *Engine) execShell(cmdline string, keys []string, vals render.Values) (s
 // stdout and stderr are always returned in full (design/format-spec.md §3:
 // "captured in full"), even on error, so the caller can persist them for
 // diagnosis (finding I2) regardless of how the step ended.
-func (e *Engine) execDeterministic(step *spec.Step, vals render.Values) (result emit.Result, timedOut bool, stdout, stderr string, err error) {
+func (e *Engine) execDeterministic(step *spec.Step, vals render.Values) (result emit.Result, timedOut bool, stdout, stderr string, exitCode int, err error) {
 	cmd, err := resolveScriptPathTemplate(step.Run, vals, filepath.Dir(e.Workflow.Path))
 	if err != nil {
-		return emit.Result{}, false, "", "", fmt.Errorf("engine: rendering run: for step %q: %w", step.ID, err)
+		return emit.Result{}, false, "", "", 0, fmt.Errorf("engine: rendering run: for step %q: %w", step.ID, err)
 	}
-	stdout, stderr, exitCode, err := e.execShell(cmd, render.Keys(step.Run), vals)
+	stdout, stderr, exitCode, err = e.execShell(cmd, render.Keys(step.Run), vals)
 	if err != nil {
 		if errors.Is(err, errTimeout) {
-			return emit.Result{}, true, stdout, stderr, nil
+			return emit.Result{}, true, stdout, stderr, exitCode, nil
 		}
-		return emit.Result{}, false, stdout, stderr, fmt.Errorf("engine: executing step %q: %w", step.ID, err)
+		return emit.Result{}, false, stdout, stderr, exitCode, fmt.Errorf("engine: executing step %q: %w", step.ID, err)
 	}
 	result, err = emit.Parse(stdout, exitCode, step, e.Workflow.State)
 	if err != nil {
-		return emit.Result{}, false, stdout, stderr, err
+		return emit.Result{}, false, stdout, stderr, exitCode, err
 	}
-	return result, false, stdout, stderr, nil
+	return result, false, stdout, stderr, exitCode, nil
 }
