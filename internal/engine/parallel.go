@@ -144,7 +144,7 @@ func (e *Engine) execBranchDeterministic(dir string, log *journal.Log, runID, pa
 	if err != nil {
 		return err
 	}
-	at, _, err := e.runDeterministicAttempt(dir, log, runID, branch, 1, rs)
+	at, _, err := e.runDeterministicAttempt(dir, log, runID, branch, 1, rs, nil)
 	if err != nil {
 		return err
 	}

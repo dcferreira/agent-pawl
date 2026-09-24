@@ -8,6 +8,7 @@ import (
 
 	"github.com/dcferreira/agent-pawl/internal/emit"
 	"github.com/dcferreira/agent-pawl/internal/journal"
+	"github.com/dcferreira/agent-pawl/internal/render"
 	"github.com/dcferreira/agent-pawl/internal/spec"
 )
 
@@ -53,8 +54,19 @@ type deterministicAttempt struct {
 // journal, exactly as advanceDeterministic's loop already did inline)
 // alongside the attempt result, since the caller needs post-write state for
 // whatever it does next.
-func (e *Engine) runDeterministicAttempt(dir string, log *journal.Log, runID string, step *spec.Step, attempt int, rs *journal.RunState) (deterministicAttempt, *journal.RunState, error) {
+//
+// lastErrorOverride, when non-nil, replaces the ${last_error} value that
+// would otherwise come from rs.LastError: advanceDeterministic's hard-retry
+// loop (§B.16) passes the attempt's own frozen AttemptLastError here so a
+// retried try never sees the diagnostic journaled by the previous hard-
+// failed try of the *same* attempt. A caller with no such concern (the
+// plain first-try path, or a kind: parallel branch, which owns no retry:
+// budget of its own) passes nil and gets the ordinary rs.LastError.
+func (e *Engine) runDeterministicAttempt(dir string, log *journal.Log, runID string, step *spec.Step, attempt int, rs *journal.RunState, lastErrorOverride *string) (deterministicAttempt, *journal.RunState, error) {
 	vals := buildValues(e.Workflow, rs, runID, step.ID, attempt, rs.Visits[step.ID])
+	if lastErrorOverride != nil {
+		vals["last_error"] = render.StringValue(*lastErrorOverride)
+	}
 
 	result, timedOut, stdout, stderr, exitCode, execErr := e.execDeterministic(step, vals)
 	e.writeStepOutput(dir, step.ID, attempt, stdout, stderr)
@@ -91,6 +103,9 @@ func (e *Engine) runDeterministicAttempt(dir string, log *journal.Log, runID str
 			return deterministicAttempt{}, rs, err
 		}
 		vals = buildValues(e.Workflow, rs, runID, step.ID, attempt, rs.Visits[step.ID])
+		if lastErrorOverride != nil {
+			vals["last_error"] = render.StringValue(*lastErrorOverride)
+		}
 	}
 	if result.Outcome == "failure" {
 		// I1: a non-zero exit never runs a postcondition, so nothing would
@@ -162,8 +177,18 @@ func (e *Engine) advanceDeterministic(dir string, log *journal.Log, runID string
 		if err != nil {
 			return nil, nil, err
 		}
+		// attemptLastError freezes ${last_error} as this attempt's first try
+		// sees it (rs.AttemptLastError, journal/replay.go) — captured once
+		// here and reused, unchanged, for every hard-retry of this same
+		// attempt below, so a retried try never sees the diagnostic the
+		// previous try's own hard failure just journaled (§B.16). It also
+		// covers a crash-resume mid hard-retry: rs.AttemptLastError was
+		// reconstructed by the full Replay from the attempt's own first
+		// STEP_ENTER (HardRetry: 0), not from whatever the log's tail
+		// happens to be now.
+		attemptLastError := rs.AttemptLastError
 
-		at, _, err := e.runDeterministicAttempt(dir, log, runID, step, attempt, rs)
+		at, _, err := e.runDeterministicAttempt(dir, log, runID, step, attempt, rs, &attemptLastError)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -197,7 +222,7 @@ func (e *Engine) advanceDeterministic(dir string, log *journal.Log, runID string
 			if err != nil {
 				return nil, nil, err
 			}
-			at, _, err = e.runDeterministicAttempt(dir, log, runID, step, attempt, rs)
+			at, _, err = e.runDeterministicAttempt(dir, log, runID, step, attempt, rs, &attemptLastError)
 			if err != nil {
 				return nil, nil, err
 			}

@@ -711,3 +711,63 @@ terminal: {done: {status: ok}}
 		t.Errorf("Attempts still holds a budget entry for step %q after a clean non-catch transition; the §B.4 clearing rule should have deleted it", "a")
 	}
 }
+
+// TestRetry_DeterministicHardRetryDoesNotSeePriorTrysDiagnostic pins a
+// review finding: a retry: hard-retry of an attempt must render
+// ${last_error} exactly as the attempt's first try saw it — never the
+// diagnostic the previous hard-failed try of the *same* attempt just
+// journaled (design/format-spec.md §B.16). run: writes ${last_error} to a
+// file on its second invocation (after failing hard on its first); since
+// nothing failed before this step ever ran, the attempt's first try saw an
+// empty last_error, so the retried try must see it empty too, never the
+// first try's own "boom-try-1" diagnostic.
+func TestRetry_DeterministicHardRetryDoesNotSeePriorTrysDiagnostic(t *testing.T) {
+	const yamlTmpl = `
+workflow: retry-hard-retry-no-self-diagnostic
+start: a
+steps:
+  - id: a
+    kind: deterministic
+    run: '%s'
+    retry: {max_attempts: 3, backoff: 10s}
+    next: done
+terminal: {done: {status: ok}}
+`
+	run := "n=$(cat counter 2>/dev/null || echo 0); n=$((n+1)); echo $n > counter; " +
+		"if [ $n -eq 1 ]; then echo boom-try-1 >&2; exit 1; fi; " +
+		"echo ${last_error} > seen.txt; exit 0"
+	e := newTestEngine(t, sprintfYAML(yamlTmpl, run))
+	clock := newFakeClock()
+	clock.install(e)
+
+	instr, err := e.Start("run1", nil)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if term, ok := instr.(Terminal); !ok || term.Status != "ok" {
+		t.Fatalf("got %+v, want Terminal{ok} (the retry should have succeeded)", instr)
+	}
+	if n := readCounter(t, e, "counter"); n != 2 {
+		t.Fatalf("run: was invoked %d times, want exactly 2 (1 hard failure + 1 successful retry)", n)
+	}
+
+	seen, err := os.ReadFile(filepath.Join(e.Root, "seen.txt"))
+	if err != nil {
+		t.Fatalf("reading seen.txt (should have been written by the second try): %v", err)
+	}
+	got := strings.TrimSpace(string(seen))
+	if got != "" {
+		t.Errorf("second try saw ${last_error} = %q, want empty: a retried try must not see the diagnostic its own attempt's previous try just journaled", got)
+	}
+
+	// Sanity: the diagnostic really was journaled (I1) — this asserts the
+	// fix does not also erase it from the run's own record, only from what
+	// a retried try itself observes.
+	rs, err := journal.Replay(eventsOf(t, e, "run1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rs.LastError != "" {
+		t.Errorf("final last_error = %q, want empty: a recovered hard-retry clears last_error (TestRetry_DeterministicHardRetrySuccessClearsLastError)", rs.LastError)
+	}
+}

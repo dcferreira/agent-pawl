@@ -63,6 +63,17 @@ type RunState struct {
 	// LastError is the pseudo-key populated from the text of the most
 	// recent POSTCONDITION: cleared on a pass, set on a failure.
 	LastError string
+	// AttemptLastError is the value LastError held at the start of the
+	// current attempt — frozen at the most recent non-group STEP_ENTER/
+	// RESUME whose HardRetry was 0 (the first try of an attempt, whether a
+	// fresh visit or an attempts:-level retry), and left untouched by any
+	// later STEP_ENTER with HardRetry > 0 (a retry: hard-retry re-running
+	// that same attempt's body). A retry: hard-retry of an attempt must see
+	// the same ${last_error} its attempt's first try saw, never the
+	// diagnostic journaled by the previous hard-failed try of the same
+	// attempt (design/format-spec.md §B.16) — see
+	// engine.runDeterministicAttempt's lastErrorOverride.
+	AttemptLastError string
 	// BlockedReason is the pseudo-key populated from the reason on the
 	// most recent RUN_END{status: blocked}.
 	BlockedReason string
@@ -192,6 +203,9 @@ func Replay(events []Event) (*RunState, error) {
 			transitionedSinceEnter = false
 			rs.Attempts[AttemptRef{e.Step, e.AttemptKey}] = e.Attempt
 			lastKeyByStep[e.Step] = e.AttemptKey
+			if e.HardRetry == 0 {
+				rs.AttemptLastError = rs.LastError
+			}
 			// No POSTCONDITION has run yet for this entry: deterministic/
 			// wait/human steps may legitimately have none at all (§B.7), in
 			// which case there is nothing to fail and the step is free to
@@ -223,6 +237,9 @@ func Replay(events []Event) (*RunState, error) {
 			rs.Attempts[AttemptRef{e.Step, e.AttemptKey}] = e.Attempt
 			lastKeyByStep[e.Step] = e.AttemptKey
 			lastPostconditionOKByStep[e.Step] = true
+			if e.HardRetry == 0 {
+				rs.AttemptLastError = rs.LastError
+			}
 			// A hard-failure retry (Event.HardRetry > 0, §B.16) re-runs the
 			// same attempt's body, exactly like an attempts:-driven Retry
 			// re-entry — neither counts as a fresh visit.
