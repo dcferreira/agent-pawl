@@ -210,14 +210,21 @@ func (e *Engine) advanceDeterministic(dir string, log *journal.Log, runID string
 			}
 			sleepFor := backoff * time.Duration(tryNumber)
 			e.logRetry("pawl: step %q hard-failed (try %d of %d); retrying in %s", step.ID, tryNumber, step.Retry.MaxAttempts, sleepFor)
-			e.sleep(sleepFor)
 			hardRetry = tryNumber
+			// Journal intent to run try hardRetry BEFORE sleeping, not after: a
+			// crash mid-backoff-sleep must resume at the try that has not yet
+			// run, never at the try that already ran and already journaled its
+			// own failure diagnostic (which a post-sleep append would leave the
+			// cursor pointing back at, causing resume to re-run a completed
+			// try). Skipping the remainder of an interrupted backoff sleep on
+			// resume is an accepted trade-off (design/format-spec.md §B.16).
 			if _, err := log.Append(journal.Event{
 				Kind: journal.KindStepEnter, RunID: runID, Step: step.ID,
 				Attempt: attempt, AttemptKey: key, Retry: retry, HardRetry: hardRetry,
 			}); err != nil {
 				return nil, nil, err
 			}
+			e.sleep(sleepFor)
 			rs, err = replayDir(dir)
 			if err != nil {
 				return nil, nil, err

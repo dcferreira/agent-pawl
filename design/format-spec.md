@@ -385,7 +385,7 @@ way `wait`'s `poll:` loop has. In the worst case that call blocks for up to `max
 instruction — a driving session running that command as an ordinary blocking call must budget for
 that, not the few-second ceiling a step without `retry:` would need. The engine writes one line per
 retried try to `Engine.Stderr` (wired to the CLI process's stderr) —
-`pawl: step "<id>" hard-failed (try <k> of <max_attempts>); retrying in <backoff>` — so the call is
+`pawl: step "<id>" hard-failed (try <k> of <max_attempts>); retrying in <backoff × k>` — so the call is
 not silent even though nothing is emitted on stdout (the DISPATCH/WAIT/ASK/TERMINAL grammar,
 `internal/emit`) until the retry loop ends. `Engine.Stderr` is nil (no output) unless the caller
 sets it; every `pawl` CLI command that can reach a deterministic step's retry loop (`run`, `submit`,
@@ -397,9 +397,13 @@ Once retries are exhausted, the step behaves exactly as an un-retried hard failu
 the journaled failure diagnostic from the last try, routed via the reserved `failure` outcome
 (`catch:`, or the default route to `blocked`). No "previous failure" text is threaded into a
 retried try — that context is `attempts:`-only, since a hard failure was never a postcondition
-judgement to begin with. Crash-safety: a crash mid-retry (mid-`run:`, or mid-backoff-sleep) resumes
-at the *same* retry count, the same way a crash mid-`attempts:`-retry resumes at the same attempt
-number — it re-runs the try that was interrupted, never skipping or double-spending one.
+judgement to begin with. Crash-safety: the engine journals its intent to run retry *n* (a
+`STEP_ENTER{hard_retry: n}`) *before* sleeping `backoff × n`, not after, so a crash mid-`run:` or
+mid-backoff-sleep always resumes at that same retry count — the same way a crash mid-`attempts:`-
+retry resumes at the same attempt number. Resuming re-runs exactly the try that was interrupted,
+never skipping it and never re-running a try that had already completed; a crash mid-backoff-sleep
+does start that retry's `backoff:` sleep over from the top rather than resuming it partway through
+— an accepted trade-off, not a bug.
 
 **`wait`:** the counter is **consecutive** hard-failure ticks, reset by *any* clean tick — routed
 or "not yet" alike. `backoff:`'s sleep counts against the step's own `timeout:` deadline exactly

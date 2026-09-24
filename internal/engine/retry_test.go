@@ -209,14 +209,18 @@ terminal:
 	}
 }
 
-// TestRetry_DeterministicResumeMidBackoff simulates a crash between the
-// STEP_ENTER for hard-retry try 2 and the run of its body (the point where a
-// real `pawl run` process could be killed mid-backoff-sleep): the journal has
-// a STEP_ENTER{HardRetry: 1} (the first retry, already run and hard-failed)
-// but nothing recording its result. Resume must continue the retry loop at
-// the SAME hard-retry count (never advancing it on a crash, exactly as
-// attempts:-level retries already behave — TestAttempts_NotAdvancedByCrash),
-// so total tries across the crash never exceed max_attempts:.
+// TestRetry_DeterministicResumeMidBackoff simulates a real crash mid
+// backoff-sleep: advanceDeterministic now journals STEP_ENTER{HardRetry: n}
+// BEFORE sleeping (not after), so the journal left behind by a process
+// killed during that sleep ends with [STEP_ENTER{HardRetry: 0}, the fresh
+// try's own failure-diagnostic POSTCONDITION{OK: false}, STEP_ENTER{
+// HardRetry: 1}] — recording the *intent* to run hard-retry try 1, which
+// never actually ran before the crash. Resume must continue the retry loop
+// at that SAME hard-retry count and re-run the try that never ran (never
+// advancing past it on a crash, exactly as attempts:-level retries already
+// behave — TestAttempts_NotAdvancedByCrash, and never re-running hard-retry
+// try 0's own already-completed, already-failed body), so total tries
+// across the crash never exceed max_attempts:.
 func TestRetry_DeterministicResumeMidBackoff(t *testing.T) {
 	const yamlTmpl = `
 workflow: retry-resume
@@ -265,9 +269,11 @@ terminal: {done: {status: ok}}
 	// POSTCONDITION carrying the diagnostic text, no AttemptKey — a hard
 	// failure is never retried by attempts:).
 	mustAppend(journal.Event{Kind: journal.KindPostcondition, RunID: runID, Step: "a", Attempt: 1, OK: false, Text: "bad-try-1"})
-	// The retry loop moved on to hard-retry try 1 — which is where the
-	// simulated crash leaves the trail cold, mid-body, before try 1's own
-	// result (success or failure) was ever journaled.
+	// The retry loop journaled its intent to run hard-retry try 1 (this
+	// STEP_ENTER) BEFORE sleeping backoff*1, per advanceDeterministic's
+	// journal-then-sleep ordering — and the simulated crash leaves the
+	// trail cold right there, mid backoff-sleep, before try 1's body ever
+	// ran or its result (success or failure) was ever journaled.
 	mustAppend(journal.Event{Kind: journal.KindStepEnter, RunID: runID, Step: "a", Attempt: 1, AttemptKey: "", HardRetry: 1})
 	if err := log.Close(); err != nil {
 		t.Fatal(err)
@@ -319,6 +325,120 @@ terminal: {done: {status: ok}}
 	want := []time.Duration{10 * time.Second}
 	if len(clock.slept) != len(want) {
 		t.Fatalf("slept = %v, want %v", clock.slept, want)
+	}
+}
+
+// TestRetry_DeterministicResumeMidBackoffPreservesLastErrorAndVisits pins the
+// invariants a crash-mid-backoff resume must uphold once STEP_ENTER{
+// HardRetry: n} is journaled before the sleep (see
+// TestRetry_DeterministicResumeMidBackoff): given a journal ending in
+// [STEP_ENTER{HardRetry: 0}, the fresh try's own failure-diagnostic
+// POSTCONDITION{OK: false}, STEP_ENTER{HardRetry: 1}] (the crash landed
+// mid backoff-sleep, before hard-retry try 1 ever ran) —
+//   - total body runs across the crash never exceed max_attempts: (here 2:
+//     the fresh try before the crash, plus the resumed hard-retry try 1 —
+//     hard-retry try 1 is never run twice);
+//   - ${last_error} seen by the resumed try equals what the attempt's first
+//     (fresh) try itself saw — empty here, never the fresh try's own
+//     "boom-try-1" diagnostic (rs.AttemptLastError must be reconstructed by
+//     Replay from the attempt's original STEP_ENTER{HardRetry: 0}, not
+//     re-frozen by the STEP_ENTER{HardRetry: 1} RESUME lands on);
+//   - the step declares no postcondition:, so last_error must still end up
+//     cleared once the recovered retry succeeds (the synthetic
+//     POSTCONDITION{OK: true} runDeterministicAttempt's caller journals for
+//     a hardRetried attempt with no declared postcondition:); and
+//   - Visits["a"] is 1 (a hard-retry resume must never double-count a
+//     visit).
+func TestRetry_DeterministicResumeMidBackoffPreservesLastErrorAndVisits(t *testing.T) {
+	const yamlTmpl = `
+workflow: retry-resume-last-error
+start: a
+steps:
+  - id: a
+    kind: deterministic
+    run: '%s'
+    retry: {max_attempts: 3, backoff: 5s}
+    next: done
+terminal: {done: {status: ok}}
+`
+	// n=1 (the fresh try, run before the simulated crash) hard-fails,
+	// printing "boom-try-1". n=2 (the resumed hard-retry try 1) succeeds and
+	// records the ${last_error} it was rendered with, so the test can assert
+	// it against what the fresh try itself saw (empty — nothing failed
+	// before this step ever ran).
+	run := "n=$(cat counter 2>/dev/null || echo 0); n=$((n+1)); echo $n > counter; " +
+		"if [ $n -eq 1 ]; then echo boom-try-1 >&2; exit 1; fi; " +
+		"echo ${last_error} > seen.txt; exit 0"
+	w := loadWorkflow(t, sprintfYAML(yamlTmpl, run))
+	stateDir := t.TempDir()
+	t.Setenv(journal.EnvStateDir, stateDir)
+	root := t.TempDir()
+	e := &Engine{Workflow: w, Root: root, Timeout: 5 * time.Second}
+	clock := newFakeClock()
+	clock.install(e)
+
+	runID := "run1"
+	dir, err := journal.CreateRunDir(root, w.Workflow, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := journal.WritePlan(dir, w); err != nil {
+		t.Fatal(err)
+	}
+	log, err := journal.OpenLog(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustAppend := func(ev journal.Event) {
+		t.Helper()
+		if _, err := log.Append(ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustAppend(journal.Event{Kind: journal.KindRunStart, RunID: runID})
+	mustAppend(journal.Event{Kind: journal.KindStepEnter, RunID: runID, Step: "a", Attempt: 1, AttemptKey: ""})
+	mustAppend(journal.Event{Kind: journal.KindPostcondition, RunID: runID, Step: "a", Attempt: 1, OK: false, Text: "boom-try-1"})
+	mustAppend(journal.Event{Kind: journal.KindStepEnter, RunID: runID, Step: "a", Attempt: 1, AttemptKey: "", HardRetry: 1})
+	if err := log.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "counter"), []byte("1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	instr, err := e.Resume(runID, false)
+	if err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	term, ok := instr.(Terminal)
+	if !ok || term.Status != "ok" {
+		t.Fatalf("got %+v, want Terminal{ok} (the resumed hard-retry try should have succeeded)", instr)
+	}
+	if n := readCounter(t, e, "counter"); n != 2 {
+		t.Errorf("run: total invocations = %d, want exactly 2 (fresh try before the crash, resumed hard-retry try 1) — never more than max_attempts: 3, and never a re-run of an already-completed try", n)
+	}
+
+	seen, err := os.ReadFile(filepath.Join(root, "seen.txt"))
+	if err != nil {
+		t.Fatalf("reading seen.txt (should have been written by the resumed try): %v", err)
+	}
+	if got := strings.TrimSpace(string(seen)); got != "" {
+		t.Errorf("last_error seen by the resumed try = %q, want empty (what the attempt's own first try saw — never the fresh try's own %q diagnostic)", got, "boom-try-1")
+	}
+
+	events, err := journal.ReadEvents(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rs, err := journal.Replay(events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rs.LastError != "" {
+		t.Errorf("last_error = %q, want empty: a recovered crash-mid-backoff hard-retry must not leave a stale diagnostic behind", rs.LastError)
+	}
+	if rs.Visits["a"] != 1 {
+		t.Errorf("Visits[a] = %d, want 1: a crash-mid-backoff resume must not double-count a visit", rs.Visits["a"])
 	}
 }
 
