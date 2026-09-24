@@ -301,10 +301,52 @@ func TestValidate_GoldenMessages(t *testing.T) {
 			},
 		},
 		{
-			name: "R7: retry is not implemented in this build",
-			file: "r7_retry_not_implemented.yaml",
+			name: "rule19: retry: on an agentic step",
+			file: "rule19_retry_wrong_kind.yaml",
 			want: []string{
-				`testdata/r7_retry_not_implemented.yaml: step "a": retry: is not implemented in this build; remove the retry: block`,
+				`testdata/rule19_retry_wrong_kind.yaml: step "a": rule 19: retry: is only valid on kind: deterministic or kind: wait, not kind: agentic; remove the retry: block`,
+			},
+		},
+		{
+			name: "rule19: retry.max_attempts too low",
+			file: "rule19_retry_max_attempts_too_low.yaml",
+			want: []string{
+				`testdata/rule19_retry_max_attempts_too_low.yaml: step "a": rule 19: retry.max_attempts: 1 is less than 2; max_attempts: counts the first try, so 1 would never retry — use 2 or more, or remove the retry: block`,
+			},
+		},
+		{
+			name: "rule19: retry.backoff missing",
+			file: "rule19_retry_backoff_missing.yaml",
+			want: []string{
+				`testdata/rule19_retry_backoff_missing.yaml: step "a": rule 19: retry.backoff: is required; add a backoff: duration (e.g. "30s")`,
+			},
+		},
+		{
+			name: "rule19: retry.backoff not a duration",
+			file: "rule19_retry_backoff_invalid.yaml",
+			want: []string{
+				`testdata/rule19_retry_backoff_invalid.yaml: step "a": rule 19: retry.backoff: "not-a-duration" is not a valid duration; use Go duration syntax, e.g. "30s", "1m"`,
+			},
+		},
+		{
+			name: "rule19: retry.backoff is zero",
+			file: "rule19_retry_backoff_zero.yaml",
+			want: []string{
+				`testdata/rule19_retry_backoff_zero.yaml: step "a": rule 19: retry.backoff: "0s" must be greater than zero`,
+			},
+		},
+		{
+			name: "rule19: retry unknown key",
+			file: "rule19_retry_unknown_key.yaml",
+			want: []string{
+				`testdata/rule19_retry_unknown_key.yaml: step "a": rule 19: retry: uses unknown key(s) jitter; use only max_attempts and backoff`,
+			},
+		},
+		{
+			name: "parallel: branch declares retry:",
+			file: "parallel_branch_has_retry.yaml",
+			want: []string{
+				`testdata/parallel_branch_has_retry.yaml: step "b1": declares retry:, but it is a branch of parallel step "p", which owns routing and retry for the whole group; remove retry:`,
 			},
 		},
 		{
@@ -567,7 +609,7 @@ func TestValidate_GoldenMessages(t *testing.T) {
 }
 
 func TestValidate_ValidWorkflowsHaveZeroErrors(t *testing.T) {
-	for _, file := range []string{"tidy.yaml", "valid.yaml", "parallel_ok.yaml", "human_next_valid.yaml", "human_valid_static.yaml", "human_valid_options_from.yaml", "rule15_guards_accepted.yaml", "rule15_guard_only_in_parallel_branch.yaml"} {
+	for _, file := range []string{"tidy.yaml", "valid.yaml", "parallel_ok.yaml", "human_next_valid.yaml", "human_valid_static.yaml", "human_valid_options_from.yaml", "rule15_guards_accepted.yaml", "rule15_guard_only_in_parallel_branch.yaml", "rule19_retry_valid.yaml", "rule19_retry_valid_wait.yaml"} {
 		t.Run(file, func(t *testing.T) {
 			w, err := Load(filepath.Join("testdata", file))
 			if err != nil {

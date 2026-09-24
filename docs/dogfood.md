@@ -203,8 +203,10 @@ correct.
 This walkthrough runs with `--no-enforcement` (a plain terminal has no Claude Code hooks to wire up),
 so it doesn't demonstrate the enforcement hooks in action — see the warning at the top, and
 [install.md#hooks](install.md#hooks) for what a real Claude Code session gets. `green-tests` also
-doesn't exercise `wait` or `human` steps, or `guards:`, even though this build implements all of
-them; `invariants:` and `retry:` are still rejected outright by both `pawl validate` and `pawl run`.
+doesn't exercise `wait` or `human` steps, `guards:`, or a step's `retry:`, even though this build
+implements all of them (rule 19 for `retry:` — see the README's Status section and
+design/format-spec.md). `invariants:` is still rejected outright by both `pawl validate` and
+`pawl run`.
 
 ---
 

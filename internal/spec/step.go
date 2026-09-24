@@ -58,9 +58,12 @@ type Step struct {
 	MaxVisitsRaw *int
 	MaxVisits    int
 
-	// Retry is deferred (Ruling R7): parsed, and rejected by Validate
-	// whenever non-nil.
-	Retry any
+	// Retry is the step's retry: block (design/format-spec.md §D, §B.16),
+	// nil when not declared. Validate (rule 19) restricts it to
+	// deterministic and wait steps and checks its fields; the engine
+	// (internal/engine) reads it to retry a hard-failed body before
+	// resolving any outcome.
+	Retry *RetryDecl
 
 	Catch []CatchRule
 
@@ -110,7 +113,7 @@ type stepShadow struct {
 
 	MaxVisitsRaw *int `yaml:"max_visits"`
 
-	Retry any `yaml:"retry"`
+	Retry *RetryDecl `yaml:"retry"`
 
 	Catch []CatchRule `yaml:"catch"`
 

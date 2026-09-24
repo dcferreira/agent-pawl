@@ -1,0 +1,13 @@
+workflow: retry-wrong-kind
+start: a
+state:
+  result: {type: string}
+steps:
+  - id: a
+    kind: agentic
+    description: does a thing
+    retry: {max_attempts: 3, backoff: 30s}
+    postcondition: "true"
+    writes: {result: {type: string}}
+    next: done
+terminal: {done: {status: ok}}

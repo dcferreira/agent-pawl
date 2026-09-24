@@ -23,6 +23,13 @@ type Cursor struct {
 	Step       string
 	Attempt    int
 	AttemptKey string
+	// HardRetry carries through the last STEP_ENTER/RESUME's Event.HardRetry
+	// for this step: how many hard-failure retries (retry:, §B.16) have
+	// already been spent on the body of the current attempt. The engine
+	// (advanceDeterministic) reads it on resume to continue a hard-retry
+	// loop interrupted by a crash at the same retry count, never advancing
+	// it — see Event.HardRetry.
+	HardRetry int
 }
 
 // RunState is everything Replay reconstructs from a run's events.
@@ -180,7 +187,7 @@ func Replay(events []Event) (*RunState, error) {
 				rs.Args[k] = v
 			}
 		case KindResume:
-			lastEnter = Cursor{Step: e.Step, Attempt: e.Attempt, AttemptKey: e.AttemptKey}
+			lastEnter = Cursor{Step: e.Step, Attempt: e.Attempt, AttemptKey: e.AttemptKey, HardRetry: e.HardRetry}
 			haveEnter = true
 			transitionedSinceEnter = false
 			rs.Attempts[AttemptRef{e.Step, e.AttemptKey}] = e.Attempt
@@ -210,13 +217,16 @@ func Replay(events []Event) (*RunState, error) {
 				rs.PendingBranches[e.Group][e.Step] = true
 				break
 			}
-			lastEnter = Cursor{Step: e.Step, Attempt: e.Attempt, AttemptKey: e.AttemptKey}
+			lastEnter = Cursor{Step: e.Step, Attempt: e.Attempt, AttemptKey: e.AttemptKey, HardRetry: e.HardRetry}
 			haveEnter = true
 			transitionedSinceEnter = false
 			rs.Attempts[AttemptRef{e.Step, e.AttemptKey}] = e.Attempt
 			lastKeyByStep[e.Step] = e.AttemptKey
 			lastPostconditionOKByStep[e.Step] = true
-			if !e.Retry {
+			// A hard-failure retry (Event.HardRetry > 0, §B.16) re-runs the
+			// same attempt's body, exactly like an attempts:-driven Retry
+			// re-entry — neither counts as a fresh visit.
+			if !e.Retry && e.HardRetry == 0 {
 				rs.Visits[e.Step]++
 			}
 		case KindWrites:

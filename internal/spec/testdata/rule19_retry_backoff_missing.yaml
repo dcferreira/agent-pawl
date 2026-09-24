@@ -1,0 +1,9 @@
+workflow: retry-backoff-missing
+start: a
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    retry: {max_attempts: 3}
+    next: done
+terminal: {done: {status: ok}}

@@ -1,0 +1,15 @@
+workflow: parallel-branch-retry
+start: p
+steps:
+  - id: p
+    kind: parallel
+    branches: [b1, b2]
+    next: done
+  - id: b1
+    kind: deterministic
+    run: echo hi
+    retry: {max_attempts: 3, backoff: 30s}
+  - id: b2
+    kind: deterministic
+    run: echo hi
+terminal: {done: {status: ok}}

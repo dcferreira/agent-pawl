@@ -614,6 +614,49 @@ func TestReplay_RetryDoesNotCountAsVisit(t *testing.T) {
 	}
 }
 
+// TestReplay_HardRetryDoesNotCountAsVisit: a STEP_ENTER with HardRetry > 0
+// (design/format-spec.md §B.16's retry:, distinct from the Retry field
+// above, which marks an attempts:-level re-entry) must not be counted as a
+// visit either — retries consume neither attempts: nor max_visits:.
+func TestReplay_HardRetryDoesNotCountAsVisit(t *testing.T) {
+	events := []Event{
+		{Kind: KindRunStart, Seq: 0},
+		{Kind: KindStepEnter, Seq: 1, Step: "a", Attempt: 1},
+		{Kind: KindStepEnter, Seq: 2, Step: "a", Attempt: 1, HardRetry: 1},
+		{Kind: KindStepEnter, Seq: 3, Step: "a", Attempt: 1, HardRetry: 2},
+		{Kind: KindTransition, Seq: 4, Step: "a", Target: "b"},
+		{Kind: KindStepEnter, Seq: 5, Step: "b", Attempt: 1},
+	}
+	rs, err := Replay(events)
+	if err != nil {
+		t.Fatalf("Replay: %v", err)
+	}
+	want := map[string]int{"a": 1, "b": 1}
+	if !reflect.DeepEqual(rs.Visits, want) {
+		t.Errorf("Visits = %v, want %v (three STEP_ENTERs for a, but only the first is a fresh visit)", rs.Visits, want)
+	}
+}
+
+// TestReplay_CursorCarriesHardRetry: a crash-resume cursor (no TRANSITION
+// since the last STEP_ENTER) must carry that STEP_ENTER's HardRetry through,
+// so the engine can continue a hard-retry loop at the same count instead of
+// restarting it (see internal/engine/deterministic.go).
+func TestReplay_CursorCarriesHardRetry(t *testing.T) {
+	events := []Event{
+		{Kind: KindRunStart, Seq: 0},
+		{Kind: KindStepEnter, Seq: 1, Step: "a", Attempt: 1},
+		{Kind: KindStepEnter, Seq: 2, Step: "a", Attempt: 1, HardRetry: 1},
+	}
+	rs, err := Replay(events)
+	if err != nil {
+		t.Fatalf("Replay: %v", err)
+	}
+	want := Cursor{Step: "a", Attempt: 1, AttemptKey: "", HardRetry: 1}
+	if rs.Cursor != want {
+		t.Errorf("Cursor = %+v, want %+v", rs.Cursor, want)
+	}
+}
+
 func TestReplay_CrashResume_MidStepNeverTransitioned(t *testing.T) {
 	full := completedRunFixture()
 	prefix := full[:8] // up to and including StepEnter test/2

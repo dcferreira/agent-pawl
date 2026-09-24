@@ -29,7 +29,11 @@ describes the target system (full distribution, `foreach:` fan-out, `invariants:
   are on, or `guards: N declared, NOT enforced (enforcement off)` when
   `--no-enforcement`/`PAWL_ENFORCEMENT=off` is in effect; `pawl validate`, which has no run, prints
   `guards: N declared (enforced only when a run starts with the pawl hooks installed)`. Top-level
-  `invariants:`, and a step's `retry:`, are still parsed and rejected outright, not ignored.
+  `invariants:` is still parsed and rejected outright, not ignored. A step's `retry:`
+  (deterministic and wait only) is implemented: it retries a hard-failed body — a non-zero exit,
+  the wall-clock timeout, or unintelligible stdout — before any outcome is resolved, and is
+  distinct from `attempts:`, which re-runs a step on a postcondition failure (see
+  `design/format-spec.md` §B.16).
 - **The enforcement layer is built.** `internal/hook` (pure decisions) plus `internal/cli/hook.go`
   (`pawl hook pre|stop`) back a `PreToolUse`/`Stop` pair the plugin wires via `hooks/hooks.json` →
   `bin/pawl-hook`. `pawl run` refuses to start (exit 4) unless a PreToolUse heartbeat for the

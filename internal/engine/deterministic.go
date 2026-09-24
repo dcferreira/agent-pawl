@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/dcferreira/agent-pawl/internal/emit"
 	"github.com/dcferreira/agent-pawl/internal/journal"
@@ -123,11 +124,21 @@ func (e *Engine) advanceDeterministic(dir string, log *journal.Log, runID string
 		return nil, nil, err
 	}
 	retry := false
+	// hardRetry carries a resumed hard-retry-in-progress count (Event.
+	// HardRetry, journal.go) for the very first pass through the loop below
+	// only: a crash mid hard-retry backoff leaves cur.HardRetry set to the
+	// last try number that was journaled, and resuming must re-run that same
+	// try, not advance past it (mirrors how a crash never advances the
+	// attempts:-level attempt number — TestAttempts_NotAdvancedByCrash).
+	// Every subsequent postcondition-level attempt in this same call (this
+	// loop looping back after a postcondition failure) starts its own
+	// retry: budget fresh, since retry: retries one attempt's body.
+	hardRetry := cur.HardRetry
 
 	for {
 		if _, err := log.Append(journal.Event{
 			Kind: journal.KindStepEnter, RunID: runID, Step: step.ID,
-			Attempt: attempt, AttemptKey: key, Retry: retry,
+			Attempt: attempt, AttemptKey: key, Retry: retry, HardRetry: hardRetry,
 		}); err != nil {
 			return nil, nil, err
 		}
@@ -140,6 +151,42 @@ func (e *Engine) advanceDeterministic(dir string, log *journal.Log, runID string
 		if err != nil {
 			return nil, nil, err
 		}
+
+		// retry: (design/format-spec.md §B.16) retries a hard-failed body
+		// before any outcome is resolved — never a postcondition failure,
+		// which stays attempts:'s domain (at.hardFailed is only ever set for
+		// the hard-failure cases: non-zero exit, wall-clock timeout,
+		// unintelligible stdout — see deterministicAttempt.hardFailed).
+		for at.hardFailed && step.Retry != nil && hardRetry+1 < step.Retry.MaxAttempts {
+			tryNumber := hardRetry + 1
+			backoff, berr := time.ParseDuration(step.Retry.Backoff)
+			if berr != nil {
+				// Validate rejects an unparseable backoff:; this is only
+				// reachable from a *Workflow built by hand (a test literal)
+				// that skipped Validate.
+				return nil, nil, fmt.Errorf("engine: step %q: retry.backoff: %q is not a duration (validator should have rejected this): %w", step.ID, step.Retry.Backoff, berr)
+			}
+			e.sleep(backoff * time.Duration(tryNumber))
+			hardRetry = tryNumber
+			if _, err := log.Append(journal.Event{
+				Kind: journal.KindStepEnter, RunID: runID, Step: step.ID,
+				Attempt: attempt, AttemptKey: key, Retry: retry, HardRetry: hardRetry,
+			}); err != nil {
+				return nil, nil, err
+			}
+			rs, err = replayDir(dir)
+			if err != nil {
+				return nil, nil, err
+			}
+			at, _, err = e.runDeterministicAttempt(dir, log, runID, step, attempt, rs)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
+		// This attempt's own hard-retry budget (if any) is spent; the next
+		// postcondition-level attempt (if the loop continues) starts fresh.
+		hardRetry = 0
+
 		if at.hardFailed {
 			return e.routeReserved(dir, log, runID, step, "failure", attempt)
 		}

@@ -71,6 +71,28 @@ type Event struct {
 	// did before this field was added.
 	Retry bool `json:"retry,omitempty"`
 
+	// HardRetry marks a STEP_ENTER that re-runs a step's body after a hard
+	// failure (design/format-spec.md §B.16's retry:), before any outcome is
+	// resolved — distinct from Retry, which marks an attempts:-driven
+	// re-entry after a postcondition failure. 0 (the JSON zero value, so
+	// omitted) means "the first try of the body for this attempt"; N ≥ 1
+	// means "this STEP_ENTER is (re-)running the body after N hard-failure
+	// retries already spent for this exact (step, attempt, attempt_key)".
+	// The engine journals a fresh STEP_ENTER at the SAME HardRetry value on
+	// crash resume — never advancing it — exactly as it already does for
+	// Retry-marked attempts:-level re-entries (Event.Retry, and
+	// TestAttempts_NotAdvancedByCrash): a crash never advances a counter, it
+	// only re-runs the try that was in flight. Replay does not count a
+	// STEP_ENTER with HardRetry > 0 as a visit (design/format-spec.md §B.16:
+	// retries consume neither attempts: nor max_visits:), the same way it
+	// already excludes a Retry-marked one.
+	//
+	// Additive and backward-compatible: an event recorded before this field
+	// existed decodes with HardRetry 0 (its JSON zero value), so every
+	// STEP_ENTER in an old journal is treated exactly as it was before this
+	// field was added.
+	HardRetry int `json:"hard_retry,omitempty"`
+
 	// Group names the id of the parallel step that owns this event's Step,
 	// when Step is one of that parallel step's branches: set on a
 	// STEP_ENTER or TRANSITION for a BRANCH step, empty ("") for every

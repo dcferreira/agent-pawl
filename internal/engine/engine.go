@@ -194,9 +194,11 @@ func (e *Engine) Resume(runID string, force bool) (Instruction, error) {
 		Step:       rs.Cursor.Step,
 		Attempt:    rs.Cursor.Attempt,
 		AttemptKey: rs.Cursor.AttemptKey,
+		HardRetry:  rs.Cursor.HardRetry,
 	}
 	if rs.Ended && rs.EndStatus == "blocked" {
 		resumeEvent.Attempt = 1
+		resumeEvent.HardRetry = 0
 		resumeEvent.Intervention = true
 	}
 	if _, err := log.Append(resumeEvent); err != nil {

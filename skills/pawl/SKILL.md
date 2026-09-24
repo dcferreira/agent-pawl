@@ -228,10 +228,10 @@ user. There is nothing further to submit — the loop ends here.
 
 ## What this skill does not cover
 
-If a workflow file declares top-level `invariants:`, or a step's `retry:`, `pawl validate` and
-`pawl run` reject it outright with a "not implemented in this build" message — you will see that
-instead of a DISPATCH/DISPATCH_PARALLEL/ASK/WAIT/TERMINAL block, and there is nothing to drive: fix
-or report the workflow file instead.
+If a workflow file declares top-level `invariants:`, `pawl validate` and `pawl run` reject it
+outright with a "not implemented in this build" message — you will see that instead of a
+DISPATCH/DISPATCH_PARALLEL/ASK/WAIT/TERMINAL block, and there is nothing to drive: fix or report
+the workflow file instead.
 
 Top-level `guards:` is different: it is parsed, validated (id required+unique, `match:` required,
 RE2-compilable, and not able to match zero characters; `only_in:` required), and now enforced by
@@ -243,3 +243,7 @@ this skill's protocol is unaffected — report the line to the user if they ask 
 keep driving the run as usual. If a guard denies a command you (or a dispatched subagent) tried to
 run, the tool call is simply denied with the hook's reason — treat it the same as any other tool
 denial: don't retry the literal same command hoping the hook relents, work within what it allows.
+
+A step's `retry:` is implemented and needs nothing from this skill: it retries a hard-failed
+`run:`/`poll:` in place before any DISPATCH/WAIT line is even emitted, so this skill never sees it
+happen.
