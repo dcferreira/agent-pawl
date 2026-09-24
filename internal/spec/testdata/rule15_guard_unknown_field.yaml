@@ -1,0 +1,13 @@
+workflow: rule15guardunknownfield
+start: a
+guards:
+  - id: bad-field
+    match: "git push"
+    only_in: []
+    frobnicate: true
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    next: done
+terminal: {done: {status: ok}}

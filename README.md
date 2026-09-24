@@ -19,7 +19,13 @@ describe:
 - All five step kinds are implemented: `deterministic`, `agentic`, `wait`, `human`, and `parallel`
   (single-group, all-or-nothing `branches:` join — [design/format-spec.md](design/format-spec.md)
   §B.15). `foreach:` fan-out with a *partial*-success join remains a later milestone.
-- Top-level `guards:`, `invariants:`, and a step's `retry:` are still parsed and rejected, not
+- Top-level `guards:` is now parsed and validated (id required+unique, `match:` required, must
+  compile as a Go RE2 regexp, and must not be able to match zero characters; `only_in:` required —
+  rule 15 checks every entry names a declared step; `only_in: []` denies everywhere — see
+  [internal/guard](internal/guard)), but **not enforced**: `pawl run`'s banner and `pawl validate`
+  print an additional `guards: N declared, NOT enforced (no PreToolUse hook in this build)` line
+  whenever a workflow declares any, since there is no hook yet to actually deny a matched command.
+  Top-level `invariants:`, and a step's `retry:`, are still parsed and rejected outright, not
   ignored.
 - **There is no enforcement layer.** DESIGN.md §5's two static hooks (`PreToolUse`, `Stop`) are
   not implemented. `pawl run` prints `enforcement: off (milestone 1)` instead of refusing to start —

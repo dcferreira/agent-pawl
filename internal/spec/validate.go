@@ -3,6 +3,7 @@ package spec
 import (
 	"fmt"
 	"regexp"
+	"regexp/syntax"
 	"sort"
 	"strings"
 	"time"
@@ -32,13 +33,17 @@ func (r *Report) SoftPercent() float64 {
 
 // Validate runs the static checks against w and returns a Report. The
 // checks implemented are design/format-spec.md §H rules 1, 2, 3, 3b, 4, 5,
-// 6, 7, 8, 9, 9b, 10, 11, 12, 13, 14, 18 (Ruling R4), plus the R8
-// guards:/invariants: rejection and the kind: parallel branches: validation
-// (checkParallelBranches, rule 17). deterministic, agentic, wait, human and
-// parallel are all supported (Ruling R3); wait's own required fields (poll:)
-// and duration parsing (every:, timeout:) are checked alongside rule 7, and
-// human's own required fields and options routing are checked by rule 8.
-// Rules 15, 16 and the two warnings are deferred per R4.
+// 6, 7, 8, 9, 9b, 10, 11, 12, 13, 14, 15, 18 (Ruling R4), plus guards:
+// validation (checkGuards — id required+unique, match: required and
+// RE2-compilable, only_in: required with rule 15 checking each entry names
+// a declared step), the R8 invariants: rejection (guards: is no longer
+// rejected outright — see checkGuards's own doc comment), and the kind:
+// parallel branches: validation (checkParallelBranches, rule 17).
+// deterministic, agentic, wait, human and parallel are all supported
+// (Ruling R3); wait's own required fields (poll:) and duration parsing
+// (every:, timeout:) are checked alongside rule 7, and human's own required
+// fields and options routing are checked by rule 8. Rule 16 and the two
+// warnings are deferred per R4.
 func Validate(w *Workflow) (*Report, error) {
 	if w == nil {
 		return nil, fmt.Errorf("spec: Validate: nil workflow")
@@ -52,7 +57,8 @@ func Validate(w *Workflow) (*Report, error) {
 	var errs []string
 	checkRequiredFields(w, &errs)
 	checkUnknownFields(w, &errs)
-	checkGuardsInvariants(w, &errs)
+	checkGuards(w, &errs)
+	checkInvariants(w, &errs)
 	checkRetry(w, &errs)
 	checkKindSupport(w, &errs)
 	checkParallelBranches(w, &errs)
@@ -118,16 +124,221 @@ func sortedOutcomeKeys(m map[string]string) []string {
 	return keys
 }
 
-// checkGuardsInvariants rejects guards:/invariants: (Ruling R8): they are
-// deferred, and silently disabling enforcement is the failure class
-// DESIGN.md §5 exists to prevent, so a declared block is rejected outright
-// rather than ignored.
-func checkGuardsInvariants(w *Workflow, errs *[]string) {
-	if len(w.Guards) > 0 {
-		*errs = append(*errs, fileErr(w, "guards: is not implemented in this build; remove the guards: block"))
-	}
+// checkInvariants rejects invariants: (Ruling R8): it is still deferred,
+// and silently disabling enforcement is the failure class DESIGN.md §5
+// exists to prevent, so a declared block is rejected outright rather than
+// ignored. guards: used to be rejected the same way; it no longer is — see
+// checkGuards.
+func checkInvariants(w *Workflow, errs *[]string) {
 	if len(w.Invariants) > 0 {
 		*errs = append(*errs, fileErr(w, "invariants: is not implemented in this build; remove the invariants: block"))
+	}
+}
+
+// guardRef names a guards[] entry for an error message: its quoted id when
+// one was declared, else its positional index (guards[i]) — used for
+// exactly the fields (match:, only_in:) that still need reporting even when
+// id: itself is missing or invalid, so one bad guard produces one error per
+// bad field rather than being skipped wholesale.
+func guardRef(g GuardDecl, i int) string {
+	if g.ID != "" {
+		return fmt.Sprintf("guard %q", g.ID)
+	}
+	return fmt.Sprintf("guards[%d]", i)
+}
+
+// checkGuards validates guards: (design/format-spec.md §B.10, §D, §H rule
+// 15). Unlike invariants:, guards: is no longer rejected outright: it is
+// accepted and validated here so the (not-yet-built) enforcement hook has
+// something to consume once it exists — see internal/guard. Accepted is not
+// enforced: internal/cli's run banner prints a separate "guards: N
+// declared, NOT enforced" line whenever N > 0 (nothing extra when N == 0),
+// so accepting the block never looks like it's doing something it is not.
+//
+// Per guards[] entry:
+//   - id: is required and must be unique across the file (reusing
+//     stepIDPattern — a guard id ends up as a JSON key in guards.json
+//     downstream, so the same identifier-safety reasoning as a step id
+//     applies).
+//   - match: is required and must compile as a Go regexp (RE2 syntax —
+//     close to POSIX ERE, no backreferences); it is matched unanchored
+//     against the whole command string at enforcement time (internal/guard).
+//     It must also not be able to match zero characters: since matching is
+//     unanchored, a pattern like `a*`, `x?`, `foo|`, or one that can only
+//     ever produce a zero-width match such as `\b` or `git push|\b`,
+//     matches every command, which would make the guard deny (or, with a
+//     non-empty only_in:, effectively deny outside its listed steps)
+//     unconditionally — almost certainly a typo, not an intended "block
+//     everything" guard. Probing with re.MatchString("") alone would miss
+//     `\b`: it finds no boundary in the empty string, yet still matches
+//     (zero-width) inside any command containing a word character, since
+//     matching is unanchored. So the check instead parses match: with
+//     regexp/syntax (the same syntax.Perl flags regexp.Compile itself
+//     uses), Simplifies the tree, and walks it (minMatchWidth, below) to
+//     compute the minimum number of runes any match can consume, rejecting
+//     when that minimum is 0. This check is deliberately narrow: a match:
+//     that can never match anything at all (impossibleWidth, below — e.g.
+//     a character class that excludes every rune) is a dead guard, not a
+//     zero-width one, and is not rejected here; it is a different mistake
+//     this validator does not currently catch.
+//   - only_in: is a required key (a project ruling, not implied by §D's
+//     table): a missing, null (only_in: ~ / only_in: null), or bare
+//     (only_in: with nothing after the colon) only_in: is far more likely
+//     to be an author who forgot it than one who means "never active", so
+//     the validator makes that distinguishable from meaning it — only_in:
+//     [] is the explicit way to deny a guard everywhere. yaml.v3 already
+//     decodes all three of missing/null/bare the same way, as a nil slice,
+//     and an empty list as a distinct non-nil empty slice, so
+//     GuardDecl.OnlyIn needs no change to tell them apart; the error
+//     message says "required and must be a list" rather than "missing"
+//     so it reads correctly even when the author's line visibly has
+//     only_in: on it.
+//
+// Unknown fields inside a guards[] entry are rejected earlier, at Load
+// time, by the decoder's KnownFields(true) (internal/spec/load.go) — guards:
+// has no custom UnmarshalYAML the way Step does, so it goes through the
+// decoder's own field-name checking rather than checkUnknownFields.
+func checkGuards(w *Workflow, errs *[]string) {
+	seen := map[string]bool{}
+	for i, g := range w.Guards {
+		ref := guardRef(g, i)
+
+		if g.ID == "" {
+			*errs = append(*errs, fileErr(w, fmt.Sprintf("%s: id: is required; add a unique id", ref)))
+		} else {
+			if !stepIDPattern.MatchString(g.ID) {
+				*errs = append(*errs, fileErr(w, fmt.Sprintf(
+					"guard %q: id is not a valid guard id; use only letters, digits, \"_\" and \"-\", starting with a letter or digit — rename the guard", g.ID)))
+			}
+			if seen[g.ID] {
+				*errs = append(*errs, fileErr(w, fmt.Sprintf(
+					"guard %q is declared more than once; guard ids must be unique — rename one of them", g.ID)))
+			}
+			seen[g.ID] = true
+		}
+
+		if g.Match == "" {
+			*errs = append(*errs, fileErr(w, fmt.Sprintf("%s: match: is required; add a match: regexp", ref)))
+		} else if _, err := regexp.Compile(g.Match); err != nil {
+			*errs = append(*errs, fileErr(w, fmt.Sprintf(
+				"%s: match: %q does not compile as a regexp: %s", ref, g.Match, err)))
+		} else if syn, perr := syntax.Parse(g.Match, syntax.Perl); perr == nil && minMatchWidth(syn.Simplify()) == 0 {
+			// perr is deliberately swallowed rather than reported as its own
+			// error: regexp.Compile above already proved g.Match compiles,
+			// and Compile itself parses with these same syntax.Perl flags,
+			// so a syntax.Parse failure here would mean the two parsers
+			// disagree — not something an author did wrong. Skipping the
+			// width check rather than rejecting is the fail-open choice for
+			// an internal inconsistency, not for anything an author wrote.
+			*errs = append(*errs, fileErr(w, fmt.Sprintf(
+				"%s: match: %q can match zero characters; a guard's match: must require at least one character", ref, g.Match)))
+		}
+
+		if g.OnlyIn == nil {
+			*errs = append(*errs, fileErr(w, fmt.Sprintf(
+				"%s: only_in: is required and must be a list; use only_in: [] to deny it in every step", ref)))
+			continue
+		}
+		for _, stepID := range g.OnlyIn {
+			if w.StepByID(stepID) == nil {
+				*errs = append(*errs, fileErr(w, fmt.Sprintf(
+					"%s: rule 15: only_in: %q does not name a declared step; declare step %q or fix the typo", ref, stepID, stepID)))
+			}
+		}
+	}
+}
+
+// impossibleWidth is the sentinel minMatchWidth returns for a subexpression
+// that regexp/syntax says can never match anything at all (OpNoMatch) —
+// deliberately not 0. A guard whose match: matches nothing is a different,
+// separate problem from one whose match: matches zero characters; giving
+// OpNoMatch a width of 0 would make an enclosing OpConcat or OpAlternate
+// look like it can match empty when in fact it can never match anything,
+// which is the opposite kind of guard mistake. It is large enough to
+// survive OpConcat's summing and OpRepeat's multiplication without ever
+// looking like a genuine small width, and small enough to never overflow a
+// plain int doing that arithmetic on any regexp this validator will see.
+const impossibleWidth = 1 << 30
+
+// minMatchWidth returns the minimum number of runes any match of re can
+// consume, by recursively walking the regexp/syntax parse tree (re must
+// already have been through Simplify, per checkGuards) — see checkGuards's
+// doc comment for why re.MatchString("") alone is not enough:
+//
+//   - OpLiteral: the literal's rune count.
+//   - OpCharClass: 1, unless the class has zero ranges (re.Rune is empty),
+//     in which case impossibleWidth — see the case's own comment below.
+//   - OpAnyCharNotNL, OpAnyChar: 1 — "any character" always consumes
+//     exactly one rune.
+//   - OpBeginLine, OpEndLine, OpBeginText, OpEndText, OpWordBoundary,
+//     OpNoWordBoundary, OpEmptyMatch: 0 — these are all empty-width
+//     assertions or the empty match itself; none of them consumes a rune.
+//   - OpNoMatch: impossibleWidth (above) — a subexpression that can never
+//     match at all is not the same failure as one that matches zero
+//     characters. In practice regexp/syntax's parser only ever produces
+//     OpNoMatch itself from an empty alternate, which is not reachable by
+//     parsing ordinary author-supplied syntax (Perl-flag parsing rejects
+//     the constructs, like a min>max repeat, that Simplify would otherwise
+//     fold into OpNoMatch) — the OpCharClass case above is the practical
+//     way an impossible-to-match subexpression actually shows up here.
+//   - OpCapture: its single subexpression's width, unchanged.
+//   - OpStar, OpQuest: 0 — both permit zero repetitions.
+//   - OpPlus: its single subexpression's width — one repetition is
+//     mandatory.
+//   - OpRepeat: Min times its single subexpression's width.
+//   - OpConcat: the sum of every subexpression's width.
+//   - OpAlternate: the minimum width across its branches — a match only
+//     has to take the cheapest one.
+func minMatchWidth(re *syntax.Regexp) int {
+	switch re.Op {
+	case syntax.OpLiteral:
+		return len(re.Rune)
+	case syntax.OpCharClass:
+		// A character class can end up with zero ranges — regexp/syntax
+		// does not fold this into OpNoMatch the way it does an empty
+		// alternate or a degenerate repeat (see the OpNoMatch case below):
+		// e.g. `[^\x00-\x{10FFFF}]`, whose negation excludes every valid
+		// rune, parses and Simplifies to an OpCharClass with re.Rune ==
+		// nil, not OpNoMatch. Left at the default width of 1, it would
+		// look exactly like a normal one-rune class to OpConcat/OpAlternate,
+		// even though it can never match anything — the same
+		// "impossible, not merely zero-width" case OpNoMatch exists to
+		// flag. So it gets the same sentinel.
+		if len(re.Rune) == 0 {
+			return impossibleWidth
+		}
+		return 1
+	case syntax.OpAnyCharNotNL, syntax.OpAnyChar:
+		return 1
+	case syntax.OpBeginLine, syntax.OpEndLine, syntax.OpBeginText, syntax.OpEndText,
+		syntax.OpWordBoundary, syntax.OpNoWordBoundary, syntax.OpEmptyMatch:
+		return 0
+	case syntax.OpNoMatch:
+		return impossibleWidth
+	case syntax.OpCapture:
+		return minMatchWidth(re.Sub[0])
+	case syntax.OpStar, syntax.OpQuest:
+		return 0
+	case syntax.OpPlus:
+		return minMatchWidth(re.Sub[0])
+	case syntax.OpRepeat:
+		return re.Min * minMatchWidth(re.Sub[0])
+	case syntax.OpConcat:
+		total := 0
+		for _, sub := range re.Sub {
+			total += minMatchWidth(sub)
+		}
+		return total
+	case syntax.OpAlternate:
+		min := impossibleWidth
+		for _, sub := range re.Sub {
+			if width := minMatchWidth(sub); width < min {
+				min = width
+			}
+		}
+		return min
+	default:
+		return 0
 	}
 }
 

@@ -1,0 +1,26 @@
+workflow: rule15guardonlyinparallelbranch
+start: p
+state:
+  result: {type: string}
+guards:
+  - id: push-only-in-branch
+    match: "git push"
+    only_in: [b1]
+steps:
+  - id: p
+    kind: parallel
+    branches: [b1, b2]
+    next: join
+  - id: b1
+    kind: deterministic
+    run: echo hi
+  - id: b2
+    kind: agentic
+    description: Do b2's part of the parallel group.
+    writes: {result: {type: string}}
+    postcondition: {all_set: [result]}
+  - id: join
+    kind: deterministic
+    run: echo done
+    next: done
+terminal: {done: {status: ok}}

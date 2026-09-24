@@ -1,8 +1,8 @@
-workflow: r8guards
+workflow: rule15guardemptymatch
 start: a
 guards:
-  - id: never-rewrite-changelog
-    match: "(sed|awk) .*CHANGELOG.md"
+  - id: matches-everything
+    match: "git push|"
     only_in: []
 steps:
   - id: a

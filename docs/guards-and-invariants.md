@@ -17,11 +17,53 @@ guards:
     only_in: [commit_and_pr]
 ```
 
-`match:` is a POSIX extended regular expression over the Bash command string. `${key}` does not work
-here — guards are static, checkable by the validator without running anything.
+`match:` is a regexp over the Bash command string — Go's `regexp` package, RE2 syntax, close to
+POSIX ERE but with no backreferences — matched unanchored anywhere in the command. `${key}` does not
+work here — guards are static, checkable by the validator without running anything. The validator
+(rule 15) checks `id:`, `match:` and `only_in:` today; the `PreToolUse` denial this section describes
+is still target-system behavior — see the repo's README.md "Status" section for what actually
+enforces guards in the current build (currently: nothing yet).
 
 `only_in:` lists the steps where the pattern is allowed — `[commit_and_pr]` allows it there, denies
 elsewhere; `[]` (empty) denies it for the whole run: "never do this by hand".
+
+### Multi-line commands
+
+Before matching, a `\` immediately followed by a newline (`\n` or `\r\n`) — a shell line
+continuation — is deleted entirely: nothing is inserted in its place, so a command split mid-word
+across lines with a trailing backslash is rejoined into the same word it would run as. `\` + `\n` is
+what POSIX sh itself joins when it splices a continued line; `\` + `\r\n` is deleted the same way,
+but that half is pawl's own allowance for CRLF-terminated input, not something a real shell does —
+the CR in `\` + CR + LF is an ordinary character to POSIX sh, so it does not treat the pair as a
+continuation:
+
+```
+git pu\
+sh origin
+```
+
+matches `match: "git push"` exactly like `git push origin` would — even though `git push` does not
+appear anywhere in the un-joined text above (it reads "pu", then a newline, then "sh"). This is a
+normalisation of the command text `internal/guard.Table.Denied` matches against, not a change to the
+regexp's flags — `.` still does not match a literal `\n`, and `^`/`$` still anchor only at the
+start/end of the whole string, unless the pattern itself sets `(?s)`/`(?m)` (RE2 inline flags, which
+an author's `match:` may use). A bare newline with nothing before it isn't touched: two commands
+separated by a plain newline (no `&&`, no trailing `\`) still each get their own chance to match,
+since an unanchored `match:` finds a hit on whichever line it lands on — only `.` and the anchors
+treat `\n` specially, and this normalisation doesn't change that.
+
+This is a syntactic join, not a real shell parse, and that is a known imprecision: the matcher does
+not track quoting, so a backslash-newline inside single quotes, a quoted heredoc body, or after an
+escaped backslash is deleted as if it were a continuation, even though a real shell would not join
+the line in any of those cases (and, as above, a real shell would not join a backslash-CRLF pair at
+all — deleting that pair is pawl's own CRLF-input allowance, not something the matcher is mimicking
+from POSIX sh). For the escaped-backslash case, `echo a\\` + newline + `git push` is,
+to a real shell, one command ending in a literal backslash followed by a second command on the next
+line — but this matcher can't tell an escaped backslash from an unescaped one, and deletes that
+newline anyway. The same applies inside single quotes and quoted heredocs, e.g. `echo 'git pu\` +
+newline + `sh'` is joined into `git push` even though it's a single-quoted literal. Guards match the
+canonical spelling of a command and nothing else; this is one more way a `match:` can be defeated (or
+given a surprise hit) by someone constructing the command text specifically to exploit it.
 
 A denied call does not run:
 

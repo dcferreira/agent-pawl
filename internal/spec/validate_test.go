@@ -3,6 +3,7 @@ package spec
 import (
 	"path/filepath"
 	"reflect"
+	"regexp/syntax"
 	"testing"
 )
 
@@ -307,10 +308,96 @@ func TestValidate_GoldenMessages(t *testing.T) {
 			},
 		},
 		{
-			name: "R8: guards are not implemented in this build",
-			file: "r8_guards_rejected.yaml",
+			name: "rule15: guard missing id",
+			file: "rule15_guard_missing_id.yaml",
 			want: []string{
-				`testdata/r8_guards_rejected.yaml: guards: is not implemented in this build; remove the guards: block`,
+				`testdata/rule15_guard_missing_id.yaml: guards[0]: id: is required; add a unique id`,
+			},
+		},
+		{
+			name: "rule15: guard duplicate id",
+			file: "rule15_guard_dup_id.yaml",
+			want: []string{
+				`testdata/rule15_guard_dup_id.yaml: guard "dup" is declared more than once; guard ids must be unique — rename one of them`,
+			},
+		},
+		{
+			name: "rule15: guard missing match",
+			file: "rule15_guard_missing_match.yaml",
+			want: []string{
+				`testdata/rule15_guard_missing_match.yaml: guard "no-match": match: is required; add a match: regexp`,
+			},
+		},
+		{
+			name: "rule15: guard match does not compile",
+			file: "rule15_guard_bad_match.yaml",
+			want: []string{
+				`testdata/rule15_guard_bad_match.yaml: guard "bad-regexp": match: "git push (" does not compile as a regexp: error parsing regexp: missing closing ): ` + "`git push (`",
+			},
+		},
+		{
+			name: "rule15: guard missing only_in",
+			file: "rule15_guard_missing_only_in.yaml",
+			want: []string{
+				`testdata/rule15_guard_missing_only_in.yaml: guard "no-only-in": only_in: is required and must be a list; use only_in: [] to deny it in every step`,
+			},
+		},
+		{
+			name: "rule15: guard bare only_in (null) reports the same error as a missing key",
+			file: "rule15_guard_bare_only_in.yaml",
+			want: []string{
+				`testdata/rule15_guard_bare_only_in.yaml: guard "bare-only-in": only_in: is required and must be a list; use only_in: [] to deny it in every step`,
+			},
+		},
+		{
+			name: "rule15: guard id is not a valid identifier",
+			file: "rule15_guard_bad_id_format.yaml",
+			want: []string{
+				`testdata/rule15_guard_bad_id_format.yaml: guard "../escaped": id is not a valid guard id; use only letters, digits, "_" and "-", starting with a letter or digit — rename the guard`,
+			},
+		},
+		{
+			name: "rule15: guard only_in names a missing step",
+			file: "rule15_guard_only_in_missing_step.yaml",
+			want: []string{
+				`testdata/rule15_guard_only_in_missing_step.yaml: guard "bad-only-in": rule 15: only_in: "nope" does not name a declared step; declare step "nope" or fix the typo`,
+			},
+		},
+		{
+			name: "rule15: guard match matches the empty string",
+			file: "rule15_guard_empty_match.yaml",
+			want: []string{
+				`testdata/rule15_guard_empty_match.yaml: guard "matches-everything": match: "git push|" can match zero characters; a guard's match: must require at least one character`,
+			},
+		},
+		{
+			name: "rule15: guard match is an anchored empty-only pattern",
+			file: "rule15_guard_empty_match_anchored.yaml",
+			want: []string{
+				`testdata/rule15_guard_empty_match_anchored.yaml: guard "blank-only": match: "^$" can match zero characters; a guard's match: must require at least one character`,
+			},
+		},
+		{
+			name: "rule15: guard match is a bare word boundary (zero-width, but re.MatchString(\"\") alone would miss it)",
+			file: "rule15_guard_word_boundary.yaml",
+			want: []string{
+				`testdata/rule15_guard_word_boundary.yaml: guard "boundary-only": match: "\\b" can match zero characters; a guard's match: must require at least one character`,
+			},
+		},
+		{
+			name: "rule15: guard match alternates a real literal with a bare word boundary",
+			file: "rule15_guard_alternate_word_boundary.yaml",
+			want: []string{
+				`testdata/rule15_guard_alternate_word_boundary.yaml: guard "push-or-boundary": match: "git push|\\b" can match zero characters; a guard's match: must require at least one character`,
+			},
+		},
+		{
+			name: "rule15: guard missing id, match and only_in together reports one error per field",
+			file: "rule15_guard_missing_all_fields.yaml",
+			want: []string{
+				`testdata/rule15_guard_missing_all_fields.yaml: guards[0]: id: is required; add a unique id`,
+				`testdata/rule15_guard_missing_all_fields.yaml: guards[0]: match: is required; add a match: regexp`,
+				`testdata/rule15_guard_missing_all_fields.yaml: guards[0]: only_in: is required and must be a list; use only_in: [] to deny it in every step`,
 			},
 		},
 		{
@@ -480,7 +567,7 @@ func TestValidate_GoldenMessages(t *testing.T) {
 }
 
 func TestValidate_ValidWorkflowsHaveZeroErrors(t *testing.T) {
-	for _, file := range []string{"tidy.yaml", "valid.yaml", "parallel_ok.yaml", "human_next_valid.yaml", "human_valid_static.yaml", "human_valid_options_from.yaml"} {
+	for _, file := range []string{"tidy.yaml", "valid.yaml", "parallel_ok.yaml", "human_next_valid.yaml", "human_valid_static.yaml", "human_valid_options_from.yaml", "rule15_guards_accepted.yaml", "rule15_guard_only_in_parallel_branch.yaml"} {
 		t.Run(file, func(t *testing.T) {
 			w, err := Load(filepath.Join("testdata", file))
 			if err != nil {
@@ -495,4 +582,102 @@ func TestValidate_ValidWorkflowsHaveZeroErrors(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestMinMatchWidth pins minMatchWidth directly against
+// syntax.Parse(p, syntax.Perl).Simplify() — the same pipeline checkGuards
+// uses — rather than only through checkGuards's rejections, so a later
+// change to minMatchWidth (e.g. treating OpQuest like OpPlus, or getting
+// OpRepeat's Min wrong post-Simplify) that starts falsely rejecting real
+// guards, or falsely accepting a zero-width one, fails here even if the
+// handful of guard fixtures in TestValidate_GoldenMessages don't happen to
+// exercise the changed path.
+func TestMinMatchWidth(t *testing.T) {
+	// accepted: width-sensitive patterns a real guard author would write,
+	// where every reachable match consumes at least one rune (width >= 1).
+	accepted := []string{
+		`git push( --force)?`,
+		`x{2}`,
+		`(a|bc)+`,
+		`glab mr update .*--ready([=[:space:]]|$)`,
+		`\bgit\b`,
+		`[[:space:]]`,
+		`(sed|awk) .*CHANGELOG.md`,
+	}
+	for _, p := range accepted {
+		t.Run("accepted/"+p, func(t *testing.T) {
+			re, err := syntax.Parse(p, syntax.Perl)
+			if err != nil {
+				t.Fatalf("syntax.Parse(%q): %v", p, err)
+			}
+			if got := minMatchWidth(re.Simplify()); got < 1 {
+				t.Fatalf("minMatchWidth(%q) = %d, want >= 1", p, got)
+			}
+		})
+	}
+
+	// rejected: the docs' and checkGuards's own named examples of a
+	// zero-width match: (width == 0), one per width-sensitive op
+	// (?, *, {0,n}, a bare empty match, an anchor pair, a boundary
+	// assertion, and an alternate whose cheapest branch is empty).
+	rejected := []string{
+		`a*`,
+		`x?`,
+		`a{0,3}`,
+		`(?:)`,
+		`(?m)^$`,
+		`\b`,
+		`git push|`,
+	}
+	for _, p := range rejected {
+		t.Run("rejected/"+p, func(t *testing.T) {
+			re, err := syntax.Parse(p, syntax.Perl)
+			if err != nil {
+				t.Fatalf("syntax.Parse(%q): %v", p, err)
+			}
+			if got := minMatchWidth(re.Simplify()); got != 0 {
+				t.Fatalf("minMatchWidth(%q) = %d, want 0", p, got)
+			}
+		})
+	}
+
+	// OpNoMatch / impossibleWidth: subexpressions that can never match at
+	// all are a different failure than matching zero characters, and must
+	// never be mistaken for the cheapest (zero-width) branch of an
+	// alternate. `[^\x00-\x{10FFFF}]` negates every valid rune, so
+	// regexp/syntax parses and Simplifies it to an OpCharClass with zero
+	// ranges rather than OpNoMatch (Simplify only ever produces OpNoMatch
+	// itself from constructs Perl-flag parsing already rejects, like a
+	// min>max repeat) — this is the practical way an "impossible" node
+	// reaches minMatchWidth, so it is pinned here rather than through a
+	// literal OpNoMatch node.
+	t.Run("no-match branch loses to a real literal", func(t *testing.T) {
+		re, err := syntax.Parse(`[^\x00-\x{10FFFF}]|foo`, syntax.Perl)
+		if err != nil {
+			t.Fatalf("syntax.Parse: %v", err)
+		}
+		// The alternate's only escape is "foo" (width 3); the char class
+		// branch must not be counted as a cheaper, zero-width match.
+		if got := minMatchWidth(re.Simplify()); got != 3 {
+			t.Fatalf("minMatchWidth([^\\x00-\\x{10FFFF}]|foo) = %d, want 3 (width of \"foo\")", got)
+		}
+	})
+
+	t.Run("a match: that can only ever fail is not treated as zero-width", func(t *testing.T) {
+		// checkGuards's job is narrowly "reject match: that can match
+		// zero characters", not "reject match: that can never match at
+		// all" (see checkGuards's doc comment) — a guard whose pattern
+		// never matches anything is a dead guard, a different author
+		// mistake this validator does not currently catch. Pin that a
+		// match:-only-no-match pattern is NOT reported as width 0 (which
+		// would misfile it under the wrong error), by asserting it comes
+		// back at the impossibleWidth sentinel instead.
+		re, err := syntax.Parse(`[^\x00-\x{10FFFF}]`, syntax.Perl)
+		if err != nil {
+			t.Fatalf("syntax.Parse: %v", err)
+		}
+		if got := minMatchWidth(re.Simplify()); got != impossibleWidth {
+			t.Fatalf("minMatchWidth([^\\x00-\\x{10FFFF}]) = %d, want impossibleWidth (%d)", got, impossibleWidth)
+		}
+	})
 }

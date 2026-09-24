@@ -214,11 +214,46 @@ its default. Its job is to put "what do I pass in" at the top of the file.
 
 ### 10. Guards deny; invariants catch
 
-A guard is an ERE over the command string. `only_in: [step, …]` allows the pattern only while one of
+A guard is a regexp over the command string, matched unanchored anywhere in it (Go's `regexp`
+package: RE2 syntax, close to POSIX ERE but with no backreferences). `only_in: [step, …]` allows the
+pattern only while one of
 those steps is active; `only_in: []` denies it for the entire run, in every step. A guard catches the
 canonical spelling of an action and nothing else: variable indirection, `$()`, base64 and a renamed
 binary all defeat it. **Invariants are the layer that holds**, because an invariant runs a command
 that re-observes real external state.
+
+Before matching, `internal/guard.Table.Denied` normalises shell backslash-newline line
+continuations — a `\` immediately followed by `\n` or `\r\n` — by deleting the backslash and the
+newline entirely: nothing is inserted in their place, so whatever whitespace already sits on either
+side of the continuation is all that remains. `\` + `\n` is what POSIX sh itself joins when it
+splices a continued line; `\` + `\r\n` is deleted the same way, but that half is a pawl-specific
+allowance for CRLF-terminated input, not something a real shell does — in `\` + CR + LF the CR is an
+ordinary character, so POSIX sh does not treat the pair as a continuation and does not join the
+line. A guard whose `match:` only fires once the two halves are joined into one word, e.g. `git
+push` against `git pu\` + newline + `sh origin`, is denied; the same command with the continuation
+left alone does not contain `git push` as a substring at all. This is a normalisation of the command
+string, not a change to the regexp engine's flags: `.` still does not match `\n`, and `^`/`$` still
+anchor only at the ends of the whole string — unless the pattern itself sets `(?s)`/`(?m)`, which RE2
+inline flags let an author's `match:` do. A plain newline with no preceding backslash (e.g. two
+shell commands separated by a bare newline, or a `&&` chain broken across lines without a trailing
+`\`) is left alone; an unanchored `match:` still finds a hit on whichever line it falls on, because
+substring search does not stop at `\n` — only `.` and the anchors do.
+
+This normalisation is syntactic, not a full shell parse, and that is a known imprecision: the matcher
+does not track quoting, so a backslash-newline inside single quotes, a quoted heredoc body, or after
+an escaped backslash is deleted as if it were a continuation, even though POSIX sh would not join the
+line in any of those cases (and, as above, POSIX sh would not join a backslash-CRLF pair at all —
+deleting that pair is pawl's own CRLF-input allowance, not a POSIX sh behaviour this is mimicking).
+For the escaped-backslash case, `echo a\\` + newline + `git push` is, to a
+real shell, a literal trailing backslash ending one command followed by a second command on the next
+line — but `internal/guard` still deletes that newline, because the regexp has no way to tell an
+escaped backslash from an unescaped one. The same blind spot applies inside single quotes and quoted
+heredocs: a literal `\` + newline in `echo 'git pu\` + newline + `sh'` is joined the same way, so a
+guard for `git push` can be denied by a quoted string that a real shell would never treat as that
+command. Guards match the canonical spelling of a command and nothing else (see the paragraph above);
+this is one more way, alongside `$()`, variable indirection and base64, that a guard's `match:` can be
+defeated or given a false positive by someone constructing the command text specifically to exploit
+it.
 
 Invariants are evaluated by the engine after every step completion and after every `pawl submit`.
 Exit 0 holds; non-zero violates; a check that *cannot run* — missing script, unparseable output,
@@ -341,7 +376,7 @@ Reserved outcome tokens, usable anywhere: `success`, `failure`, `timeout`, `exha
 | `max_steps` | no | file | integer | Backstop on total step entries in a run. | `200` |
 | `args` | no | file | map | Run arguments, typed like `state:`, read-only, bound as `key=value`. | `{}` |
 | `state` | no | file | map | Every key the run may carry: `{type, default, max_length}`. | `{}` |
-| `guards` | no | file | list | `{id, match, only_in: [steps]}`; `only_in: []` = denied everywhere. | `[]` |
+| `guards` | no | file | list | `{id, match, only_in: [steps]}` — see the guards[] sub-table below. | `[]` |
 | `invariants` | no | file | list | `{id, check, message}`; breaking one → `BLOCKED`. | `[]` |
 | `steps` | yes | file | list | The graph, read top to bottom. | — |
 | `terminal` | no | file | map | `{status: ok\|blocked, message}` per terminal id (§B.12). | implicit |
@@ -370,6 +405,14 @@ Reserved outcome tokens, usable anywhere: `success`, `failure`, `timeout`, `exha
 | `catch` | no | all | list | Ordered `{on: <outcome>, next: <step or terminal>}`; fires on exhaustion. | `failure → blocked` |
 | `next` | one of `next`/`outcomes` | all | step id | Single successor. Mutually exclusive with `outcomes:`. | — (no fall-through — §B.11) |
 | `outcomes` | one of `next`/`outcomes` | all | map | Outcome → step/terminal, covering every outcome the step can produce (§B.11). | — |
+
+### `guards[]` entry fields
+
+| Field | Required | Type | Meaning |
+|---|---|---|---|
+| `id` | yes | string | Unique across the file's `guards:` list; step-id syntax (letters, digits, `_`, `-`, starting with a letter or digit — same `stepIDPattern` as a step `id:`), since it ends up as a JSON key downstream. |
+| `match` | yes | RE2 regexp string | Compiled with Go's `regexp` package; matched unanchored anywhere in the command string (§B.10). Must not be able to match zero characters — a pattern like `a*`, `x?`, `\|git push`, or one that can only ever produce a zero-width match such as `\b`, matches every command, which is rejected as a validation error rather than accepted as a guard that denies everything. |
+| `only_in` | yes | list of step ids | The steps where the pattern is allowed; denied everywhere else. The key itself is required — a missing `only_in:` is rejected as a likely-forgotten field, not treated as "deny nowhere". `only_in: []` is the explicit spelling for "deny everywhere, in every step" (§B.10). Rule 15 checks every entry names a declared step — including a `parallel` step's `branches:` steps, which are ordinary top-level steps. |
 
 ---
 
@@ -501,7 +544,11 @@ work to an agent. See `docs/quickstart.md`.
     `max_visits:` raised above `max_steps:` — a cap that can never bind.
 13. `attempts:` is less than 1.
 14. A `postcondition:` map uses a key other than `command` / `all_set` / `equals`.
-15. `guards[].only_in` names a step that does not exist.
+15. `guards[]`: `id:` is required, unique across the file, and uses step-id syntax; `match:` is
+    required, must compile as a Go RE2 regexp (matched unanchored — §B.10), and must not be able to
+    match zero characters; `only_in:` is a required key — `only_in: []` is the explicit spelling for "deny
+    everywhere", distinct from omitting the key — and every entry in it must name a declared step
+    (a `parallel` branch counts; it is a top-level step like any other).
 16. A referenced file (`context:`, `run:`, `poll:`, `check:`) does not exist or is not executable.
 17. `kind: parallel` (§B.15, §H checkParallelBranches): `branches:` has fewer than 2 entries; a
     branch name does not resolve to a declared step; a branch's kind is not `deterministic` or

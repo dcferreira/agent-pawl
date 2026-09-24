@@ -1,0 +1,12 @@
+workflow: rule15guardbareonlyin
+start: a
+guards:
+  - id: bare-only-in
+    match: "git push"
+    only_in:
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    next: done
+terminal: {done: {status: ok}}

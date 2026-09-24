@@ -1,0 +1,10 @@
+workflow: rule15guardmissingallfields
+start: a
+guards:
+  - {}
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    next: done
+terminal: {done: {status: ok}}

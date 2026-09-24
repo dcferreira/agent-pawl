@@ -12,7 +12,13 @@ import (
 // .claude/workflows/ (the ordinary case, resolveWorkflowFile) or, with
 // --path, a specific file instead, skipping name resolution entirely — run
 // the static checks, print every error plus the soft: census, and exit
-// non-zero on any error.
+// non-zero on any error. Whenever the workflow declares one or more
+// guards:, it also prints the same "guards: N declared, NOT enforced (no
+// PreToolUse hook in this build)" line pawl run's banner prints (through
+// the shared writeGuardsLine helper — internal/cli/format.go): validate is
+// the command an author runs while writing guards:, and reporting the file
+// as clean without a word about enforcement would be exactly the
+// silent-acceptance failure Ruling R8 exists to prevent.
 //
 // --path and a positional name are mutually exclusive: an author validating
 // a file mid-edit, before it is even placed under .claude/workflows/ (or
@@ -109,7 +115,7 @@ func cmdValidate(args []string, cwd string, stdout, stderr io.Writer) int {
 	// directory (resolveScriptPathTemplate, execShell's context gathering)
 	// exactly the same way for a --path file as for a name-resolved one:
 	// nothing downstream of rw.Path branches on how it was found.
-	_, report, err := loadAndValidate(rw.Path)
+	wf, report, err := loadAndValidate(rw.Path)
 	if err != nil {
 		printLine(stderr, err.Error())
 		return exitForLoadErr(err)
@@ -117,6 +123,7 @@ func cmdValidate(args []string, cwd string, stdout, stderr io.Writer) int {
 
 	w := &blockWriter{}
 	w.line(0, "workflow:", rw.Path, "("+rw.Source+")")
+	writeGuardsLine(w, len(wf.Guards))
 	for _, e := range report.Errors {
 		w.line(0, e)
 	}

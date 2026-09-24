@@ -21,7 +21,12 @@ describes the target system (enforcement, full distribution, `foreach:` fan-out)
 
 - All five step kinds are implemented: `deterministic`, `agentic`, `wait`, `human`, `parallel`
   (single-group, all-or-nothing `branches:` join — `design/format-spec.md` §B.15).
-- Top-level `guards:`, `invariants:`, and a step's `retry:` are still parsed and rejected, not
+- Top-level `guards:` is now parsed and validated (id required+unique, `match:` required, must
+  compile as a Go RE2 regexp matched unanchored, and must not be able to match zero characters;
+  `only_in:` required; rule 15 checks every `only_in:` entry names a declared step; see
+  `internal/guard`), but **not enforced**: `pawl run`'s banner and `pawl validate` print a separate
+  `guards: N declared, NOT enforced (no PreToolUse hook in this build)` line whenever N > 0.
+  Top-level `invariants:`, and a step's `retry:`, are still parsed and rejected outright, not
   ignored.
 - **There is no enforcement layer.** DESIGN.md §5's `PreToolUse`/`Stop` hooks don't exist.
   `pawl run` prints `enforcement: off (milestone 1)` and starts anyway — nothing stops a session

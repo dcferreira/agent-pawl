@@ -138,8 +138,12 @@ There is no other installed state to remove: no plugin directory, no `~/.claude/
 
 All five step kinds are implemented: `deterministic`, `agentic`, `wait`, `human`, and `parallel`
 (single-group, all-or-nothing `branches:` join — [design/format-spec.md](../design/format-spec.md)
-§B.15). Top-level `guards:`, `invariants:`, and a step's `retry:` field remain unimplemented:
-declaring any of them is a validation error, not a quietly-ignored field.
+§B.15). Top-level `guards:` is now parsed and validated (id required+unique, `match:` required,
+RE2-compilable, and not able to match zero characters; `only_in:` required — see
+[validation.md](validation.md) rule 15), but not yet enforced: there is no `PreToolUse` hook in this
+build to actually deny a matched command, and `pawl run`'s banner and `pawl validate` say so. Top-level
+`invariants:`, and a step's `retry:` field, remain unimplemented: declaring either is still a
+validation error, not a quietly-ignored field.
 
 ---
 

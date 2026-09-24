@@ -1,0 +1,12 @@
+workflow: rule15guardalternatewordboundary
+start: a
+guards:
+  - id: push-or-boundary
+    match: 'git push|\b'
+    only_in: []
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    next: done
+terminal: {done: {status: ok}}
