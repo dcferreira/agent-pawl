@@ -13,14 +13,14 @@ import (
 )
 
 // cmdRun implements pawl run <name> [key=value …] [--fresh] [--force]
-// [--run <id>] (design/format-spec.md §I): resolve the workflow, gate on
-// spec.Validate, resume a live run when exactly one resolves (--run only
-// disambiguates), or bind args and start a fresh one, then print the start
-// banner and the first instruction line.
+// [--run <id>] [--no-enforcement] (design/format-spec.md §I): resolve the
+// workflow, gate on spec.Validate, resume a live run when exactly one
+// resolves (--run only disambiguates), or bind args and start a fresh one,
+// then print the start banner and the first instruction line.
 func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 	if len(args) < 1 {
 		fmt.Fprintln(stderr, "pawl run: missing workflow name")
-		fmt.Fprintln(stderr, "usage: pawl run <name> [key=value …] [--fresh] [--force] [--run <id>]")
+		fmt.Fprintln(stderr, "usage: pawl run <name> [key=value …] [--fresh] [--force] [--run <id>] [--no-enforcement]")
 		return 2
 	}
 	name := args[0]
@@ -62,11 +62,15 @@ func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	e := engine.New(w, root)
-	fmt.Fprint(stdout, formatBanner(rw, report, len(w.Guards)))
-
+	// A resume is resolved before the enforcement gate: a run's enforcement
+	// mode is bound at RUN_START (journal.RunState.Enforcement) and the hooks
+	// follow that recorded mode for the run's whole life, so the banner and
+	// the heartbeat gate for a resume must follow it too, not whatever this
+	// invocation's flags or environment say.
+	var ref *journal.RunRef
 	if !flags.Fresh {
-		ref, rerr := resolveRunToResume(root, w.Workflow, flags.RunID)
+		var rerr error
+		ref, rerr = resolveRunToResume(root, w.Workflow, flags.RunID)
 		if rerr != nil {
 			printLine(stderr, rerr.Error())
 			// resolveRunToResume's own "no live run %q"/"multiple runs are
@@ -75,32 +79,68 @@ func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 			// journal.ErrIO underneath journal.Live is an engine error (5).
 			return exitForLookupErr(rerr)
 		}
-		if ref != nil {
-			if len(raw) > 0 {
-				// I1: args are bound once, at RUN_START, and are read-only
-				// state thereafter (design/format-spec.md §B.9). Silently
-				// dropping a key=value passed alongside a resume is exactly
-				// the "hide a typo" failure Global Constraint 5 forbids —
-				// bogus=1 on a resume must be refused, not swallowed.
-				// formatArgsKV's join has no format validator behind it any
-				// more than a state key name does (fix round 5's finding:
-				// this used to reach stderr via a bare Fprintf, and a raw CR
-				// in a bound arg's value re-homed the cursor to column 0).
-				printLine(stderr, fmt.Sprintf("pawl run: args are bound at run start; run %s was started with %s — use --fresh to rebind", ref.RunID, formatArgsKV(ref.State.Args)))
-				return 2
-			}
-			instr, ierr := e.Resume(ref.RunID, flags.Force)
-			if ierr != nil {
-				// M1: the resume line is only printed once Resume has
-				// actually succeeded — printing it first made a
-				// digest-mismatch refusal read as though the run had
-				// resumed.
-				return handleRunErr(ierr, stderr, root, w, ref.RunID)
-			}
-			fmt.Fprint(stdout, formatResumeLine(ref.RunID, ref.State.Cursor.Step, ref.State.Cursor.Attempt, ref.State.State))
-			fmt.Fprint(stdout, formatInstruction(instr, w, root))
-			return instructionExitCode(instr)
+	}
+
+	var mode enforcementMode
+	if ref != nil {
+		mode, err = resumeEnforcement(root, ref, flags.NoEnforcement)
+	} else {
+		mode, err = checkEnforcement(root, flags.NoEnforcement)
+	}
+	if err != nil {
+		if errors.Is(err, errNoHeartbeat) {
+			fmt.Fprintln(stderr, err.Error()) // hardcoded two-line text, no workflow content
+		} else {
+			printLine(stderr, err.Error())
 		}
+		return 4
+	}
+
+	e := engine.New(w, root)
+	e.Enforcement = enforcementLabel(mode)
+	// Right after RUN_START, before any deterministic prefix runs: stamp the
+	// gated session as driver and link the run into live/, so a pawl run
+	// killed mid-prefix still leaves both for the hooks. (cli.Run's
+	// post-command SyncLiveIndex stays the reconciler.) The session is the
+	// one checkEnforcement gated on (see stampDriverAs), never a re-read.
+	e.OnRunStart = func(_, runID string) {
+		if mode.On {
+			stampDriverAs(root, w.Workflow, runID, mode.SessionID)
+		}
+		_ = journal.SyncLiveIndex(root)
+	}
+	fmt.Fprint(stdout, formatBanner(rw, report, len(w.Guards), mode))
+
+	if ref != nil {
+		if len(raw) > 0 {
+			// Args are bound once, at RUN_START, and are read-only
+			// state thereafter (design/format-spec.md §B.9). Silently
+			// dropping a key=value passed alongside a resume is exactly
+			// the "hide a typo" failure Global Constraint 5 forbids —
+			// bogus=1 on a resume must be refused, not swallowed.
+			// formatArgsKV's join has no format validator behind it any
+			// more than a state key name does (fix round 5's finding:
+			// this used to reach stderr via a bare Fprintf, and a raw CR
+			// in a bound arg's value re-homed the cursor to column 0).
+			printLine(stderr, fmt.Sprintf("pawl run: args are bound at run start; run %s was started with %s — use --fresh to rebind", ref.RunID, formatArgsKV(ref.State.Args)))
+			return 2
+		}
+		instr, ierr := e.Resume(ref.RunID, flags.Force)
+		if ierr != nil {
+			// The resume line is only printed once Resume has
+			// actually succeeded — printing it first made a
+			// digest-mismatch refusal read as though the run had
+			// resumed.
+			return handleRunErr(ierr, stderr, root, w, ref.RunID)
+		}
+		// A terminal resume (mode.BoundNoHeartbeat) has no SessionID, so
+		// stampDriverAs leaves the existing driver.json as it is.
+		if mode.On {
+			stampDriverAs(root, w.Workflow, ref.RunID, mode.SessionID)
+		}
+		fmt.Fprint(stdout, formatResumeLine(ref.RunID, ref.State.Cursor.Step, ref.State.Cursor.Attempt, ref.State.State))
+		fmt.Fprint(stdout, formatInstruction(instr, w, root))
+		return instructionExitCode(instr)
 	}
 
 	boundArgs, err := bindArgs(w.Args, raw)

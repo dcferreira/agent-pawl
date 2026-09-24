@@ -42,10 +42,11 @@ type StateDecl struct {
 // guards: (id required+unique, match: required and must compile as a Go
 // RE2 regexp, only_in: required — rule 15 checks each entry names a
 // declared step; only_in: [] is the explicit spelling for "denied
-// everywhere"). Accepted and validated does not mean enforced: there is no
-// PreToolUse hook in this build to deny a matched command, so a declared
-// guard is inert at run time — see internal/guard and the "guards: N
-// declared, NOT enforced" banner line in internal/cli/format.go. OnlyIn is
+// everywhere"). Accepted and validated is advisory PreToolUse enforcement
+// (internal/guard, internal/hook), not a semantic guarantee, and live only
+// while the hooks are installed and firing — see the "guards: N advisory
+// (pattern-matched)" / "guards: N declared, NOT enforced" banner lines in
+// internal/cli/format.go. OnlyIn is
 // nil when only_in: is omitted and non-nil (possibly empty) when authored,
 // which the validator uses to tell "omitted" from "only_in: []" apart
 // (yaml.v3 already distinguishes the two on decode: verified in

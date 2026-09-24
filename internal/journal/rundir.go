@@ -18,7 +18,9 @@ const EnvStateDir = "PAWL_STATE_DIR"
 // created: $PAWL_STATE_DIR if set (for tests), else ~/.claude/pawl/runs.
 func StateBase() string {
 	if d := os.Getenv(EnvStateDir); d != "" {
-		return d
+		// Clean, so a trailing slash can't make PawlHome (its parent) the
+		// state dir itself; bin/pawl-hook strips it the same way.
+		return filepath.Clean(d)
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {

@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/dcferreira/agent-pawl/internal/journal"
@@ -145,5 +147,89 @@ terminal: {done: {status: ok}}
 	term, ok := instr.(Terminal)
 	if !ok || term.Status != "ok" {
 		t.Fatalf("got %+v, want Terminal{Status:ok}", instr)
+	}
+}
+
+// TestStart_RecordsRealEnforcementMode: RUN_START's hook_self_test field must record what checkEnforcement
+// actually decided (via Engine.Enforcement), never a hardcoded placeholder.
+// Left unset (as newTestEngine leaves it — this package's tests never go
+// through cmdRun's checkEnforcement), it records the neutral "unknown"
+// rather than claiming a mode nothing checked.
+func TestStart_RecordsRealEnforcementMode(t *testing.T) {
+	const yaml = `
+workflow: enforcement-record
+start: a
+steps:
+  - id: a
+    kind: deterministic
+    run: 'true'
+    next: done
+terminal:
+  done: {status: ok, message: "finished"}
+`
+	e := newTestEngine(t, yaml)
+	if _, err := e.Start("run1", nil); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	dir := journal.RunDir(e.Root, e.Workflow.Workflow, "run1")
+	events, err := journal.ReadEvents(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if events[0].Kind != journal.KindRunStart || events[0].HookSelfTest != "unknown" {
+		t.Fatalf("got RUN_START.hook_self_test = %q, want %q", events[0].HookSelfTest, "unknown")
+	}
+
+	e2 := newTestEngine(t, yaml)
+	e2.Enforcement = "on (PreToolUse heartbeat)"
+	if _, err := e2.Start("run2", nil); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	dir2 := journal.RunDir(e2.Root, e2.Workflow.Workflow, "run2")
+	events2, err := journal.ReadEvents(dir2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if events2[0].HookSelfTest != "on (PreToolUse heartbeat)" {
+		t.Fatalf("got RUN_START.hook_self_test = %q, want %q", events2[0].HookSelfTest, "on (PreToolUse heartbeat)")
+	}
+}
+
+// TestStart_OnRunStartFiresBeforePrefix: OnRunStart is called once, right
+// after RUN_START is journaled and before the first step runs — so pawl run
+// can stamp driver.json and link live/ before a long deterministic prefix
+// that might be killed partway through.
+func TestStart_OnRunStartFiresBeforePrefix(t *testing.T) {
+	const yaml = `
+workflow: onstart
+start: a
+steps:
+  - id: a
+    kind: deterministic
+    run: touch marker-a
+    next: done
+terminal:
+  done: {status: ok}
+`
+	e := newTestEngine(t, yaml)
+	calls := 0
+	e.OnRunStart = func(dir, runID string) {
+		calls++
+		if runID != "run1" || dir != journal.RunDir(e.Root, "onstart", "run1") {
+			t.Errorf("OnRunStart(%q, %q)", dir, runID)
+		}
+		events, err := journal.ReadEvents(dir)
+		if err != nil || len(events) != 1 || events[0].Kind != journal.KindRunStart {
+			t.Errorf("at OnRunStart want exactly RUN_START journaled, got %v (err %v)", events, err)
+		}
+		if _, err := os.Stat(filepath.Join(e.Root, "marker-a")); !os.IsNotExist(err) {
+			t.Errorf("step a already ran before OnRunStart (err %v)", err)
+		}
+	}
+	if _, err := e.Start("run1", nil); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("OnRunStart called %d times, want 1", calls)
 	}
 }

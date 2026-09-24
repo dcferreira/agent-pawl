@@ -13,9 +13,11 @@ import (
 // --path, a specific file instead, skipping name resolution entirely — run
 // the static checks, print every error plus the soft: census, and exit
 // non-zero on any error. Whenever the workflow declares one or more
-// guards:, it also prints the same "guards: N declared, NOT enforced (no
-// PreToolUse hook in this build)" line pawl run's banner prints (through
-// the shared writeGuardsLine helper — internal/cli/format.go): validate is
+// guards:, it also prints a guards: line through the same writeGuardsLine
+// helper pawl run's banner uses (internal/cli/format.go) — with neutral
+// wording, "guards: N declared (enforced only when a run starts with the
+// pawl hooks installed)", since validate has no run whose enforcement
+// could be on or off: validate is
 // the command an author runs while writing guards:, and reporting the file
 // as clean without a word about enforcement would be exactly the
 // silent-acceptance failure Ruling R8 exists to prevent.
@@ -123,7 +125,7 @@ func cmdValidate(args []string, cwd string, stdout, stderr io.Writer) int {
 
 	w := &blockWriter{}
 	w.line(0, "workflow:", rw.Path, "("+rw.Source+")")
-	writeGuardsLine(w, len(wf.Guards))
+	writeGuardsLine(w, len(wf.Guards), guardsValidate)
 	for _, e := range report.Errors {
 		w.line(0, e)
 	}

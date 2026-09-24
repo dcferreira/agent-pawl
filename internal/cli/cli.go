@@ -14,6 +14,8 @@ import (
 	"io"
 	"os"
 	"strings"
+
+	"github.com/dcferreira/agent-pawl/internal/journal"
 )
 
 // usage is the single source of truth for pawl's command-line surface
@@ -24,7 +26,7 @@ import (
 const usage = `Usage: pawl <command> [args]
 
 Commands:
-  pawl run <name> [key=value …] [--fresh] [--force] [--run <id>]
+  pawl run <name> [key=value …] [--fresh] [--force] [--run <id>] [--no-enforcement]
         start, or resume a non-terminal run
   pawl validate <name> | --path <file>
         run the static checks against a workflow file (--path validates a
@@ -73,17 +75,18 @@ func RunIO(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		printLine(stderr, "pawl: resolving working directory:", err.Error())
 		return 1
 	}
+	var code int
 	switch args[1] {
 	case "run":
-		return cmdRun(args[2:], cwd, stdout, stderr)
+		code = cmdRun(args[2:], cwd, stdout, stderr)
 	case "submit":
-		return cmdSubmit(args[2:], cwd, stdout, stderr)
+		code = cmdSubmit(args[2:], cwd, stdout, stderr)
 	case "poll":
-		return cmdPoll(args[2:], cwd, stdout, stderr)
+		code = cmdPoll(args[2:], cwd, stdout, stderr)
 	case "status":
 		return cmdStatus(args[2:], cwd, stdout, stderr)
 	case "abandon":
-		return cmdAbandon(args[2:], cwd, stdout, stderr)
+		code = cmdAbandon(args[2:], cwd, stdout, stderr)
 	case "validate":
 		return cmdValidate(args[2:], cwd, stdout, stderr)
 	case "list":
@@ -94,4 +97,13 @@ func RunIO(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprint(stderr, usage)
 		return 2
 	}
+	// Best-effort: a refused run has nothing to link, a failed submit/poll
+	// still leaves the index consistent with what actually happened, and a
+	// sync failure here never changes the command's own exit code — it is
+	// only bin/pawl-hook's fast-path cache (journal.Live(root) remains the
+	// authority on which runs are live).
+	if root, err := journal.ResolveRoot(cwd); err == nil {
+		_ = journal.SyncLiveIndex(root)
+	}
+	return code
 }

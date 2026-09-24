@@ -75,7 +75,7 @@ works too — the model translates it to `pawl run hello name=ada`. Exact `key=v
 ```
 › /pawl run hello name=ada
   run 4b17  hello  .claude/workflows/hello.yaml
-  hooks: PreToolUse ✔  Stop ✔   guards: 0 advisory (pattern-matched)  invariants: 0
+  hooks: PreToolUse ✔ (heartbeat)  Stop assumed (same hooks.json)
   ✔ greet → count
   ✔ count → done
   TERMINAL 4b17 ok
@@ -89,7 +89,10 @@ nothing back — no subagent, no question, no waiting.
 What each line means:
 
 - **`run 4b17 …`** — the run id, the workflow, and which file it resolved to. Repo before home.
-- **`hooks: …`** — the enforcement self-test. Two ✔ or `pawl` refuses to start.
+- **`hooks: …`** — the enforcement banner: `PreToolUse ✔ (heartbeat)` means `pawl run` found a fresh
+  heartbeat and started enforced (`Stop` is assumed installed too, from the same `hooks.json`);
+  without one, `pawl run` refuses to start rather than print this line at all (see
+  [install.md#hooks](install.md#hooks)).
 - **`✔ greet → count`** — step done, postcondition passed, transition taken.
 - **`TERMINAL 4b17 ok`** — the run is over. `ok` or `blocked`, nothing else.
 - **the last line** — the soft census; `soft: true` postconditions are counted every run so a
@@ -102,7 +105,7 @@ Change `greet`'s postcondition to `test -s nothing.txt` and type `/pawl run hell
 ```
 › /pawl run hello name=ada
   run 6d02  hello  .claude/workflows/hello.yaml
-  hooks: PreToolUse ✔  Stop ✔   guards: 0 advisory (pattern-matched)  invariants: 0
+  hooks: PreToolUse ✔ (heartbeat)  Stop assumed (same hooks.json)
   ✗ greet  postcondition failed: test -s nothing.txt (exit 1)
   TERMINAL 6d02 blocked
   Paused for review: greet: postcondition failed after 1 attempt.

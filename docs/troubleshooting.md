@@ -2,19 +2,26 @@
 
 ## Hooks not live
 
-This section describes the target system's enforcement layer, not this build — see README.md's
-Status section: `pawl hook` doesn't exist as a command, and `pawl run` neither pings a hook nor
-refuses to start over one being missing (it prints `enforcement: off (milestone 1)` and starts
-anyway).
+`pawl run` refuses to start unless `pawl hook pre` has written a fresh (≤5 minutes old) heartbeat for this
+working copy — its way of confirming the `PreToolUse` hook is actually wired up, since it has no other way
+to ask Claude Code that directly:
 
 ```
-pawl: Stop hook did not respond. Refusing to start.
-    Install the plugin (`/plugin install pawl@…`) or copy the /pawl skill into ~/.claude/skills/pawl/.
+pawl: refusing to start: pawl's PreToolUse hook has not fired for this working copy in the last 5 minutes.
+Install the agent-pawl Claude Code plugin (docs/install.md#hooks), or pass --no-enforcement.
 ```
 
-`pawl run` pings both hooks at start and refuses if either is missing. Check: the plugin is installed
-and enabled; you restarted the session after installing it; `~/.claude/plugins/pawl/hooks/hooks.json`
-exists. A `brew`- or `go`-installed `pawl` alone always fails this check — it ships no hooks.
+Check: the plugin is installed and enabled; you restarted the session after installing it (hooks bind
+at session start); the plugin's `hooks/hooks.json` exists and wires `PreToolUse`/`Stop` to
+`bin/pawl-hook`. A `brew`- or `go`-installed `pawl` alone always fails this check — it ships no hooks;
+either install the plugin (see [install.md#hooks](install.md#hooks)) or add the equivalent
+`PreToolUse`/`Stop` entries to your own `settings.json`. If you don't want the check at all, pass
+`--no-enforcement` to `pawl run`, or set `PAWL_ENFORCEMENT=off`.
+
+This check gates only a fresh start. Resuming an existing run needs no heartbeat: an enforced run
+resumes from a plain terminal with the banner
+`enforcement: on (bound at run start; no hook heartbeat for this resume)` and stays enforced; its mode
+was fixed when it started, so `--no-enforcement` on that resume is refused rather than needed.
 
 ## "submit refused: step not current"
 
@@ -67,25 +74,63 @@ The run holds a digest of the compiled graph; resuming against an edited file is
 changed steps. `git stash`/restore and resume, or `pawl run <name> --fresh`. Steps that already ran are
 not undone either way, and `pawl validate` on the edited file is free.
 
+## A hook error: "pawl-hook: … exited 2; failing open"
+
+The plugin (`bin/pawl-hook`) is newer than the `pawl` binary on your `PATH`: a binary built before
+`pawl hook` existed prints its usage and exits 2 for the unknown subcommand. The wrapper treats that —
+and any other non-zero exit — as a non-blocking error, so nothing is denied or blocked, but nothing is
+enforced either and `pawl run` refuses to start for lack of a heartbeat. Update the binary (`pawl
+update`, or `go install github.com/dcferreira/agent-pawl/cmd/pawl@latest`).
+
 ## The run is fine but the session ended
 
-This section also describes the target system (no `Stop` hook exists in this build — see README.md's
-Status section); today, nothing stops a session from ending mid-run either way, which is the same
-point the paragraph below makes.
+`pawl`'s `Stop` hook only refuses ending the turn for the session **driving** a run — the one
+whose `pawl run`/`submit`/`poll` last stamped `driver.json` with a fresh heartbeat — and only while
+that run's cursor is at an `agentic`/`parallel` step awaiting `pawl submit` (`wait`/`human` cursors
+and `BLOCKED` runs are exempt, since ending the turn there is legitimate — and so is ending the turn
+with a `background_tasks` or `session_crons` entry still in the Stop payload, since Claude Code will
+wake the session back up: that's the case where you dispatched the agentic step to a background
+subagent, or are polling a `wait` step under Monitor, and paused rather than walked away). It prints:
 
-The `Stop` hook exits 2 while a run is non-terminal, so Claude Code won't end the turn — it prints
-`pawl abandon --run <id>`. If the session was killed anyway, nothing is lost: `pawl run <name>` resumes
-from the journal.
+```
+pawl run <id> (<workflow>) is at step <step> awaiting `pawl submit`. Finish it, or: pawl abandon --run <id>
+```
+
+It refuses at most once per turn (Claude Code force-ends the turn after 8 consecutive blocks
+regardless). If enforcement is off (`--no-enforcement`/`PAWL_ENFORCEMENT=off`), or the hooks aren't
+wired up at all, nothing stops a session from ending mid-run. If the session was killed anyway,
+nothing is lost: `pawl run <name>` resumes from the journal. `pawl abandon --run <id>` always releases
+a run's `Stop` block if you're genuinely done with it.
 
 ## Enforcement looks off
 
-This section assumes the target system's guard/hook enforcement, not this build's (see README.md's
-Status section: there is no enforcement layer, so nothing here is checked against `root` today) — the
-`root` `pawl status` reports is still worth comparing against the tree you think you're in, for the
-same working-copy-root reasons `pawl run`/`pawl status` share, guards or not.
+Compare `root` in `pawl status` against the tree you think you're in — guards, the subagent VCS rule
+and `Stop` all resolve the working-copy root the same way (`journal.ResolveRoot`), and a git worktree
+or jj workspace is its own root with its own runs. If a guard or the `Stop` block isn't firing when
+you expect it to: confirm the banner said `hooks: PreToolUse ✔` at `pawl run` time, not
+`enforcement: off (...)`; guards are advisory string matches over the Bash command
+(`$()`, a variable, or a renamed binary all evade them — see
+[guards-and-invariants.md](guards-and-invariants.md)); and the subagent VCS rule only fires when the
+payload carries `agent_id` (a subagent call), not the main session's own commands.
 
-Compare `root` in `pawl status` against the tree you think you're in — guards and `Stop` resolve the
-working-copy root the same way, and a git worktree or jj workspace is its own root with its own runs.
+## Every Bash call takes the slow path (or shows an error if `pawl` isn't installed)
+
+A forgotten live run — including a `BLOCKED` one, which is still live — or a dangling `live/` link
+left behind by a deleted checkout makes `bin/pawl-hook`'s fast path think a run is live in every
+session, so it hands every Bash call's payload to the real `pawl` binary instead of exiting 0
+immediately. If `pawl` itself isn't installed (only the plugin's wrapper scripts are), this also
+surfaces as a non-blocking "the `pawl` binary is not installed" error on Bash calls that have nothing
+to do with `pawl`. Fix it with `pawl abandon --run <id>` in the checkout that started the run, or by
+removing the stale entries directly under `~/.claude/pawl/live/`.
+
+## `pawl run` refuses to start from a different directory than the session is "in"
+
+The heartbeat `pawl hook pre` writes comes from the hook payload's `cwd` — the working directory the
+Bash tool actually ran the command in — not from wherever the session's own state says it's sitting.
+A session that has `cd`'d elsewhere across several prior tool calls, then runs `pawl` with a leading
+`cd` back to the repo in the *same* Bash call, still has the heartbeat land on the wrong working copy:
+the hook payload's `cwd` is the shell's starting directory for that call, before the `cd` inside it
+takes effect. Run `pawl` from inside the repo directly, without a leading `cd`, when in doubt.
 
 ## Workflow not found, or run not visible, outside a VCS-tracked directory
 

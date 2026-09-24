@@ -25,7 +25,7 @@ terminal: {done: {status: ok}}
 
 ```
 › /pawl run tidy
-  hooks: PreToolUse ✔  Stop ✔   guards: 0 advisory (pattern-matched)  invariants: 0
+  hooks: PreToolUse ✔ (heartbeat)  Stop assumed (same hooks.json)
   ✔ format → test
   ✔ test → done
   TERMINAL a41c ok

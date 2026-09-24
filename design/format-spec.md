@@ -172,8 +172,8 @@ The engine passes `subagent_args:` through to the `DISPATCH` block **verbatim an
 extra arguments for the subagent launch, no engine opinion on harness vocabulary. In Claude Code
 these are typically `model`, `tools`, `effort`; other harnesses use whatever they need. Every
 agentic step runs as a subagent. The one rule the `PreToolUse` hook keeps on a subagent is the
-VCS-mutation deny while an agentic step is live (DESIGN.md §5); nothing in `subagent_args:` is
-engine- or hook-enforced.
+VCS-mutation deny, which applies whenever any run is live for the working copy, not only while an
+agentic step is live (DESIGN.md §5); nothing in `subagent_args:` is engine- or hook-enforced.
 
 ### 7. `soft: true` — what it costs
 

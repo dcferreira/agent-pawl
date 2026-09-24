@@ -5,13 +5,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dcferreira/agent-pawl/internal/guard"
 	"github.com/dcferreira/agent-pawl/internal/spec"
 )
 
-func table(t *testing.T, gs ...spec.GuardDecl) *guard.Table {
+func table(t *testing.T, gs ...spec.GuardDecl) []Guard {
 	t.Helper()
-	tb, err := guard.Compile(gs)
+	tb, err := CompileGuards(gs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,12 +81,34 @@ func TestDecidePre_FailClosedOnBrokenGuards(t *testing.T) {
 	}
 }
 
+// TestDecidePre_NonBashToolAllowed: the rules are for Bash commands only; a
+// non-Bash tool call (Read, Edit, ...) must not be denied by a run whose
+// guards are broken, since there is no command to classify.
+func TestDecidePre_NonBashToolAllowed(t *testing.T) {
+	runs := []LiveRun{{RunID: "ab12", GuardsErr: errors.New("bad regexp")}}
+	p := Payload{SessionID: "s1", Cwd: "/w", HookEventName: "PreToolUse", ToolName: "Read"}
+	if d := DecidePre(runs, p); !d.Allow {
+		t.Fatalf("non-Bash tool denied: %+v", d)
+	}
+}
+
 func TestDecidePre_PawlCommandsExemptFromFailClosed(t *testing.T) {
 	runs := []LiveRun{{RunID: "ab12", GuardsErr: errors.New("bad regexp")}}
 	for _, cmd := range []string{"pawl abandon --run ab12", "pawl status"} {
 		if d := DecidePre(runs, bash(cmd)); !d.Allow {
 			t.Fatalf("%q must stay allowed; got %+v", cmd, d)
 		}
+	}
+}
+
+// TestDecidePre_MixedPawlCommandStillFailsClosed: a command that merely contains a pawl segment among
+// others must not be exempted from fail-closed wholesale — only a command
+// where *every* segment is pawl (or cd) is exempt.
+func TestDecidePre_MixedPawlCommandStillFailsClosed(t *testing.T) {
+	runs := []LiveRun{{RunID: "ab12", GuardsErr: errors.New("bad regexp")}}
+	d := DecidePre(runs, bash("pawl status; rm x"))
+	if d.Allow {
+		t.Fatalf("a mixed pawl+other command must stay fail-closed; got %+v", d)
 	}
 }
 
@@ -146,6 +167,8 @@ func TestDecideStop(t *testing.T) {
 		{"parallel blocks", []LiveRun{func() LiveRun { r := agentic; r.CursorKind = "parallel"; return r }()}, stop("s1", false), false},
 		{"wait allows", []LiveRun{func() LiveRun { r := agentic; r.CursorKind = "wait"; return r }()}, stop("s1", false), true},
 		{"human allows", []LiveRun{func() LiveRun { r := agentic; r.CursorKind = "human"; return r }()}, stop("s1", false), true},
+		{"background task allows", []LiveRun{agentic}, func() Payload { p := stop("s1", false); p.BackgroundTasks = 1; return p }(), true},
+		{"session cron allows", []LiveRun{agentic}, func() Payload { p := stop("s1", false); p.SessionCrons = 1; return p }(), true},
 	}
 	for _, c := range cases {
 		d := DecideStop(c.runs, c.p)
@@ -157,5 +180,65 @@ func TestDecideStop(t *testing.T) {
 	want := "pawl run ab12 (green-tests) is at step fix_code awaiting `pawl submit`. Finish it, or: pawl abandon --run ab12"
 	if d.Reason != want {
 		t.Fatalf("reason = %q, want %q", d.Reason, want)
+	}
+}
+
+// A pawl-only command never executes a guarded action itself (deterministic
+// steps run in-process, unseen by the hook), so a guard's match: text that
+// merely appears inside its arguments — a submit's JSON summary, a run's
+// key=value — must not deny it: denying the driver's own `pawl submit`
+// would strand the run at its agentic cursor.
+func TestDecidePre_PawlOnlyCommandExemptFromGuards(t *testing.T) {
+	runs := []LiveRun{{RunID: "ab12", CursorStep: "fix", CursorKind: "agentic",
+		ActiveSteps: []string{"fix"}, Guards: table(t, pushOnlyInCommit)}}
+	for _, cmd := range []string{
+		`pawl submit --run ab12 --step fix --json '{"summary":"did not git push"}'`,
+		`cd /w && pawl run wf msg="then git push"`,
+		// Separators and fd redirects inside/after a quoted argument don't
+		// make a new, non-pawl segment (review round 3).
+		`pawl submit --run ab12 --step fix --json '{"summary":"bumped dep; did not git push"}'`,
+		`pawl submit --run ab12 --step fix --json '{"summary":"a | git push & b"}' 2>&1`,
+	} {
+		if d := DecidePre(runs, bash(cmd)); !d.Allow {
+			t.Fatalf("%q: got %+v", cmd, d)
+		}
+	}
+	// A non-pawl segment chained after one is still guarded.
+	if d := DecidePre(runs, bash(`pawl status; git push`)); d.Allow {
+		t.Fatal("a guarded non-pawl segment must still be denied")
+	}
+}
+
+// The quote-aware pawl-only exemption also covers fail-closed: a driver's
+// submit whose summary contains a separator still gets through a run with
+// broken guards, but command substitution inside a pawl argument does not.
+func TestDecidePre_FailClosedQuotedPawlSubmit(t *testing.T) {
+	runs := []LiveRun{{RunID: "ab12", GuardsErr: errors.New("bad regexp")}}
+	if d := DecidePre(runs, bash(`pawl submit --run ab12 --step fix --json '{"summary":"x; y"}' 2>&1`)); !d.Allow {
+		t.Fatalf("got %+v", d)
+	}
+	if d := DecidePre(runs, bash(`pawl run wf msg="$(rm -rf x)"`)); d.Allow {
+		t.Fatal("command substitution inside a pawl argument must not be exempt")
+	}
+}
+
+// The guard union is computed per guard, not per command: run A's permit
+// for its `git push` guard says nothing about run B's unrelated `rm -rf`
+// guard, so a command chaining both must still be denied by B.
+func TestDecidePre_UnionIsPerGuardNotPerCommand(t *testing.T) {
+	rmNever := spec.GuardDecl{ID: "no-rm-rf", Match: `rm -rf`, OnlyIn: []string{}}
+	runs := []LiveRun{
+		{RunID: "aaaa", ActiveSteps: []string{"commit"}, Guards: table(t, pushOnlyInCommit)},
+		{RunID: "bbbb", ActiveSteps: []string{"fix"}, Guards: table(t, rmNever)},
+	}
+	d := DecidePre(runs, bash("git push && rm -rf build"))
+	if d.Allow || !strings.Contains(d.Reason, "no-rm-rf") || !strings.Contains(d.Reason, "bbbb") {
+		t.Fatalf("A's permit for `git push` must not override B's deny for `rm -rf`; got %+v", d)
+	}
+	// Same pattern in both runs: A's permit does override B's deny.
+	runs[1].Guards = table(t, pushOnlyInCommit)
+	runs[1].ActiveSteps = []string{"fix"}
+	if d := DecidePre(runs, bash("git push")); !d.Allow {
+		t.Fatalf("same match: permitted by A must be allowed; got %+v", d)
 	}
 }

@@ -13,13 +13,28 @@ yourself; you only do what the machine tells you to do next.
 `parallel`.** `pawl run` executes every consecutive `deterministic` step itself, without stopping.
 It only ever hands control back to you at an `agentic` step (`DISPATCH`), a group of one or more
 `agentic` branches inside a `parallel` step (`DISPATCH_PARALLEL`), a `wait` step (`WAIT`), a
-`human` step (`ASK`), or when the run ends (`TERMINAL`). `pawl hook` does not exist as a command —
-there is no enforcement layer to invoke it.
+`human` step (`ASK`), or when the run ends (`TERMINAL`).
 
-**There is no enforcement layer in this build.** `pawl run`'s banner prints
-`enforcement: off (milestone 1)` — nothing stops you from walking away from a live run, editing
-files yourself instead of dispatching, or ignoring what `pawl` tells you to do next. The protocol
-below is the only thing making the loop honest; follow it exactly.
+**The enforcement hooks are live.** `pawl run` will refuse to start at all (exit 4) unless its
+`PreToolUse` hook has fired for this working copy recently — if you see
+`pawl: refusing to start: pawl's PreToolUse hook has not fired for this working copy in the last 5
+minutes.`, tell the user the enforcement hooks aren't installed and point them at
+`docs/install.md#hooks`. **`--no-enforcement` is not yours to reach for to get past this refusal** —
+it's an explicit, visible opt-out that only exists for when the user has told you they want
+enforcement off for this run; don't use it on your own initiative just to make the refusal go away.
+Once a run is live, the
+`Stop` hook will refuse to let you end your turn while you owe the run a `pawl submit` — you'll see
+a block naming the run and step and telling you to finish it or run
+`pawl abandon --run <id>`; treat that block as authoritative; don't fight it by retrying the same
+action expecting a different result, and don't `abandon` a run just to make a turn end unless you
+actually mean to give up on it. Ending your turn to wait on a background subagent you dispatched,
+or on a `pawl poll` you're running under Monitor, is fine — the `Stop` hook allows it as long as
+Claude Code reports that work as still in flight (a non-empty `background_tasks` or
+`session_crons`), since you'll be woken back up when it finishes. If you dispatch a subagent, **it
+must not run VCS-mutating
+commands** (`git commit`/`push`/etc., `jj` writes) while a run is live — that's a hook denial, and
+it's also just wrong: leave commits to the workflow's own steps, never to a dispatched subagent.
+The protocol below is what makes the loop honest beyond what the hooks catch; follow it exactly.
 
 ## The loop
 
@@ -218,11 +233,13 @@ If a workflow file declares top-level `invariants:`, or a step's `retry:`, `pawl
 instead of a DISPATCH/DISPATCH_PARALLEL/ASK/WAIT/TERMINAL block, and there is nothing to drive: fix
 or report the workflow file instead.
 
-Top-level `guards:` is different: it is now parsed and validated (id required+unique, `match:`
-required, RE2-compilable, and not able to match zero characters; `only_in:` required), but it is not
-enforced — there is no `PreToolUse` hook in this build to actually deny a matched command. When a
-workflow declares any, `pawl run`'s start banner and `pawl validate` print an extra line, `guards: N
-declared, NOT enforced (no PreToolUse hook in this build)`, right after `enforcement: off (milestone
-1)`; the run otherwise proceeds normally, and this skill's protocol is unaffected — report that line
-to the user along with the rest of the banner if they ask what it means, but keep driving the run as
-usual.
+Top-level `guards:` is different: it is parsed, validated (id required+unique, `match:` required,
+RE2-compilable, and not able to match zero characters; `only_in:` required), and now enforced by
+the `PreToolUse` hook — advisory and pattern-matched, not a semantic guarantee. When a workflow
+declares any, `pawl run`'s start banner prints `guards: N advisory (pattern-matched)` (or, with
+enforcement off, `guards: N declared, NOT enforced (enforcement off)`), and `pawl validate` prints
+`guards: N declared (enforced only when a run starts with the pawl hooks installed)`; either way
+this skill's protocol is unaffected — report the line to the user if they ask what it means, but
+keep driving the run as usual. If a guard denies a command you (or a dispatched subagent) tried to
+run, the tool call is simply denied with the hook's reason — treat it the same as any other tool
+denial: don't retry the literal same command hoping the hook relents, work within what it allows.

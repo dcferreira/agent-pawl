@@ -1,10 +1,11 @@
 // Package guard is a pure, no-I/O matcher over spec.GuardDecl: given the
 // guards a workflow declares, it answers "is this command denied while
 // these steps are active?" It has no side effects and touches no journal,
-// filesystem or process — the (not-yet-built) enforcement hook is the
-// package that will call it from a PreToolUse handler; see AGENTS.md's
-// Status section and internal/spec's checkGuards doc comment for why
-// guards: is validated but not yet enforced in this build.
+// filesystem or process — internal/hook.DecidePre (internal/cli's cmdHook,
+// the PreToolUse handler) is the package that calls it; see AGENTS.md's
+// Status section and internal/spec's checkGuards doc comment for what
+// "enforced" means here: advisory pattern matching, live only while the
+// hooks are actually installed and firing.
 package guard
 
 import (

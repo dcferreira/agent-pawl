@@ -148,7 +148,7 @@ func (p *project) run(t *testing.T, args ...string) (output string, exitCode int
 	t.Helper()
 	cmd := exec.Command(wfBinary(t), args...)
 	cmd.Dir = p.root
-	cmd.Env = append(os.Environ(), "PAWL_STATE_DIR="+p.stateDir)
+	cmd.Env = append(os.Environ(), "PAWL_STATE_DIR="+p.stateDir, "PAWL_ENFORCEMENT=off")
 	out, err := cmd.Output()
 	combined := string(out)
 	if ee, ok := err.(*exec.ExitError); ok {

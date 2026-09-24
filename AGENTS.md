@@ -15,25 +15,31 @@ to do what `pawl run`/`pawl submit` tells it and report back exactly what's aske
 ## Status: read this before trusting any design doc
 
 **`README.md`'s "Status" section is the authority on what actually runs.** `docs/README.md`
-describes the target system (enforcement, full distribution, `foreach:` fan-out), not this build.
-`DESIGN.md` is mostly current — it opens with its own up-to-date status line — but its enforcement
-(§5) and distribution (§9) sections describe what is not yet built. As of now:
+describes the target system (full distribution, `foreach:` fan-out, `invariants:`), not this build.
+`DESIGN.md` is mostly current — it opens with its own up-to-date status line — but its distribution
+(§9) section describes what is not yet built. As of now:
 
 - All five step kinds are implemented: `deterministic`, `agentic`, `wait`, `human`, `parallel`
   (single-group, all-or-nothing `branches:` join — `design/format-spec.md` §B.15).
 - Top-level `guards:` is now parsed and validated (id required+unique, `match:` required, must
   compile as a Go RE2 regexp matched unanchored, and must not be able to match zero characters;
   `only_in:` required; rule 15 checks every `only_in:` entry names a declared step; see
-  `internal/guard`), but **not enforced**: `pawl run`'s banner and `pawl validate` print a separate
-  `guards: N declared, NOT enforced (no PreToolUse hook in this build)` line whenever N > 0.
-  Top-level `invariants:`, and a step's `retry:`, are still parsed and rejected outright, not
-  ignored.
-- **There is no enforcement layer.** DESIGN.md §5's `PreToolUse`/`Stop` hooks don't exist.
-  `pawl run` prints `enforcement: off (milestone 1)` and starts anyway — nothing stops a session
-  from doing the work itself instead of dispatching, or walking away mid-run. See
-  `docs/dogfood.md`.
-- `pawl poll --run … --step …` drives a `wait` step; `pawl hook` still doesn't exist (no
-  enforcement layer to invoke it).
+  `internal/guard`), and is enforced by the `PreToolUse` hook, advisory and pattern-matched, not a
+  semantic guarantee: `pawl run`'s banner prints `guards: N advisory (pattern-matched)` when hooks
+  are on, or `guards: N declared, NOT enforced (enforcement off)` when
+  `--no-enforcement`/`PAWL_ENFORCEMENT=off` is in effect; `pawl validate`, which has no run, prints
+  `guards: N declared (enforced only when a run starts with the pawl hooks installed)`. Top-level
+  `invariants:`, and a step's `retry:`, are still parsed and rejected outright, not ignored.
+- **The enforcement layer is built.** `internal/hook` (pure decisions) plus `internal/cli/hook.go`
+  (`pawl hook pre|stop`) back a `PreToolUse`/`Stop` pair the plugin wires via `hooks/hooks.json` →
+  `bin/pawl-hook`. `pawl run` refuses to start (exit 4) unless a PreToolUse heartbeat for the
+  working copy is on disk and no older than 5 minutes, unless `--no-enforcement`/`PAWL_ENFORCEMENT=off` is
+  passed. `Stop` refuses to end the driving session's turn while its run's cursor is at an
+  `agentic`/`parallel` step awaiting `pawl submit` (`wait`/`human` cursors and `BLOCKED` runs are
+  exempt, at most once per turn); a subagent (`agent_id` present) may not mutate VCS while any run
+  is live. See `docs/dogfood.md`.
+- `pawl poll --run … --step …` drives a `wait` step; `pawl hook pre|stop` is the `PreToolUse`/`Stop`
+  hook entry point (see above).
 - `install.sh` and goreleaser-built release binaries exist (tagged releases are published on
   GitHub); release builds are version-stamped via `-ldflags -X main.Version`, but a source build
   (`go build`/`go install`/`make install`) still prints `pawl dev`.
@@ -51,10 +57,13 @@ it by writing the design doc's version of reality into code comments or docs.
 - `internal/render` — `${key}` substitution (shell/prose/raw rendering, shell-quoting).
 - `internal/emit` — the stdout grammar `deterministic`/`wait` steps use to report outcomes.
 - `internal/journal` — run directory, event log, replay, VCS root resolution, run-directory
-  slugging.
+  slugging, heartbeat/driver files, `live/` symlink lifecycle.
 - `internal/engine` — cursor, outcome routing, counters, shell execution, postcondition
   evaluation.
-- `internal/cli` — the `pawl` subcommands.
+- `internal/hook` — pure `PreToolUse`/`Stop` decisions (`DecidePre`/`DecideStop`) for `pawl hook
+  pre|stop`: no filesystem I/O, just `[]LiveRun` + a parsed payload in, a `Decision` out.
+- `internal/cli` — the `pawl` subcommands, including `hook.go` (`pawl hook pre|stop`) and
+  `enforce.go` (`pawl run`'s heartbeat check and refusal).
 - `e2e/` — end-to-end test(s) that actually run `docs/examples/green-tests`.
 - `docs/examples/` — workflow YAML + scripts; each has a `NOTES.md` with the author's design rulings.
   Only `green-tests` is proven-runnable.
@@ -62,7 +71,8 @@ it by writing the design doc's version of reality into code comments or docs.
   `docs/examples/green-tests` and `e2e/`.
 - `design/format-spec.md` — **normative** for what a workflow author writes.
 - `DESIGN.md` — the engine design (handshake, execution, resume, enforcement, testing,
-  distribution). Target system, not current build.
+  distribution). Current through §5 (enforcement); §9 (distribution) is still the target system,
+  not this build.
 - `docs/` — user-facing docs. `docs/install.md` and `docs/dogfood.md` describe this build
   honestly; `docs/README.md` describes the finished system (says so explicitly).
 
@@ -78,6 +88,14 @@ it by writing the design doc's version of reality into code comments or docs.
   `PATH`, with self-recursion guards (a plugin puts its `bin/` on `PATH`, so this script could
   otherwise find and re-exec itself). A plugin cannot ship a compiled Go binary, so this is as far
   as the plugin goes — the real binary is still `go install`ed separately.
+- `bin/pawl-hook` is the committed POSIX sh entry point `hooks/hooks.json` binds `PreToolUse`
+  (matcher `Bash`) and `Stop` to (`${CLAUDE_PLUGIN_ROOT}/bin/pawl-hook pre|stop`): a cheap fast path
+  that exits 0 with no live run and no `pawl` mention in the payload, otherwise pipes stdin to the
+  sibling `bin/pawl` wrapper's `hook pre|stop`. A deny/block is exit 0 with Claude Code's JSON
+  decision on stdout, never exit 2: `pawl-hook` maps every non-zero binary exit to exit 1 (fail
+  open), because a `pawl` binary older than the plugin exits 2 (usage) for the unknown `hook`
+  subcommand, which Claude Code would read as "block". Non-plugin users wire `pawl hook pre`/`pawl hook
+  stop` directly in their own `settings.json` — see `docs/install.md#hooks`.
 
 ## Build / test / verify
 
@@ -97,7 +115,10 @@ Makefile targets (all real, all in CI or documented for local use):
 
 CI (`.github/workflows/ci.yml`) gates a PR on: `make fmt-check`, `make vet`, `make staticcheck`,
 `go mod tidy` producing no diff to `go.mod`/`go.sum`, `claude plugin validate . --strict`, and both
-`make test` and `make test-race`. The test job installs `jq` (the `green-tests` example's
+`make test` and `make test-race`. Existing tests and `e2e/` set `PAWL_ENFORCEMENT=off` in their
+shared setup (`setupWorkingCopy` and friends) so the enforcement gate added by `pawl run` doesn't
+require a real heartbeat in every test; the gate itself is tested directly in
+`internal/cli/enforce_test.go`. The test job installs `jq` (the `green-tests` example's
 `run-tests.sh` needs it) and sets `PAWL_REQUIRE_VCS_TOOLS=1`, which makes a missing/failing `git` in
 `internal/journal`'s VCS tests a hard failure instead of a silent skip — scoped to `git` only. `jj`
 is deliberately *not* installed in this job: root resolution (`internal/journal/root.go`) has no

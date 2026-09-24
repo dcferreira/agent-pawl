@@ -36,6 +36,22 @@ type Engine struct {
 	Root string
 	// Timeout is the one engine-wide wall-clock ceiling (DESIGN.md §3).
 	Timeout time.Duration
+	// Enforcement is the enforcement mode cmdRun already decided (checkEnforcement,
+	// internal/cli/enforce.go) before constructing this Engine — RUN_START's
+	// hook_self_test field is this value verbatim, so the journal records
+	// what actually happened rather than a hardcoded placeholder. One of
+	// "on (PreToolUse heartbeat)", "off (--no-enforcement)",
+	// "off (PAWL_ENFORCEMENT=off)". Left unset (e.g. in engine package
+	// tests that never went through cmdRun's checkEnforcement), Start
+	// records "unknown" rather than claiming a mode nothing checked.
+	Enforcement string
+
+	// OnRunStart, when non-nil, is called by Start once RUN_START has been
+	// journaled and before the first step runs, with the run directory and
+	// run id. pawl run uses it to stamp driver.json and link the run into
+	// the live/ index before a possibly long deterministic prefix, so a
+	// pawl run killed mid-prefix still leaves both behind for the hooks.
+	OnRunStart func(dir, runID string)
 
 	// Now and Sleep are the engine's only two clock reads, injectable so a
 	// test can drive a 5m timeout: at a 5s every: without costing five real
@@ -64,6 +80,16 @@ func (e *Engine) sleep(d time.Duration) {
 		return
 	}
 	time.Sleep(d)
+}
+
+// hookSelfTest is RUN_START's hook_self_test value: e.Enforcement verbatim,
+// or "unknown" when nothing set it (Engine values built without going
+// through cmdRun's checkEnforcement, e.g. most engine package tests).
+func (e *Engine) hookSelfTest() string {
+	if e.Enforcement != "" {
+		return e.Enforcement
+	}
+	return "unknown"
 }
 
 // New constructs an Engine for w rooted at root, with the default wall-clock
@@ -110,9 +136,12 @@ func (e *Engine) Start(runID string, args map[string]any) (Instruction, error) {
 		RunID:        runID,
 		Args:         finalArgs,
 		Digest:       plan.Digest,
-		HookSelfTest: "off (milestone 1)",
+		HookSelfTest: e.hookSelfTest(),
 	}); err != nil {
 		return nil, err
+	}
+	if e.OnRunStart != nil {
+		e.OnRunStart(dir, runID)
 	}
 
 	return e.runFrom(dir, log, runID, journal.Cursor{Step: e.Workflow.Start, Attempt: 1})

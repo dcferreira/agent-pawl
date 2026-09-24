@@ -29,3 +29,50 @@ func TestParsePayload_Garbage(t *testing.T) {
 		t.Fatal("want error")
 	}
 }
+
+func TestParsePayload_BackgroundTasksAndSessionCrons(t *testing.T) {
+	p, err := ParsePayload([]byte(`{"session_id":"s1","cwd":"/w","hook_event_name":"Stop",
+		"background_tasks":[{"id":"t1","type":"subagent","status":"running","description":"fix tests"}],
+		"session_crons":[]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.BackgroundTasks != 1 || p.SessionCrons != 0 {
+		t.Fatalf("got %+v", p)
+	}
+}
+
+func TestParsePayload_BackgroundTasksAbsent(t *testing.T) {
+	p, err := ParsePayload([]byte(`{"session_id":"s1","cwd":"/w","hook_event_name":"Stop"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.BackgroundTasks != 0 || p.SessionCrons != 0 {
+		t.Fatalf("got %+v", p)
+	}
+}
+
+func TestParsePayload_BackgroundTasksNull(t *testing.T) {
+	p, err := ParsePayload([]byte(`{"session_id":"s1","cwd":"/w","hook_event_name":"Stop",
+		"background_tasks":null,"session_crons":null}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.BackgroundTasks != 0 || p.SessionCrons != 0 {
+		t.Fatalf("got %+v", p)
+	}
+}
+
+func TestParsePayload_BackgroundTasksUnexpectedShape(t *testing.T) {
+	// An entry shape pawl doesn't model must still parse rather than fail
+	// the whole payload.
+	p, err := ParsePayload([]byte(`{"session_id":"s1","cwd":"/w","hook_event_name":"Stop",
+		"background_tasks":[{"unexpected_field":123,"nested":{"a":[1,2,3]}}],
+		"session_crons":[{"id":"c1","schedule":"*/5 * * * *"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.BackgroundTasks != 1 || p.SessionCrons != 1 {
+		t.Fatalf("got %+v", p)
+	}
+}

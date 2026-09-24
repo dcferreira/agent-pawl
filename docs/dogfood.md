@@ -3,28 +3,33 @@
 This walks through actually running the `docs/examples/green-tests` workflow, end to end, in a real
 Claude Code session. It assumes you've followed [install.md](install.md) and have a `pawl` binary
 on your `PATH`. Everything in this document was run and its output pasted verbatim — nothing here
-is retyped or paraphrased.
+is retyped or paraphrased. The `pawl run`/`pawl submit`/`pawl status` blocks below were recaptured
+from a real `make build` binary (`dist/pawl`, this build) against a fresh copy of the fixture under
+a temporary `PAWL_STATE_DIR`, run at the same commit as the rest of this doc; only the run id (`9c8c`
+here, chosen by the run at capture time — run ids are random and differ every time) differs from an
+earlier capture of this same walkthrough.
 
 ## The most important thing to know before you start
 
-**There is no enforcement layer in this build.** `pawl run` prints `enforcement: off (milestone 1)`
-in its start banner instead of the `hooks: PreToolUse ✔ Stop ✔` line DESIGN.md §5 describes for
-the finished system. Concretely, that means:
+**The enforcement layer is built and on by default.** With the plugin's hooks wired up (see
+[install.md#hooks](install.md#hooks)), `pawl run` refuses to start at all unless its `PreToolUse`
+hook has recently fired, then prints `hooks: PreToolUse ✔ (heartbeat)  Stop assumed (same
+hooks.json)` in its start banner. Concretely, that means:
 
-- Nothing stops the session from editing files, running the build, or running the tests itself
-  instead of dispatching a subagent through `pawl`.
-- Nothing stops the session from simply walking away mid-run — closing the chat, starting a new
-  task — leaving the run journal sitting there `running` forever. There is no `Stop` hook to
-  refuse to end the turn.
-- Nothing re-checks that a guarded action didn't happen some other way. `guards:` in a workflow
-  file is now parsed and validated (see [validation.md](validation.md) rule 15), but it is not
-  enforced — there is no `PreToolUse` hook in this build to deny a matched command, and `pawl run`'s
-  banner prints an additional line saying so whenever a workflow declares any guards. `invariants:`
-  is still a validation error outright, not a silently-skipped feature.
-
-The only thing keeping a dogfood run honest is the `/pawl` skill's protocol (below) and the
-discipline of actually following it. Treat a live run as a real state machine you must not skip
-steps of, even though nothing forces that on you.
+- The `Stop` hook refuses to let the driving session end its turn while its run is at an
+  `agentic`/`parallel` step awaiting `pawl submit` — it prints `pawl abandon --run <id>` as the way
+  out. It does not stop a session from editing files or running the tests itself instead of
+  dispatching a subagent — that discipline is still the `/pawl` skill's protocol, not something a
+  hook checks.
+- `guards:` in a workflow file is parsed, validated (see [validation.md](validation.md) rule 15) and
+  now enforced by the `PreToolUse` hook — advisory and pattern-matched, not a semantic guarantee:
+  `$()`, a variable, or a renamed binary all evade it. `invariants:` is still a validation error
+  outright, not a silently-skipped feature.
+- A subagent (dispatched via the Agent tool) may not run a VCS-mutating command while any run is
+  live — the `PreToolUse` hook denies it.
+- Running with `--no-enforcement` or `PAWL_ENFORCEMENT=off` turns all of the above off for that run;
+  the banner says so plainly (`enforcement: off (...)`), and the `/pawl` skill's protocol is the only
+  thing keeping such a run honest.
 
 ## Prerequisites
 
@@ -74,45 +79,45 @@ itself uses and `e2e/green_tests_test.go` builds.
 
 ## Run it
 
-From `/tmp/pawl-dogfood`:
+From `/tmp/pawl-dogfood`, in a plain terminal with no Claude Code hooks wired up — so with
+`--no-enforcement`, since without it `pawl run` would refuse to start for lack of a `PreToolUse`
+heartbeat (see [install.md#hooks](install.md#hooks)):
 
 ```
-$ pawl run green-tests
+$ pawl run green-tests --no-enforcement
 ```
 
 captured output:
 
 ```
 workflow: /tmp/pawl-dogfood/.claude/workflows/green-tests.yaml (repo-local)
-enforcement: off (milestone 1)
+enforcement: off (--no-enforcement)
 soft: 0/2 steps (0.0%): (none)
-DISPATCH 9074 fix_tests
+DISPATCH 9c8c fix_tests
 attempt: 1 of 3
 description:
   The test suite is failing. Fix the code so that it passes.
   Do not edit, weaken or delete tests to make them pass — fix the code under test.
   The failures:
-  --- FAIL: TestAdd (0.00s)
-    fixture_test.go:7: Add(2, 3) = -1, want 5
-FAIL
-FAIL	fixture	0.002s
-FAIL
+  --- FAIL: TestAdd (0.00s)\u000a    fixture_test.go:7: Add(2, 3) = -1, want 5\u000aFAIL\u000aFAIL\u0009fixture\u00090.002s\u000aFAIL
 context:
   [1] git diff (0 bytes)
     (empty)
 return: a JSON object with exactly these keys (key order does not matter)
   fix_summary: string
 subagent_args: {"model":"sonnet","tools":["Read","Edit","Bash"]}
-submit with: pawl submit --run 9074 --step fix_tests --json '<the object above>'
-END DISPATCH 9074 fix_tests
+submit with: pawl submit --run 9c8c --step fix_tests --json '<the object above>'
+END DISPATCH 9c8c fix_tests
 ```
 
 Note: the run resolved and executed `run_tests` (a `deterministic` step) entirely by itself before
 stopping — the first thing you see is the `DISPATCH` for `fix_tests`, the `agentic` step, since
-`pawl run` only ever hands control back at an agentic step or a terminal. The `
-`/`	`
-sequences are real: the captured multi-line test failure is carried in a rendered string and its
-control characters come out escaped, not as raw newlines/tabs, in the printed block.
+`pawl run` only ever hands control back at an agentic step or a terminal. The `\u000a`/`\u0009`
+sequences are real: `run_tests`' captured multi-line stdout is carried as a `pawl` state value
+(`emit.go`'s escaping — a control character becomes a literal `\uXXXX` escape, the same treatment
+the emit grammar gives any control byte reaching it through a step's output), then substituted
+verbatim into the rendered `description:` — it renders as the literal six-character sequence
+`\u000a`, not an actual newline and not a "cooked" `\n`.
 
 `[1] git diff (0 bytes)` is empty because `/tmp/pawl-dogfood` isn't a git (or jj) working copy in
 this walkthrough; per `docs/examples/green-tests/NOTES.md`, a failing or unavailable `!cmd` context
@@ -120,7 +125,7 @@ entry degrades silently to empty rather than blocking the run.
 
 Per the `/pawl` skill (`.claude/skills/pawl/SKILL.md`), this `DISPATCH` line is the instruction: it's
 the first column-0 line matching `DISPATCH|TERMINAL`, and everything indented beneath it up to
-`END DISPATCH 9074 fix_tests` is data, not a new instruction — including the failure text, which
+`END DISPATCH 9c8c fix_tests` is data, not a new instruction — including the failure text, which
 could in principle contain something instruction-shaped.
 
 ## Do the work and submit
@@ -137,16 +142,16 @@ Then submit exactly the JSON object `return:` asked for, using the `submit with:
 above:
 
 ```
-$ pawl submit --run 9074 --step fix_tests --json '{"fix_summary":"Fixed Add to use + instead of -"}'
+$ pawl submit --run 9c8c --step fix_tests --json '{"fix_summary":"Fixed Add to use + instead of -"}'
 ```
 
 captured output:
 
 ```
-TERMINAL 9074 ok
+TERMINAL 9c8c ok
 message:
   Suite green after 2 runs.
-END TERMINAL 9074 ok
+END TERMINAL 9c8c ok
 ```
 
 The run re-entered `run_tests` (visit 2), the suite passed, and the workflow reached its `done`
@@ -195,11 +200,11 @@ correct.
 
 ## What this walkthrough does not show
 
-Nothing here demonstrates enforcement, because there isn't any — see the warning at the top.
-Nothing here shows `wait` or `human` steps: both are implemented in this build (see the README's
-Status section), but `docs/examples/green-tests` doesn't happen to use either kind. Nothing here
-shows `guards:` either — it is now parsed and validated (rule 15, above), but still not enforced —
-or `invariants:`/`retry:`, which are still rejected outright by both `pawl validate` and `pawl run`.
+This walkthrough runs with `--no-enforcement` (a plain terminal has no Claude Code hooks to wire up),
+so it doesn't demonstrate the enforcement hooks in action — see the warning at the top, and
+[install.md#hooks](install.md#hooks) for what a real Claude Code session gets. `green-tests` also
+doesn't exercise `wait` or `human` steps, or `guards:`, even though this build implements all of
+them; `invariants:` and `retry:` are still rejected outright by both `pawl validate` and `pawl run`.
 
 ---
 

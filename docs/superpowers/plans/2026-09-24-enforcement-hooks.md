@@ -1,5 +1,7 @@
 # Enforcement Hooks Implementation Plan
 
+> Historical working document; superseded where they differ by DESIGN.md §5, docs/cli.md and the code.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build DESIGN.md §5's PreToolUse/Stop enforcement layer: `pawl hook pre|stop`, the

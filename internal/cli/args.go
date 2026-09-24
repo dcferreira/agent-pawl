@@ -12,9 +12,10 @@ import (
 // runFlags holds pawl run's own flags, as opposed to key=value arg bindings
 // (design/format-spec.md §I).
 type runFlags struct {
-	Fresh bool
-	Force bool
-	RunID string
+	Fresh         bool
+	Force         bool
+	RunID         string
+	NoEnforcement bool
 }
 
 // parseRunArgs splits pawl run's trailing arguments into key=value bindings
@@ -28,6 +29,8 @@ func parseRunArgs(args []string) (raw map[string]string, flags runFlags, err err
 			flags.Fresh = true
 		case a == "--force":
 			flags.Force = true
+		case a == "--no-enforcement":
+			flags.NoEnforcement = true
 		case a == "--run":
 			i++
 			if i >= len(args) {

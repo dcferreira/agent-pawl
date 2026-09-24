@@ -149,17 +149,21 @@ func guardRef(g GuardDecl, i int) string {
 
 // checkGuards validates guards: (design/format-spec.md §B.10, §D, §H rule
 // 15). Unlike invariants:, guards: is no longer rejected outright: it is
-// accepted and validated here so the (not-yet-built) enforcement hook has
-// something to consume once it exists — see internal/guard. Accepted is not
-// enforced: internal/cli's run banner prints a separate "guards: N
-// declared, NOT enforced" line whenever N > 0 (nothing extra when N == 0),
-// so accepting the block never looks like it's doing something it is not.
+// accepted and validated here so the enforcement hook (internal/hook,
+// internal/guard) has something to consume — the hook reads a live run's
+// guards straight out of plan.json's Workflow.Guards, not a separate
+// guards.json. Accepted-and-validated is only advisory enforcement, though:
+// it's a PreToolUse pattern match against the Bash command, not a semantic
+// guarantee ($(), a variable, or a renamed binary all evade it), and it's
+// only live at all while the hooks are actually installed and firing —
+// internal/cli's run banner prints "guards: N advisory (pattern-matched)"
+// when a fresh heartbeat exists, or "guards: N declared, NOT enforced" when
+// enforcement is off, whenever N > 0 (nothing extra when N == 0).
 //
 // Per guards[] entry:
 //   - id: is required and must be unique across the file (reusing
-//     stepIDPattern — a guard id ends up as a JSON key in guards.json
-//     downstream, so the same identifier-safety reasoning as a step id
-//     applies).
+//     stepIDPattern — a guard id ends up as a JSON key downstream, so the
+//     same identifier-safety reasoning as a step id applies).
 //   - match: is required and must compile as a Go regexp (RE2 syntax —
 //     close to POSIX ERE, no backreferences); it is matched unanchored
 //     against the whole command string at enforcement time (internal/guard).
