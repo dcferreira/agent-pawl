@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 )
 
 // usage is the single source of truth for pawl's command-line surface
@@ -40,6 +41,9 @@ Commands:
   pawl poll --run <id> --step <name>
         internal: poll a wait step until it resolves, then submit for itself
         (the /pawl skill runs this under Monitor; an author never writes it)
+  pawl hook pre|stop
+        internal: Claude Code hook entry point (PreToolUse / Stop); reads the
+        hook payload on stdin. Wired by the plugin's hooks/hooks.json.
   pawl version
         print the pawl version
   pawl update [--check] [--version <vX.Y.Z>] [--force]
@@ -49,9 +53,17 @@ Commands:
 `
 
 // Run dispatches on args[1] and returns the process exit code. It is the
-// single entry point exercised by tests: no path through it calls
-// os.Exit, so every command is testable by capturing stdout/stderr.
+// single entry point exercised by every test but hook_test.go: no path
+// through it calls os.Exit, so every command is testable by capturing
+// stdout/stderr. It is RunIO fed an empty stdin, for the commands that
+// never read it.
 func Run(args []string, stdout, stderr io.Writer) int {
+	return RunIO(args, strings.NewReader(""), stdout, stderr)
+}
+
+// RunIO is Run plus a stdin reader for the one command that needs it:
+// `pawl hook pre|stop` reads a Claude Code hook payload from stdin.
+func RunIO(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) < 2 {
 		fmt.Fprint(stderr, usage)
 		return 2
@@ -76,6 +88,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return cmdValidate(args[2:], cwd, stdout, stderr)
 	case "list":
 		return cmdList(args[2:], cwd, stdout, stderr)
+	case "hook":
+		return cmdHook(args[2:], stdin, stdout, stderr)
 	default:
 		fmt.Fprint(stderr, usage)
 		return 2
