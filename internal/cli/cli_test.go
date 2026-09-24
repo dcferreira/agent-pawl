@@ -1973,3 +1973,83 @@ func TestRun_ParallelDispatchAndJoin(t *testing.T) {
 		t.Errorf("TERMINAL mismatch:\n--- got ---\n%s\n--- want ---\n%s", stdout3, wantTerminal)
 	}
 }
+
+// invariantWorkflow declares one always-violated invariant on a workflow
+// that otherwise completes cleanly, so pawl run's start banner shows the
+// invariants: line and the run itself ends TERMINAL blocked with the
+// invariant's own reason.
+const invariantWorkflow = `workflow: invariant-demo
+start: a
+invariants:
+  - id: never-holds
+    check: "false"
+    message: "the world changed underneath the run"
+steps:
+  - id: a
+    kind: deterministic
+    run: "true"
+    next: done
+terminal:
+  done: {status: ok}
+`
+
+// TestRun_BannerReportsInvariantsEngineChecked checks that a workflow
+// declaring invariants: gets an additional, separate banner line naming the
+// count — unlike guards:, invariants: IS engine-checked in this build, so
+// the line says so rather than disclaiming enforcement (internal/cli/format.go's
+// formatBanner).
+func TestRun_BannerReportsInvariantsEngineChecked(t *testing.T) {
+	root := setupWorkingCopy(t)
+	writeWorkflow(t, root, "invariant-demo", invariantWorkflow)
+
+	stdout, _, code := runCLI(t, []string{"pawl", "run", "invariant-demo"})
+	if code != 3 {
+		t.Fatalf("pawl run: exit %d, want 3 (BLOCKED terminal); stdout = %q", code, stdout)
+	}
+	want := fmt.Sprintf(`workflow: %s/.claude/workflows/invariant-demo.yaml (repo-local)
+enforcement: off (milestone 1)
+invariants: 1 (engine-checked after every step)
+soft: 0/1 steps (0.0%%): (none)
+`, root)
+	if !strings.HasPrefix(stdout, want) {
+		t.Errorf("stdout banner mismatch:\n--- got prefix ---\n%s\n--- want prefix ---\n%s", stdout, want)
+	}
+}
+
+// TestRun_InvariantViolationBlocksWithReason checks that a violated
+// invariant ends the run TERMINAL blocked, with the TERMINAL's message:
+// naming the invariant and its message: text, and that pawl status
+// separately reports the same reason (internal/cli/status.go reads
+// RunState.EndReason directly — no separate wiring needed).
+func TestRun_InvariantViolationBlocksWithReason(t *testing.T) {
+	root := setupWorkingCopy(t)
+	writeWorkflow(t, root, "invariant-demo", invariantWorkflow)
+
+	stdout, _, code := runCLI(t, []string{"pawl", "run", "invariant-demo"})
+	if code != 3 {
+		t.Fatalf("pawl run: exit %d, want 3 (BLOCKED terminal); stdout = %q", code, stdout)
+	}
+	wantReason := `invariant "never-holds" violated: the world changed underneath the run`
+	if !strings.Contains(stdout, "TERMINAL") || !strings.Contains(stdout, " blocked") {
+		t.Fatalf("expected a blocked TERMINAL; stdout = %q", stdout)
+	}
+	if !strings.Contains(stdout, wantReason) {
+		t.Errorf("TERMINAL message missing the invariant's reason; stdout = %q, want it to contain %q", stdout, wantReason)
+	}
+
+	runID := ""
+	if m := runIDPattern.FindString(stdout); m != "" {
+		runID = m
+	}
+	if runID == "" {
+		t.Fatalf("could not find a run id in stdout: %q", stdout)
+	}
+
+	statusOut, statusErr, statusCode := runCLI(t, []string{"pawl", "status", "--run", runID})
+	if statusCode != 0 {
+		t.Fatalf("pawl status: exit %d, stderr = %q", statusCode, statusErr)
+	}
+	if !strings.Contains(statusOut, wantReason) {
+		t.Errorf("pawl status missing the invariant's reason; stdout = %q, want it to contain %q", statusOut, wantReason)
+	}
+}

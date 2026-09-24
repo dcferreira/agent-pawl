@@ -1,0 +1,14 @@
+workflow: invariantsaccepted
+start: a
+state:
+  branch: {type: string, default: "main"}
+invariants:
+  - id: branch-still-clean
+    check: scripts/check.sh ${branch}
+    message: "the branch changed out from under the run"
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    next: done
+terminal: {done: {status: ok}}

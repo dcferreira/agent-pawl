@@ -21,7 +21,7 @@ func (e *Engine) dispatchHuman(dir string, log *journal.Log, runID string, step 
 		return nil, err
 	}
 	if e.checkCaps(rs, step) {
-		instr, next, err := e.routeReserved(dir, log, runID, step, "exhausted", cur.Attempt)
+		instr, next, err := e.routeReserved(dir, log, runID, step, "exhausted", cur.Attempt, false)
 		if err != nil {
 			return nil, err
 		}
@@ -136,6 +136,11 @@ func toStringList(v any) ([]string, error) {
 // routeHuman journals the TRANSITION for outcome off a human step and
 // continues the run, mirroring routeAgentic exactly.
 func (e *Engine) routeHuman(dir string, log *journal.Log, runID string, step *spec.Step, outcome string, attempt int) (Instruction, error) {
+	if instr, err := e.preTransitionInvariantBlock(dir, log, runID, step.ID); err != nil {
+		return nil, err
+	} else if instr != nil {
+		return instr, nil
+	}
 	target, viaCatch, err := resolveTarget(step, outcome)
 	if err != nil {
 		return nil, err

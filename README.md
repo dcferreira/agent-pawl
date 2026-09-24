@@ -26,8 +26,7 @@ describe:
   pattern-matched: `pawl run`'s banner prints `guards: N advisory (pattern-matched)` when the hooks
   are on, or `guards: N declared, NOT enforced (enforcement off)` when enforcement is off, and
   `pawl validate` (which has no run) prints `guards: N declared (enforced only when a run starts
-  with the pawl hooks installed)`. Top-level `invariants:` is still parsed and rejected outright,
-  not ignored. A step's `retry:` (deterministic and wait only) is implemented: it retries a
+  with the pawl hooks installed)`. A step's `retry:` (deterministic and wait only) is implemented: it retries a
   hard-failed body — a non-zero exit, the wall-clock timeout, or unintelligible stdout — before any
   outcome is resolved, and is distinct from `attempts:`, which re-runs a step on a postcondition
   failure (see [design/format-spec.md](design/format-spec.md) §B.16).
@@ -39,6 +38,12 @@ describe:
   session's turn while its run's cursor is at an `agentic`/`parallel` step awaiting `pawl submit`
   (`wait`/`human` cursors and `BLOCKED` runs are exempt); a subagent may not mutate VCS while any run
   is live. See [docs/dogfood.md](docs/dogfood.md) for what that means in practice.
+- Top-level `invariants:` IS engine-checked now: the engine evaluates every declared invariant, in
+  order, after every step completion and after every `pawl submit`/`pawl poll`, stopping at the
+  first violated one; a violation blocks the run with the invariant's `message:` as the reason
+  (`pawl run`'s banner prints a separate `invariants: N (engine-checked after every step)` line
+  whenever a workflow declares any). For a `kind: parallel` step, invariants are evaluated once at
+  the group join rather than after each branch's own submit.
 - `install.sh` and the release pipeline behind it exist (`.goreleaser.yaml`,
   `.github/workflows/release.yml`, cross-compiling `pawl` for linux/darwin × amd64/arm64), and
   tagged releases are published on GitHub for `install.sh` to fetch — see

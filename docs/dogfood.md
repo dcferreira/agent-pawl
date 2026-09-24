@@ -23,8 +23,10 @@ hooks.json)` in its start banner. Concretely, that means:
   hook checks.
 - `guards:` in a workflow file is parsed, validated (see [validation.md](validation.md) rule 15) and
   now enforced by the `PreToolUse` hook — advisory and pattern-matched, not a semantic guarantee:
-  `$()`, a variable, or a renamed binary all evade it. `invariants:` is still a validation error
-  outright, not a silently-skipped feature.
+  `$()`, a variable, or a renamed binary all evade it. `invariants:` IS engine-checked, though: the
+  engine re-runs every declared invariant's `check:` after every step and every `pawl
+  submit`/`pawl poll`, and a violation blocks the run — see
+  [guards-and-invariants.md](guards-and-invariants.md).
 - A subagent (dispatched via the Agent tool) may not run a VCS-mutating command while any run is
   live — the `PreToolUse` hook denies it.
 - Running with `--no-enforcement` or `PAWL_ENFORCEMENT=off` turns all of the above off for that run;
@@ -203,10 +205,11 @@ correct.
 This walkthrough runs with `--no-enforcement` (a plain terminal has no Claude Code hooks to wire up),
 so it doesn't demonstrate the enforcement hooks in action — see the warning at the top, and
 [install.md#hooks](install.md#hooks) for what a real Claude Code session gets. `green-tests` also
-doesn't exercise `wait` or `human` steps, `guards:`, or a step's `retry:`, even though this build
-implements all of them (rule 19 for `retry:` — see the README's Status section and
-design/format-spec.md). `invariants:` is still rejected outright by both `pawl validate` and
-`pawl run`.
+doesn't exercise `wait` or `human` steps, `guards:`, `invariants:`, or a step's `retry:`, even
+though this build implements all of them — `invariants:` is engine-checked (see
+[guards-and-invariants.md](guards-and-invariants.md)) even though this walkthrough doesn't trigger
+one, and `retry:` is implemented (rule 19 — see the README's Status section and
+design/format-spec.md) even though this walkthrough's steps never hard-fail.
 
 ---
 

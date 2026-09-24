@@ -1,0 +1,12 @@
+workflow: invariantbadidformat
+start: a
+invariants:
+  - id: "../escaped"
+    check: scripts/check.sh
+    message: "it broke"
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    next: done
+terminal: {done: {status: ok}}

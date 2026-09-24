@@ -134,7 +134,19 @@ func (w *blockWriter) literal(s string) {
 // guardCount is the number of guards: entries the workflow declares
 // (spec.Validate now accepts and validates guards:, where it used to
 // reject the block outright — Ruling R8 still applies to invariants:).
-func formatBanner(rw *resolvedWorkflow, report *spec.Report, guardCount int, mode enforcementMode) string {
+//
+// invariantCount is the number of invariants: entries the workflow
+// declares. Unlike guards:, invariants: IS engine-checked in this build
+// (internal/engine evaluates every declared invariant after every step
+// completion and every pawl submit/pawl poll — see internal/engine's own
+// invariants.go), so its banner line says so rather than disclaiming
+// enforcement, and — deliberately — sits on its own separate line rather
+// than folded into the guards: line: the two lines report two different
+// things (guards: declared-but-inert vs invariants: actually enforced), and
+// a future PreToolUse hook will change only the guards: line's wording,
+// not this one. Nothing extra is printed when invariantCount == 0, so every
+// banner golden output that predates invariants: support is unchanged.
+func formatBanner(rw *resolvedWorkflow, report *spec.Report, guardCount, invariantCount int, mode enforcementMode) string {
 	w := &blockWriter{}
 	w.line(0, "workflow:", rw.Path, "("+rw.Source+")")
 	if mode.On {
@@ -148,6 +160,7 @@ func formatBanner(rw *resolvedWorkflow, report *spec.Report, guardCount int, mod
 		w.line(0, "enforcement: off ("+mode.OffReason+")")
 		writeGuardsLine(w, guardCount, guardsOff)
 	}
+	writeInvariantsLine(w, invariantCount)
 	writeSoftCensus(w, report)
 	return w.String()
 }
@@ -198,6 +211,26 @@ func writeGuardsLine(w *blockWriter, guardCount int, mode guardsLineMode) {
 		w.line(0, fmt.Sprintf("guards: %d declared, NOT enforced (enforcement off)", guardCount))
 	default:
 		w.line(0, fmt.Sprintf("guards: %d declared (enforced only when a run starts with the pawl hooks installed)", guardCount))
+	}
+}
+
+// writeInvariantsLine appends the "invariants: N (engine-checked after every
+// step)" line to w whenever invariantCount > 0, and nothing at all when
+// invariantCount == 0 — the invariants: sibling of writeGuardsLine above,
+// factored out into its own helper (rather than inlined in formatBanner) so
+// the wording has exactly one home if pawl validate ever needs to print it
+// too. Unlike guards:, invariants: IS engine-checked in this build
+// (internal/engine evaluates every declared
+// invariant after every step completion and every pawl submit/pawl poll —
+// see internal/engine/invariants.go), so its wording says so rather than
+// disclaiming enforcement, and it is written as its own line rather than
+// folded into writeGuardsLine's: the two lines report two different things
+// (guards: declared-but-inert vs invariants: actually enforced), and a
+// future PreToolUse hook will change only the guards: line's wording, not
+// this one.
+func writeInvariantsLine(w *blockWriter, invariantCount int) {
+	if invariantCount > 0 {
+		w.line(0, fmt.Sprintf("invariants: %d (engine-checked after every step)", invariantCount))
 	}
 }
 

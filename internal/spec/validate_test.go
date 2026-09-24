@@ -443,10 +443,45 @@ func TestValidate_GoldenMessages(t *testing.T) {
 			},
 		},
 		{
-			name: "R8: invariants are not implemented in this build",
-			file: "r8_invariants_rejected.yaml",
+			name: "invariant missing id",
+			file: "invariant_missing_id.yaml",
 			want: []string{
-				`testdata/r8_invariants_rejected.yaml: invariants: is not implemented in this build; remove the invariants: block`,
+				`testdata/invariant_missing_id.yaml: invariants[0]: id: is required; add a unique id`,
+			},
+		},
+		{
+			name: "invariant duplicate id",
+			file: "invariant_dup_id.yaml",
+			want: []string{
+				`testdata/invariant_dup_id.yaml: invariant "dup" is declared more than once; invariant ids must be unique — rename one of them`,
+			},
+		},
+		{
+			name: "invariant missing check",
+			file: "invariant_missing_check.yaml",
+			want: []string{
+				`testdata/invariant_missing_check.yaml: invariant "no-check": check: is required; add a check: command`,
+			},
+		},
+		{
+			name: "invariant missing message",
+			file: "invariant_missing_message.yaml",
+			want: []string{
+				`testdata/invariant_missing_message.yaml: invariant "no-message": message: is required; add a message: describing what broke`,
+			},
+		},
+		{
+			name: "invariant id is not a valid identifier",
+			file: "invariant_bad_id_format.yaml",
+			want: []string{
+				`testdata/invariant_bad_id_format.yaml: invariant "../escaped": id is not a valid invariant id; use only letters, digits, "_" and "-", starting with a letter or digit — rename the invariant`,
+			},
+		},
+		{
+			name: "invariant check uses an undeclared ${key}",
+			file: "invariant_undeclared_key.yaml",
+			want: []string{
+				`testdata/invariant_undeclared_key.yaml: rule 4: invariant "undeclared": check uses ${nope}, which is not declared in state:/args: and is not an engine pseudo-key; declare "nope" under state: or args:, or fix the typo`,
 			},
 		},
 		{
@@ -609,7 +644,7 @@ func TestValidate_GoldenMessages(t *testing.T) {
 }
 
 func TestValidate_ValidWorkflowsHaveZeroErrors(t *testing.T) {
-	for _, file := range []string{"tidy.yaml", "valid.yaml", "parallel_ok.yaml", "human_next_valid.yaml", "human_valid_static.yaml", "human_valid_options_from.yaml", "rule15_guards_accepted.yaml", "rule15_guard_only_in_parallel_branch.yaml", "rule19_retry_valid.yaml", "rule19_retry_valid_wait.yaml"} {
+	for _, file := range []string{"tidy.yaml", "valid.yaml", "parallel_ok.yaml", "human_next_valid.yaml", "human_valid_static.yaml", "human_valid_options_from.yaml", "rule15_guards_accepted.yaml", "rule15_guard_only_in_parallel_branch.yaml", "rule19_retry_valid.yaml", "rule19_retry_valid_wait.yaml", "invariants_accepted.yaml"} {
 		t.Run(file, func(t *testing.T) {
 			w, err := Load(filepath.Join("testdata", file))
 			if err != nil {

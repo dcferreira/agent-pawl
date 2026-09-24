@@ -193,9 +193,11 @@ All five step kinds are implemented: `deterministic`, `agentic`, `wait`, `human`
 §B.15). Top-level `guards:` is now parsed and validated (id required+unique, `match:` required,
 RE2-compilable, and not able to match zero characters; `only_in:` required — see
 [validation.md](validation.md) rule 15) and enforced by the `PreToolUse` hook, advisory and
-pattern-matched — see [#hooks](#hooks) above. Top-level `invariants:` remains unimplemented:
-declaring it is still a validation error, not a quietly-ignored field. A step's `retry:` field
-(deterministic and wait only) is implemented — see §B.16.
+pattern-matched — see [#hooks](#hooks) above. Top-level `invariants:` IS engine-checked: the engine
+evaluates every declared invariant after every step completion and after every `pawl
+submit`/`pawl poll` call, and a violation blocks the run — `pawl run`'s banner prints an
+`invariants: N (engine-checked after every step)` line whenever a workflow declares any. A step's
+`retry:` field (deterministic and wait only) is implemented — see §B.16.
 
 ---
 

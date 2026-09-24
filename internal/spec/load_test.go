@@ -47,6 +47,24 @@ func TestLoad_UnknownFieldInGuardEntry(t *testing.T) {
 	}
 }
 
+// TestLoad_UnknownFieldInInvariantEntry mirrors
+// TestLoad_UnknownFieldInGuardEntry: invariants: has no custom UnmarshalYAML
+// either, so an unknown field inside an invariants[] entry is rejected at
+// Load time by the decoder's own KnownFields(true), not by
+// checkUnknownFields.
+func TestLoad_UnknownFieldInInvariantEntry(t *testing.T) {
+	_, err := Load("testdata/invariant_unknown_field.yaml")
+	if err == nil {
+		t.Fatalf("Load: expected an error, got nil")
+	}
+	if !errors.Is(err, ErrParse) {
+		t.Fatalf("Load error = %v, want it to wrap ErrParse", err)
+	}
+	if !strings.Contains(err.Error(), "frobnicate") {
+		t.Fatalf("Load error = %q, want it to name the unknown field %q", err.Error(), "frobnicate")
+	}
+}
+
 func TestLoad_TidyHelloWorkflow(t *testing.T) {
 	w, err := Load("testdata/tidy.yaml")
 	if err != nil {

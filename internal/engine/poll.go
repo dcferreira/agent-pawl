@@ -391,7 +391,7 @@ func (e *Engine) completeWait(dir, runID, stepID, outcome string, writes map[str
 		}
 	}
 
-	instr, next, err := e.routeReserved(dir, log, runID, step, outcome, attempt)
+	instr, next, err := e.routeReserved(dir, log, runID, step, outcome, attempt, true)
 	if err != nil {
 		return nil, err
 	}

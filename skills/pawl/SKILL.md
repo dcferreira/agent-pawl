@@ -228,10 +228,9 @@ user. There is nothing further to submit — the loop ends here.
 
 ## What this skill does not cover
 
-If a workflow file declares top-level `invariants:`, `pawl validate` and `pawl run` reject it
-outright with a "not implemented in this build" message — you will see that instead of a
-DISPATCH/DISPATCH_PARALLEL/ASK/WAIT/TERMINAL block, and there is nothing to drive: fix or report
-the workflow file instead.
+All of `guards:`, `invariants:`, and a step's `retry:` are implemented in this build — none of
+them makes `pawl validate`/`pawl run` reject the workflow file. What follows is what to expect
+from each while driving a run.
 
 Top-level `guards:` is different: it is parsed, validated (id required+unique, `match:` required,
 RE2-compilable, and not able to match zero characters; `only_in:` required), and now enforced by
@@ -264,3 +263,13 @@ steps declare `retry:` — don't assume the ordinary few-second command ceiling 
 does print one line to **stderr** per retried try (`pawl: step "<id>" hard-failed (try <k> of
 <max_attempts>); retrying in <backoff>`), so a backgrounded or generously-timed run is not silent
 even though nothing appears on stdout until the next real instruction.
+
+Top-level `invariants:` IS engine-checked in this build: the engine re-evaluates every declared
+invariant after every step completion and after every `pawl submit`/`pawl poll` call you drive,
+entirely on its own — there is nothing extra for this skill to do. When a workflow declares any,
+`pawl run`'s start banner prints an extra line, `invariants: N (engine-checked after every step)`.
+For a `kind: parallel` step, invariants are checked once when the whole group joins, not after each
+branch's own submit — so a DISPATCH_PARALLEL's branches all land normally even if the group as a
+whole later blocks. If an invariant is violated, the run ends (or re-ends, on resume) TERMINAL
+`blocked` exactly like any other blocked run — its `message:` names the invariant and the `message:`
+it declared; report it to the user the same way you would any other blocked reason.

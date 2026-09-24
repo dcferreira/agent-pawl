@@ -120,6 +120,14 @@ The reason goes into the journal and `${blocked_reason}`, for your `blocked` ter
 Something unexpected happened; the run is paused for review before continuing — see
 [running.md#blocked](running.md#blocked).
 
+For a `kind: parallel` step, invariants are checked once, when the whole group joins — not after
+each branch's own `pawl submit`. Branches in a parallel group are dispatched all at once and their
+join is all-or-nothing: checking per branch would mean the first branch to submit could trip an
+invariant and block the run while sibling branches were still outstanding and already dispatched —
+their own eventual submits would then land against a run the engine had already ended. Waiting for
+the join keeps the whole group's side effects accounted for before an invariant gets a say, exactly
+like any other step.
+
 ## Which to use
 
 | You want to… | Use |

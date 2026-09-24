@@ -45,7 +45,7 @@ func (e *Engine) parkWait(dir string, log *journal.Log, runID string, step *spec
 		return nil, err
 	}
 	if e.checkCaps(rs, step) {
-		instr, next, err := e.routeReserved(dir, log, runID, step, "exhausted", cur.Attempt)
+		instr, next, err := e.routeReserved(dir, log, runID, step, "exhausted", cur.Attempt, false)
 		if err != nil {
 			return nil, err
 		}

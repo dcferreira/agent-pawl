@@ -35,7 +35,7 @@ func (e *Engine) dispatchParallel(dir string, log *journal.Log, runID string, st
 		return nil, err
 	}
 	if e.checkCaps(rs, step) {
-		instr, next, err := e.routeReserved(dir, log, runID, step, "exhausted", cur.Attempt)
+		instr, next, err := e.routeReserved(dir, log, runID, step, "exhausted", cur.Attempt, false)
 		if err != nil {
 			return nil, err
 		}
@@ -193,6 +193,19 @@ func journalBranchTransition(log *journal.Log, runID, parallelID, branchID strin
 // attempts: govern what happens next, unchanged — and journaled as the
 // parallel step's own (ungrouped) TRANSITION, moving rs.Cursor on exactly
 // like any other step's transition.
+//
+// This is also the only place invariants: are evaluated for a kind:
+// parallel step — once, here, at the join, never once per branch as each
+// branch's own submit lands. Checking per branch instead would mean the
+// first branch to submit could trip an invariant while sibling branches
+// were still outstanding and already dispatched: those siblings' own
+// eventual submits would land against a run the engine had already ended
+// blocked, which the fix-forward, all-or-nothing branches join this
+// function implements assumes never happens (see its own doc comment
+// above). Checking once at the join, after every branch has already
+// transitioned, keeps that invariant intact — a violated invariant blocks
+// the run only once the whole group's own side effects are already
+// accounted for, exactly like any other step.
 func (e *Engine) routeParallel(dir string, log *journal.Log, runID string, step *spec.Step, attempt int) (Instruction, error) {
 	rs, err := replayDir(dir)
 	if err != nil {
@@ -204,6 +217,11 @@ func (e *Engine) routeParallel(dir string, log *journal.Log, runID string, step 
 			outcome = "failure"
 			break
 		}
+	}
+	if instr, err := e.preTransitionInvariantBlock(dir, log, runID, step.ID); err != nil {
+		return nil, err
+	} else if instr != nil {
+		return instr, nil
 	}
 	target, viaCatch, err := resolveTarget(step, outcome)
 	if err != nil {

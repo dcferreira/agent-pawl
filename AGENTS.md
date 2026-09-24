@@ -15,7 +15,7 @@ to do what `pawl run`/`pawl submit` tells it and report back exactly what's aske
 ## Status: read this before trusting any design doc
 
 **`README.md`'s "Status" section is the authority on what actually runs.** `docs/README.md`
-describes the target system (full distribution, `foreach:` fan-out, `invariants:`), not this build.
+describes the target system (full distribution, `foreach:` fan-out), not this build.
 `DESIGN.md` is mostly current — it opens with its own up-to-date status line — but its distribution
 (§9) section describes what is not yet built. As of now:
 
@@ -28,10 +28,9 @@ describes the target system (full distribution, `foreach:` fan-out, `invariants:
   semantic guarantee: `pawl run`'s banner prints `guards: N advisory (pattern-matched)` when hooks
   are on, or `guards: N declared, NOT enforced (enforcement off)` when
   `--no-enforcement`/`PAWL_ENFORCEMENT=off` is in effect; `pawl validate`, which has no run, prints
-  `guards: N declared (enforced only when a run starts with the pawl hooks installed)`. Top-level
-  `invariants:` is still parsed and rejected outright, not ignored. A step's `retry:`
-  (deterministic and wait only) is implemented: it retries a hard-failed body — a non-zero exit,
-  the wall-clock timeout, or unintelligible stdout — before any outcome is resolved, and is
+  `guards: N declared (enforced only when a run starts with the pawl hooks installed)`. A step's
+  `retry:` (deterministic and wait only) is implemented: it retries a hard-failed body — a non-zero
+  exit, the wall-clock timeout, or unintelligible stdout — before any outcome is resolved, and is
   distinct from `attempts:`, which re-runs a step on a postcondition failure (see
   `design/format-spec.md` §B.16).
 - **The enforcement layer is built.** `internal/hook` (pure decisions) plus `internal/cli/hook.go`
@@ -42,6 +41,15 @@ describes the target system (full distribution, `foreach:` fan-out, `invariants:
   `agentic`/`parallel` step awaiting `pawl submit` (`wait`/`human` cursors and `BLOCKED` runs are
   exempt, at most once per turn); a subagent (`agent_id` present) may not mutate VCS while any run
   is live. See `docs/dogfood.md`.
+- Top-level `invariants:` IS engine-checked: `internal/engine` evaluates every declared invariant,
+  in declaration order, after every step completion and after every `pawl submit`/`pawl poll` call
+  — strictly before the completed step's own TRANSITION is journaled, so a violation pre-empts even
+  a route straight to a terminal — stopping at the first violated one; a violation blocks the run
+  (status "blocked"), journalling a RUN_END whose reason names the invariant and carries its
+  `message:`, reusing the same mechanism an author-routed `blocked` transition already uses (no new
+  event kind). For a `kind: parallel` step, invariants are evaluated once at the group join, not
+  after each branch's own submit. `pawl run`'s banner prints a separate `invariants: N
+  (engine-checked after every step)` line whenever N > 0.
 - `pawl poll --run … --step …` drives a `wait` step; `pawl hook pre|stop` is the `PreToolUse`/`Stop`
   hook entry point (see above).
 - `install.sh` and goreleaser-built release binaries exist (tagged releases are published on
