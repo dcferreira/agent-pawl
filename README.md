@@ -26,11 +26,12 @@ describe:
   nothing stops a session from walking away from a live run. See
   [docs/dogfood.md](docs/dogfood.md) for what that means in practice.
 - `install.sh` and the release pipeline behind it exist (`.goreleaser.yaml`,
-  `.github/workflows/release.yml`, cross-compiling `pawl` for linux/darwin ×
-  amd64/arm64), and tagged releases are published on GitHub for `install.sh` to fetch —
-  see [docs/install.md](docs/install.md). There is also a Claude Code plugin (see Installation
-  below) that ships the `/agent-pawl:pawl` skill, but a plugin cannot ship a compiled Go binary, so
-  it still depends on one of the binary installs above.
+  `.github/workflows/release.yml`, cross-compiling `pawl` for linux/darwin × amd64/arm64), and
+  tagged releases are published on GitHub for `install.sh` to fetch — see
+  [docs/install.md](docs/install.md). There is also a Claude Code plugin (see Installation below)
+  that ships the `/agent-pawl:pawl` skill, but a plugin cannot ship a compiled Go binary, so it
+  still depends on installing the binary separately (`install.sh` or a source build — see
+  Installation below).
 - `pawl poll --run … --step …` drives a `wait` step; `pawl hook pre|stop` still does not exist,
   because there is no enforcement layer to invoke it.
 
@@ -41,8 +42,8 @@ verified-runnable artefacts.
 
 ### The CLI
 
-The recommended install is `install.sh`, which fetches a prebuilt
-`pawl` binary from GitHub Releases — no Go toolchain required:
+The recommended install is `install.sh`, which fetches a prebuilt `pawl` binary from GitHub
+Releases — no Go toolchain required:
 
 ```
 curl -fsSL https://raw.githubusercontent.com/dcferreira/agent-pawl/main/install.sh | sh
@@ -53,8 +54,7 @@ against the release's `checksums.txt`, and prints a `PATH` reminder if needed. S
 [docs/install.md](docs/install.md) for the full walkthrough, including pinning a version with
 `PAWL_VERSION`.
 
-If you'd rather build from source, the `pawl` binary is also a normal
-Go build:
+If you'd rather build from source, the `pawl` binary is also a normal Go build:
 
 ```
 go install github.com/dcferreira/agent-pawl/cmd/pawl@latest

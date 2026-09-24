@@ -526,8 +526,8 @@ fault, and shows structured forms by example.
 pawl run <name> [key=value …] [--fresh] [--force]   start, or resume a non-terminal run — BLOCKED
              [--run <id>]                          included — when exactly one resolves
 pawl validate <name>                                the checks in §H
-pawl status [--run <id>]                            where a run is, and its trust surface
-pawl abandon --run <id>                             always available, always terminal
+pawl status [--run <id>] [--json]                   where a run is, and its trust surface
+pawl abandon --run <id> [--reason <text>]           always available, always terminal
 pawl list                                           resolvable workflows and their source
 ```
 

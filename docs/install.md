@@ -2,12 +2,12 @@
 
 **`install.sh` and tagged release binaries exist as of this build** (`.goreleaser.yaml`,
 `.github/workflows/release.yml`), and tagged releases are published on GitHub for `install.sh` to
-fetch. DESIGN.md §9 describes a fuller Claude Code plugin story (self-installing a pinned release binary
-via two static hooks) as the intended end state; that hook-based auto-install is still not built —
-what exists is the plain `install.sh` / GitHub Releases pair below, plus a Claude Code plugin (see
-the README's Installation section) that ships the `/agent-pawl:pawl` skill — the plugin does not
-and cannot ship the `pawl` binary itself, so you still install it separately, with either
-`install.sh` or `go install`.
+fetch. DESIGN.md §9 describes a fuller Claude Code plugin story (self-installing a pinned release
+binary via two static hooks) as the intended end state; that hook-based auto-install is still not
+built — what exists is the plain `install.sh` / GitHub Releases pair below, plus a Claude Code
+plugin (see the README's Installation section) that ships the `/agent-pawl:pawl` skill — the
+plugin does not and cannot ship the `pawl` binary itself, so you still install it separately, with
+either `install.sh` or `go install`.
 
 ## Install via install.sh
 

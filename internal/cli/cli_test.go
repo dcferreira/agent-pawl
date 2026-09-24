@@ -105,8 +105,8 @@ func TestRun_UsageMentionsStatusJSONAndAbandonReason(t *testing.T) {
 	if !strings.Contains(stderr, "pawl status [--run <id>] [--json]") {
 		t.Errorf("usage should show pawl status [--run <id>] [--json]: %q", stderr)
 	}
-	if !strings.Contains(stderr, "--reason") {
-		t.Errorf("usage should mention --reason on the abandon line: %q", stderr)
+	if !strings.Contains(stderr, "pawl abandon --run <id> [--reason <text>]") {
+		t.Errorf("usage should show pawl abandon --run <id> [--reason <text>]: %q", stderr)
 	}
 }
 
