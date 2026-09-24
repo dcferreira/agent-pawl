@@ -244,6 +244,9 @@ keep driving the run as usual. If a guard denies a command you (or a dispatched 
 run, the tool call is simply denied with the hook's reason — treat it the same as any other tool
 denial: don't retry the literal same command hoping the hook relents, work within what it allows.
 
-A step's `retry:` is implemented and needs nothing from this skill: it retries a hard-failed
-`run:`/`poll:` in place before any DISPATCH/WAIT line is even emitted, so this skill never sees it
-happen.
+A step's `retry:` is implemented and needs nothing from this skill: a `deterministic` step's `run:`
+retries a hard failure in place before any DISPATCH/WAIT line is even emitted, so this skill never
+sees that happen. A `wait` step's `poll:` retries are different: they happen inside the `pawl poll`
+this skill is already driving, and each retried tick prints its own `poll N (... parked):
+...retrying in ...` line in that command's output — still no new DISPATCH/WAIT to act on, but
+visible while the loop keeps going rather than silent.

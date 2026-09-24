@@ -52,6 +52,13 @@ type PollIteration struct {
 	// Next is how long the loop will sleep before the next iteration; 0 when
 	// this iteration ended the loop.
 	Next time.Duration
+	// Retrying is true when this iteration hard-failed (§B.16: non-zero
+	// exit, the wall-clock ceiling, or an unparseable routed payload) but
+	// retry: has attempts left, so the loop is sleeping backoff×n and
+	// trying the tick again rather than ending — Routed and ExitCode still
+	// describe the failed tick itself, so a caller must check Retrying
+	// before treating Routed as "the loop is done".
+	Retrying bool
 }
 
 // Poll implements `pawl poll --run <id> --step <name>` (DESIGN.md §3,
@@ -207,6 +214,7 @@ func (e *Engine) Poll(runID, stepID string, observe func(PollIteration)) (Instru
 				return nil, fmt.Errorf("engine: step %q: retry.backoff: %q is not a duration (validator should have rejected this): %w", step.ID, step.Retry.Backoff, berr)
 			}
 			it.Next = backoff * time.Duration(hardFailStreak)
+			it.Retrying = true
 			if observe != nil {
 				observe(it)
 			}
