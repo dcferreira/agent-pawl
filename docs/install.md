@@ -58,8 +58,8 @@ make install
 ```
 
 This is exactly `go install ./cmd/pawl` (see the `Makefile`). It builds `cmd/pawl` and drops `pawl` at
-`$(go env GOPATH)/bin/pawl` — make sure that directory is on your `PATH`. Equivalent, if you don't
-want to clone the repo yourself, it's published on GitHub:
+`$(go env GOPATH)/bin/pawl` — make sure that directory is on your `PATH`. Equivalently, if you don't
+want to clone the repo yourself, install straight from the published module:
 
 ```
 go install github.com/dcferreira/agent-pawl/cmd/pawl@latest

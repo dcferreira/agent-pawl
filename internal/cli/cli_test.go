@@ -96,11 +96,12 @@ func TestRun_MissingRequiredArg(t *testing.T) {
 	}
 }
 
-// TestRun_UsageMentionsStatusJSONAndAbandonReason pins two flags that are
-// implemented (internal/cli/status.go's --json, internal/cli/abandon.go's
-// --reason) but were missing from the usage const: a session reading only
-// `pawl` with no args must still learn these flags exist.
-func TestRun_UsageMentionsStatusJSONAndAbandonReason(t *testing.T) {
+// TestRun_UsageShowsImplementedFlags pins flags that are implemented
+// (internal/cli/status.go's --json, internal/cli/abandon.go's --reason,
+// internal/cli/validate.go's --path) but could otherwise drift out of the
+// usage const: a session reading only `pawl` with no args must still learn
+// these flags exist.
+func TestRun_UsageShowsImplementedFlags(t *testing.T) {
 	_, stderr, code := runCLI(t, []string{"pawl"})
 	if code != 2 {
 		t.Errorf("exit = %d, want 2 (usage error); stderr = %q", code, stderr)
@@ -110,6 +111,9 @@ func TestRun_UsageMentionsStatusJSONAndAbandonReason(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "pawl abandon --run <id> [--reason <text>]") {
 		t.Errorf("usage should show pawl abandon --run <id> [--reason <text>]: %q", stderr)
+	}
+	if !strings.Contains(stderr, "pawl validate <name> [--path <file>]") {
+		t.Errorf("usage should show pawl validate <name> [--path <file>]: %q", stderr)
 	}
 }
 

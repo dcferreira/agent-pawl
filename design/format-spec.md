@@ -537,7 +537,8 @@ Refusing to start when the installed binary's version doesn't match the plugin's
 naming both, is designed but not yet built (see docs/cli.md's `pawl version`). `--run <id>` is
 needed only to disambiguate when several runs resolve (§B.12). Internal commands, which the model
 calls and an author never writes: `pawl submit --run … --step … --json …`, `pawl poll --run … --step
-…` (§B.13), and `pawl hook pre|stop`.
+…` (§B.13), and `pawl hook pre|stop` (designed, not yet built — no enforcement layer; see
+README.md's Status).
 
 Milestone 1 covers the five kinds (`kind: parallel`'s single-group, all-or-nothing `branches:`
 included — §B.15), `state:` and `args:`, the stdout grammar, `${…}` substitution, postconditions with
