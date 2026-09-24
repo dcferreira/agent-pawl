@@ -80,6 +80,80 @@ END DISPATCH RUNID greet
 	}
 }
 
+// sampleWorkflowWithGuards is sampleWorkflow plus a top-level guards:
+// block, for TestRun_BannerReportsDeclaredGuardsNotEnforced.
+const sampleWorkflowWithGuards = `workflow: sample-guards
+start: greet
+guards:
+  - id: never-rewrite-changelog
+    match: "(sed|awk) .*CHANGELOG.md"
+    only_in: []
+  - id: push-only-in-greet
+    match: "git push"
+    only_in: [greet]
+args:
+  name:
+    type: string
+    required: true
+state:
+  greeting:
+    type: string
+    default: ""
+steps:
+  - id: greet
+    kind: agentic
+    description: "Greet ${name} nicely."
+    context: ["notes.txt"]
+    subagent_args: {tools: [Read], model: sonnet}
+    writes:
+      greeting: {type: string}
+    postcondition: {all_set: [greeting]}
+    attempts: 2
+    next: done
+terminal:
+  done: {status: ok, message: "Said hello to ${name}: ${greeting}"}
+`
+
+// TestRun_BannerReportsDeclaredGuardsNotEnforced checks that a workflow
+// declaring guards: gets an additional, separate banner line naming the
+// count and stating plainly that nothing enforces it yet — accepting
+// guards: silently would be exactly the failure class Ruling R8 exists to
+// prevent (there is no PreToolUse hook in this build; see
+// internal/spec.checkGuards's doc comment).
+func TestRun_BannerReportsDeclaredGuardsNotEnforced(t *testing.T) {
+	root := setupWorkingCopy(t)
+	writeWorkflow(t, root, "sample-guards", sampleWorkflowWithGuards)
+	writeContextFile(t, root, "notes.txt", "Ada worked on the Analytical Engine.\n")
+
+	stdout, stderr, code := runCLI(t, []string{"pawl", "run", "sample-guards", "name=Ada"})
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr = %q", code, stderr)
+	}
+
+	want := fmt.Sprintf(`workflow: %s/.claude/workflows/sample-guards.yaml (repo-local)
+enforcement: off (milestone 1)
+guards: 2 declared, NOT enforced (no PreToolUse hook in this build)
+soft: 0/1 steps (0.0%%): (none)
+DISPATCH RUNID greet
+attempt: 1 of 2
+description:
+  Greet Ada nicely.
+context:
+  [1] notes.txt (37 bytes)
+    Ada worked on the Analytical Engine.
+return: a JSON object with exactly these keys (key order does not matter)
+  greeting: string
+subagent_args: {"model":"sonnet","tools":["Read"]}
+submit with: pawl submit --run RUNID --step greet --json '<the object above>'
+END DISPATCH RUNID greet
+`, root)
+
+	got := normaliseRunID(stdout)
+	if got != want {
+		t.Errorf("stdout mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
 // TestRun_MissingRequiredArg checks the missing-required-arg refusal names
 // every arg, its type and its default (design/format-spec.md §B.9).
 func TestRun_MissingRequiredArg(t *testing.T) {

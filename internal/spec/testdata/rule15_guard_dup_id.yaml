@@ -1,0 +1,15 @@
+workflow: rule15guarddupid
+start: a
+guards:
+  - id: dup
+    match: "git push"
+    only_in: []
+  - id: dup
+    match: "gh pr merge"
+    only_in: []
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    next: done
+terminal: {done: {status: ok}}

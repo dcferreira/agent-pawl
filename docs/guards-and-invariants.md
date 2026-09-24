@@ -17,8 +17,12 @@ guards:
     only_in: [commit_and_pr]
 ```
 
-`match:` is a POSIX extended regular expression over the Bash command string. `${key}` does not work
-here — guards are static, checkable by the validator without running anything.
+`match:` is a regexp over the Bash command string — Go's `regexp` package, RE2 syntax, close to
+POSIX ERE but with no backreferences — matched unanchored anywhere in the command. `${key}` does not
+work here — guards are static, checkable by the validator without running anything. The validator
+(rule 15) checks `id:`, `match:` and `only_in:` today; the `PreToolUse` denial this section describes
+is still target-system behavior — see the repo's README.md "Status" section for what actually
+enforces guards in the current build (currently: nothing yet).
 
 `only_in:` lists the steps where the pattern is allowed — `[commit_and_pr]` allows it there, denies
 elsewhere; `[]` (empty) denies it for the whole run: "never do this by hand".

@@ -307,10 +307,52 @@ func TestValidate_GoldenMessages(t *testing.T) {
 			},
 		},
 		{
-			name: "R8: guards are not implemented in this build",
-			file: "r8_guards_rejected.yaml",
+			name: "rule15: guard missing id",
+			file: "rule15_guard_missing_id.yaml",
 			want: []string{
-				`testdata/r8_guards_rejected.yaml: guards: is not implemented in this build; remove the guards: block`,
+				`testdata/rule15_guard_missing_id.yaml: guards[0]: id: is required; add a unique id`,
+			},
+		},
+		{
+			name: "rule15: guard duplicate id",
+			file: "rule15_guard_dup_id.yaml",
+			want: []string{
+				`testdata/rule15_guard_dup_id.yaml: guard "dup" is declared more than once; guard ids must be unique — rename one of them`,
+			},
+		},
+		{
+			name: "rule15: guard missing match",
+			file: "rule15_guard_missing_match.yaml",
+			want: []string{
+				`testdata/rule15_guard_missing_match.yaml: guard "no-match": match: is required; add a match: regexp`,
+			},
+		},
+		{
+			name: "rule15: guard match does not compile",
+			file: "rule15_guard_bad_match.yaml",
+			want: []string{
+				`testdata/rule15_guard_bad_match.yaml: guard "bad-regexp": match: "git push (" does not compile as a regexp: error parsing regexp: missing closing ): ` + "`git push (`",
+			},
+		},
+		{
+			name: "rule15: guard missing only_in",
+			file: "rule15_guard_missing_only_in.yaml",
+			want: []string{
+				`testdata/rule15_guard_missing_only_in.yaml: guard "no-only-in": only_in: is required; use only_in: [] to deny it in every step`,
+			},
+		},
+		{
+			name: "rule15: guard id is not a valid identifier",
+			file: "rule15_guard_bad_id_format.yaml",
+			want: []string{
+				`testdata/rule15_guard_bad_id_format.yaml: guard "../escaped": id is not a valid guard id; use only letters, digits, "_" and "-", starting with a letter or digit — rename the guard`,
+			},
+		},
+		{
+			name: "rule15: guard only_in names a missing step",
+			file: "rule15_guard_only_in_missing_step.yaml",
+			want: []string{
+				`testdata/rule15_guard_only_in_missing_step.yaml: guard "bad-only-in": rule 15: only_in: "nope" does not name a declared step; declare step "nope" or fix the typo`,
 			},
 		},
 		{
@@ -480,7 +522,7 @@ func TestValidate_GoldenMessages(t *testing.T) {
 }
 
 func TestValidate_ValidWorkflowsHaveZeroErrors(t *testing.T) {
-	for _, file := range []string{"tidy.yaml", "valid.yaml", "parallel_ok.yaml", "human_next_valid.yaml", "human_valid_static.yaml", "human_valid_options_from.yaml"} {
+	for _, file := range []string{"tidy.yaml", "valid.yaml", "parallel_ok.yaml", "human_next_valid.yaml", "human_valid_static.yaml", "human_valid_options_from.yaml", "rule15_guards_accepted.yaml"} {
 		t.Run(file, func(t *testing.T) {
 			w, err := Load(filepath.Join("testdata", file))
 			if err != nil {

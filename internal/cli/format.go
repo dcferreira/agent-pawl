@@ -108,19 +108,40 @@ func (w *blockWriter) literal(s string) {
 
 // formatBanner renders pawl run's start banner: which workflow file was used
 // (design/format-spec.md §I), the enforcement line (Ruling R5 — there are no
-// hooks in this build, so pawl run prints rather than refuses), and the
-// soft: census (design/format-spec.md §H, last line: "printed every time").
-// The banner precedes the instruction grammar and is not itself
+// hooks in this build, so pawl run prints rather than refuses), an
+// additional guards: line whenever guardCount > 0 (below), and the soft:
+// census (design/format-spec.md §H, last line: "printed every time"). The
+// banner precedes the instruction grammar and is not itself
 // instruction-shaped (DESIGN.md §2's column-0 sentence names only
 // DISPATCH|ASK|WAIT|TERMINAL and END), but it is still built through
 // blockWriter for the same reason pawl status is (see formatStatus): a
 // workflow file's path is the least attacker-adjacent value in this
 // package, yet "least" is not "never", and there is no cost to guarding it
 // anyway.
-func formatBanner(rw *resolvedWorkflow, report *spec.Report) string {
+//
+// guardCount is the number of guards: entries the workflow declares
+// (spec.Validate now accepts and validates guards:, where it used to
+// reject the block outright — Ruling R8 still applies to invariants:).
+// Silently accepting a declared guard would be exactly the failure R8
+// exists to prevent, since nothing in this build denies a matched command
+// — there is no PreToolUse hook yet (AGENTS.md's Status section). So
+// whenever guardCount > 0, the banner prints one additional, separate line
+// making that explicit; when guardCount == 0 nothing extra is printed, and
+// every banner golden output that predates guards: support (no guards:
+// block) is unchanged.
+func formatBanner(rw *resolvedWorkflow, report *spec.Report, guardCount int) string {
 	w := &blockWriter{}
 	w.line(0, "workflow:", rw.Path, "("+rw.Source+")")
 	w.literal("enforcement: off (milestone 1)\n")
+	if guardCount > 0 {
+		// guardCount is an int, never attacker-controlled content, but this
+		// still goes through w.line rather than w.literal — literal is
+		// reserved for this package's own hardcoded string literals (see
+		// its doc comment), and mixing a Sprintf result into a literal call
+		// is exactly the pattern that doc comment asks reviewers to be able
+		// to rule out at a glance.
+		w.line(0, fmt.Sprintf("guards: %d declared, NOT enforced (no PreToolUse hook in this build)", guardCount))
+	}
 	writeSoftCensus(w, report)
 	return w.String()
 }

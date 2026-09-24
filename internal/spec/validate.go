@@ -32,13 +32,17 @@ func (r *Report) SoftPercent() float64 {
 
 // Validate runs the static checks against w and returns a Report. The
 // checks implemented are design/format-spec.md §H rules 1, 2, 3, 3b, 4, 5,
-// 6, 7, 8, 9, 9b, 10, 11, 12, 13, 14, 18 (Ruling R4), plus the R8
-// guards:/invariants: rejection and the kind: parallel branches: validation
-// (checkParallelBranches, rule 17). deterministic, agentic, wait, human and
-// parallel are all supported (Ruling R3); wait's own required fields (poll:)
-// and duration parsing (every:, timeout:) are checked alongside rule 7, and
-// human's own required fields and options routing are checked by rule 8.
-// Rules 15, 16 and the two warnings are deferred per R4.
+// 6, 7, 8, 9, 9b, 10, 11, 12, 13, 14, 15, 18 (Ruling R4), plus guards:
+// validation (checkGuards — id required+unique, match: required and
+// RE2-compilable, only_in: required with rule 15 checking each entry names
+// a declared step), the R8 invariants: rejection (guards: is no longer
+// rejected outright — see checkGuards's own doc comment), and the kind:
+// parallel branches: validation (checkParallelBranches, rule 17).
+// deterministic, agentic, wait, human and parallel are all supported
+// (Ruling R3); wait's own required fields (poll:) and duration parsing
+// (every:, timeout:) are checked alongside rule 7, and human's own required
+// fields and options routing are checked by rule 8. Rule 16 and the two
+// warnings are deferred per R4.
 func Validate(w *Workflow) (*Report, error) {
 	if w == nil {
 		return nil, fmt.Errorf("spec: Validate: nil workflow")
@@ -52,7 +56,8 @@ func Validate(w *Workflow) (*Report, error) {
 	var errs []string
 	checkRequiredFields(w, &errs)
 	checkUnknownFields(w, &errs)
-	checkGuardsInvariants(w, &errs)
+	checkGuards(w, &errs)
+	checkInvariants(w, &errs)
 	checkRetry(w, &errs)
 	checkKindSupport(w, &errs)
 	checkParallelBranches(w, &errs)
@@ -118,16 +123,94 @@ func sortedOutcomeKeys(m map[string]string) []string {
 	return keys
 }
 
-// checkGuardsInvariants rejects guards:/invariants: (Ruling R8): they are
-// deferred, and silently disabling enforcement is the failure class
-// DESIGN.md §5 exists to prevent, so a declared block is rejected outright
-// rather than ignored.
-func checkGuardsInvariants(w *Workflow, errs *[]string) {
-	if len(w.Guards) > 0 {
-		*errs = append(*errs, fileErr(w, "guards: is not implemented in this build; remove the guards: block"))
-	}
+// checkInvariants rejects invariants: (Ruling R8): it is still deferred,
+// and silently disabling enforcement is the failure class DESIGN.md §5
+// exists to prevent, so a declared block is rejected outright rather than
+// ignored. guards: used to be rejected the same way; it no longer is — see
+// checkGuards.
+func checkInvariants(w *Workflow, errs *[]string) {
 	if len(w.Invariants) > 0 {
 		*errs = append(*errs, fileErr(w, "invariants: is not implemented in this build; remove the invariants: block"))
+	}
+}
+
+// guardRef names a guards[] entry for an error message: its quoted id when
+// one was declared, else its positional index (guards[i]) — used for
+// exactly the fields (match:, only_in:) that still need reporting even when
+// id: itself is missing or invalid, so one bad guard produces one error per
+// bad field rather than being skipped wholesale.
+func guardRef(g GuardDecl, i int) string {
+	if g.ID != "" {
+		return fmt.Sprintf("guard %q", g.ID)
+	}
+	return fmt.Sprintf("guards[%d]", i)
+}
+
+// checkGuards validates guards: (design/format-spec.md §B.10, §D, §H rule
+// 15). Unlike invariants:, guards: is no longer rejected outright: it is
+// accepted and validated here so the (not-yet-built) enforcement hook has
+// something to consume once it exists — see internal/guard. Accepted is not
+// enforced: internal/cli's run banner prints a separate "guards: N
+// declared, NOT enforced" line whenever N > 0 (nothing extra when N == 0),
+// so accepting the block never looks like it's doing something it is not.
+//
+// Per guards[] entry:
+//   - id: is required and must be unique across the file (reusing
+//     stepIDPattern — a guard id ends up as a JSON key in guards.json
+//     downstream, so the same identifier-safety reasoning as a step id
+//     applies).
+//   - match: is required and must compile as a Go regexp (RE2 syntax —
+//     close to POSIX ERE, no backreferences); it is matched unanchored
+//     against the whole command string at enforcement time (internal/guard).
+//   - only_in: is a required key (a project ruling, not implied by §D's
+//     table): a missing only_in: is far more likely to be an author who
+//     forgot it than one who means "never active", so the validator makes
+//     the two spellings distinguishable — only_in: [] is the explicit way
+//     to deny a guard everywhere. yaml.v3 already decodes a missing key as
+//     nil and an empty list as a non-nil empty slice, so GuardDecl.OnlyIn
+//     needs no change to tell them apart.
+//
+// Unknown fields inside a guards[] entry are rejected earlier, at Load
+// time, by the decoder's KnownFields(true) (internal/spec/load.go) — guards:
+// has no custom UnmarshalYAML the way Step does, so it goes through the
+// decoder's own field-name checking rather than checkUnknownFields.
+func checkGuards(w *Workflow, errs *[]string) {
+	seen := map[string]bool{}
+	for i, g := range w.Guards {
+		ref := guardRef(g, i)
+
+		if g.ID == "" {
+			*errs = append(*errs, fileErr(w, fmt.Sprintf("%s: id: is required; add a unique id", ref)))
+		} else {
+			if !stepIDPattern.MatchString(g.ID) {
+				*errs = append(*errs, fileErr(w, fmt.Sprintf(
+					"guard %q: id is not a valid guard id; use only letters, digits, \"_\" and \"-\", starting with a letter or digit — rename the guard", g.ID)))
+			}
+			if seen[g.ID] {
+				*errs = append(*errs, fileErr(w, fmt.Sprintf(
+					"guard %q is declared more than once; guard ids must be unique — rename one of them", g.ID)))
+			}
+			seen[g.ID] = true
+		}
+
+		if g.Match == "" {
+			*errs = append(*errs, fileErr(w, fmt.Sprintf("%s: match: is required; add a match: regexp", ref)))
+		} else if _, err := regexp.Compile(g.Match); err != nil {
+			*errs = append(*errs, fileErr(w, fmt.Sprintf(
+				"%s: match: %q does not compile as a regexp: %s", ref, g.Match, err)))
+		}
+
+		if g.OnlyIn == nil {
+			*errs = append(*errs, fileErr(w, fmt.Sprintf(
+				"%s: only_in: is required; use only_in: [] to deny it in every step", ref)))
+			continue
+		}
+		for _, stepID := range g.OnlyIn {
+			if w.StepByID(stepID) == nil {
+				*errs = append(*errs, fileErr(w, fmt.Sprintf(
+					"%s: rule 15: only_in: %q does not name a declared step; declare step %q or fix the typo", ref, stepID, stepID)))
+			}
+		}
 	}
 }
 

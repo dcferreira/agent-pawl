@@ -37,16 +37,28 @@ type StateDecl struct {
 	MaxLength int    `yaml:"max_length"`
 }
 
-// GuardDecl is a guard declaration. Guards are parsed but rejected by
-// Validate in this build (Ruling R8).
+// GuardDecl is a guard declaration: {id, match, only_in}
+// (design/format-spec.md §B.10, §D). Validate accepts and validates
+// guards: (id required+unique, match: required and must compile as a Go
+// RE2 regexp, only_in: required — rule 15 checks each entry names a
+// declared step; only_in: [] is the explicit spelling for "denied
+// everywhere"). Accepted and validated does not mean enforced: there is no
+// PreToolUse hook in this build to deny a matched command, so a declared
+// guard is inert at run time — see internal/guard and the "guards: N
+// declared, NOT enforced" banner line in internal/cli/format.go. OnlyIn is
+// nil when only_in: is omitted and non-nil (possibly empty) when authored,
+// which the validator uses to tell "omitted" from "only_in: []" apart
+// (yaml.v3 already distinguishes the two on decode: verified in
+// internal/spec/validate_test.go).
 type GuardDecl struct {
-	ID     string   `yaml:"id"`
-	Match  string   `yaml:"match"`
-	OnlyIn []string `yaml:"only_in"`
+	ID     string   `yaml:"id" json:"id"`
+	Match  string   `yaml:"match" json:"match"`
+	OnlyIn []string `yaml:"only_in" json:"only_in"`
 }
 
 // InvariantDecl is an invariant declaration. Invariants are parsed but
-// rejected by Validate in this build (Ruling R8).
+// still rejected by Validate in this build (Ruling R8) — only the
+// guards:/invariants: split is new; invariants: is unaffected.
 type InvariantDecl struct {
 	ID      string `yaml:"id"`
 	Check   string `yaml:"check"`

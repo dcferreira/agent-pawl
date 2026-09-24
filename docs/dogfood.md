@@ -16,9 +16,11 @@ the finished system. Concretely, that means:
 - Nothing stops the session from simply walking away mid-run — closing the chat, starting a new
   task — leaving the run journal sitting there `running` forever. There is no `Stop` hook to
   refuse to end the turn.
-- Nothing re-checks that a guarded action didn't happen some other way. There are no guards or
-  invariants in this build at all (`guards:`/`invariants:` in a workflow file is a validation
-  error, not a silently-skipped feature).
+- Nothing re-checks that a guarded action didn't happen some other way. `guards:` in a workflow
+  file is now parsed and validated (see [validation.md](validation.md) rule 15), but it is not
+  enforced — there is no `PreToolUse` hook in this build to deny a matched command, and `pawl run`'s
+  banner prints an additional line saying so whenever a workflow declares any guards. `invariants:`
+  is still a validation error outright, not a silently-skipped feature.
 
 The only thing keeping a dogfood run honest is the `/pawl` skill's protocol (below) and the
 discipline of actually following it. Treat a live run as a real state machine you must not skip

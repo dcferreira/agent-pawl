@@ -212,7 +212,9 @@ its default. Its job is to put "what do I pass in" at the top of the file.
 
 ### 10. Guards deny; invariants catch
 
-A guard is an ERE over the command string. `only_in: [step, …]` allows the pattern only while one of
+A guard is a regexp over the command string, matched unanchored anywhere in it (Go's `regexp`
+package: RE2 syntax, close to POSIX ERE but with no backreferences). `only_in: [step, …]` allows the
+pattern only while one of
 those steps is active; `only_in: []` denies it for the entire run, in every step. A guard catches the
 canonical spelling of an action and nothing else: variable indirection, `$()`, base64 and a renamed
 binary all defeat it. **Invariants are the layer that holds**, because an invariant runs a command

@@ -63,7 +63,7 @@ func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 	}
 
 	e := engine.New(w, root)
-	fmt.Fprint(stdout, formatBanner(rw, report))
+	fmt.Fprint(stdout, formatBanner(rw, report, len(w.Guards)))
 
 	if !flags.Fresh {
 		ref, rerr := resolveRunToResume(root, w.Workflow, flags.RunID)

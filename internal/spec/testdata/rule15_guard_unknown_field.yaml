@@ -1,9 +1,10 @@
-workflow: r8guards
+workflow: rule15guardunknownfield
 start: a
 guards:
-  - id: never-rewrite-changelog
-    match: "(sed|awk) .*CHANGELOG.md"
+  - id: bad-field
+    match: "git push"
     only_in: []
+    frobnicate: true
 steps:
   - id: a
     kind: deterministic

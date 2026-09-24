@@ -1,6 +1,7 @@
 package spec
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -25,6 +26,24 @@ func TestLoad_ErrorsNameTheStepID(t *testing.T) {
 				t.Fatalf("Load(%s) error = %q, want it to name step \"a\"", tt.file, err.Error())
 			}
 		})
+	}
+}
+
+// TestLoad_UnknownFieldInGuardEntry checks that an unknown field inside a
+// guards[] entry is rejected at Load time, the same way any other
+// file-level unknown field is (KnownFields(true), Finding F6) — guards:
+// has no custom UnmarshalYAML the way Step does, so this is not
+// checkUnknownFields' job (that only inspects Step.UnknownFields).
+func TestLoad_UnknownFieldInGuardEntry(t *testing.T) {
+	_, err := Load("testdata/rule15_guard_unknown_field.yaml")
+	if err == nil {
+		t.Fatalf("Load: expected an error, got nil")
+	}
+	if !errors.Is(err, ErrParse) {
+		t.Fatalf("Load error = %v, want it to wrap ErrParse", err)
+	}
+	if !strings.Contains(err.Error(), "frobnicate") {
+		t.Fatalf("Load error = %q, want it to name the unknown field %q", err.Error(), "frobnicate")
 	}
 }
 

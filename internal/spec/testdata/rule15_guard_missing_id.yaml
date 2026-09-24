@@ -1,0 +1,11 @@
+workflow: rule15guardmissingid
+start: a
+guards:
+  - match: "git push"
+    only_in: []
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    next: done
+terminal: {done: {status: ok}}

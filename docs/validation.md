@@ -67,8 +67,13 @@ route needs exactly one `writes:` key; `options_from:` requires `writes:`.
 `postcondition: {all_set: [branch, title]}`.
 
 **15 — guard names a missing step.** `only_in:` must name a real step (`only_in: []` — empty —
-means denied everywhere). Not implemented in this build: top-level `guards:` is rejected outright as
-a separate error, so there's no `only_in:` left standing for this rule to check.
+means denied everywhere). Implemented: `guards:` is now parsed and validated — `id:` required and
+unique, `match:` required and must compile as a regexp (Go's `regexp` package, RE2 syntax, matched
+unanchored against the whole command string), and `only_in:` is itself a required key (missing it is
+an error; write `only_in: []` for "denied everywhere"). This rule then checks every `only_in:` entry
+names a declared step. **Not enforced**, though: there is no `PreToolUse` hook in this build to
+actually deny a matched command, so `pawl run`'s start banner prints an additional line — `guards: N
+declared, NOT enforced (no PreToolUse hook in this build)` — whenever a workflow declares any.
 
 **16 — missing or non-executable file.** A referenced script doesn't exist (relative to
 `.claude/workflows/`), or isn't `chmod +x`. Not implemented in this build: `validate` never touches
