@@ -112,8 +112,8 @@ func TestRun_UsageShowsImplementedFlags(t *testing.T) {
 	if !strings.Contains(stderr, "pawl abandon --run <id> [--reason <text>]") {
 		t.Errorf("usage should show pawl abandon --run <id> [--reason <text>]: %q", stderr)
 	}
-	if !strings.Contains(stderr, "pawl validate <name> [--path <file>]") {
-		t.Errorf("usage should show pawl validate <name> [--path <file>]: %q", stderr)
+	if !strings.Contains(stderr, "pawl validate <name> | --path <file>") {
+		t.Errorf("usage should show pawl validate <name> | --path <file>: %q", stderr)
 	}
 }
 
