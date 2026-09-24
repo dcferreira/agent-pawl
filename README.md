@@ -30,8 +30,7 @@ describe:
   tagged releases are published on GitHub for `install.sh` to fetch — see
   [docs/install.md](docs/install.md). There is also a Claude Code plugin (see Installation below)
   that ships the `/agent-pawl:pawl` skill, but a plugin cannot ship a compiled Go binary, so it
-  still depends on installing the binary separately (`install.sh` or a source build — see
-  Installation below).
+  still depends on installing the binary separately (`install.sh` or a source build).
 - `pawl poll --run … --step …` drives a `wait` step; `pawl hook pre|stop` still does not exist,
   because there is no enforcement layer to invoke it.
 

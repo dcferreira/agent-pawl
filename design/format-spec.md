@@ -525,16 +525,17 @@ fault, and shows structured forms by example.
 ```
 pawl run <name> [key=value …] [--fresh] [--force]   start, or resume a non-terminal run — BLOCKED
              [--run <id>]                          included — when exactly one resolves
-pawl validate <name>                                the checks in §H
+pawl validate <name> [--path <file>]                the checks in §H
 pawl status [--run <id>] [--json]                   where a run is, and its trust surface
 pawl abandon --run <id> [--reason <text>]           always available, always terminal
 pawl list                                           resolvable workflows and their source
 ```
 
 `--fresh` starts a new run and resets every counter; `pawl run` refuses to resume a run whose workflow
-file has changed since it started, and offers `--fresh`. `--force` breaks a stale lock. `pawl run` also
-refuses to start if the installed binary's version does not match the plugin's pinned version, naming
-both. `--run <id>` is needed only to disambiguate when several runs resolve (§B.12). Internal
+file has changed since it started, and offers `--fresh`. `--force` breaks a stale lock. Refusing to
+start when the installed binary's version doesn't match the plugin's pinned version, naming both, is
+designed but not yet built in this build (see docs/cli.md). `--run <id>` is needed only to
+disambiguate when several runs resolve (§B.12). Internal
 commands, which the model calls and an author never writes: `pawl submit --run … --step … --json …`, `pawl poll --run …
 --step …` (§B.13), and `pawl hook pre|stop`.
 

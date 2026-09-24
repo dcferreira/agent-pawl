@@ -8,8 +8,8 @@ import (
 	"github.com/dcferreira/agent-pawl/internal/journal"
 )
 
-// cmdAbandon implements pawl abandon --run <id> (design/format-spec.md §I):
-// always available, always terminal. There is no Engine.Abandon — the
+// cmdAbandon implements pawl abandon --run <id> [--reason <text>]
+// (design/format-spec.md §I): always available, always terminal. There is no Engine.Abandon — the
 // engine has only Start/Resume/Submit — so this appends the RUN_END event
 // directly via internal/journal, the same package the engine itself uses to
 // end a run, with status "abandoned" (anything but "blocked" is terminal

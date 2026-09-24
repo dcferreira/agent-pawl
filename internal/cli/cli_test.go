@@ -101,7 +101,10 @@ func TestRun_MissingRequiredArg(t *testing.T) {
 // --reason) but were missing from the usage const: a session reading only
 // `pawl` with no args must still learn these flags exist.
 func TestRun_UsageMentionsStatusJSONAndAbandonReason(t *testing.T) {
-	_, stderr, _ := runCLI(t, []string{"pawl"})
+	_, stderr, code := runCLI(t, []string{"pawl"})
+	if code != 2 {
+		t.Errorf("exit = %d, want 2 (usage error); stderr = %q", code, stderr)
+	}
 	if !strings.Contains(stderr, "pawl status [--run <id>] [--json]") {
 		t.Errorf("usage should show pawl status [--run <id>] [--json]: %q", stderr)
 	}
