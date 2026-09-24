@@ -55,6 +55,8 @@ escapes C0 control characters at this boundary, once, for all workflows.
 
 **Non-zero exit is always `failure`**, whatever was printed; token parsing happens only on exit 0.
 Distinct non-zero exit codes do not select distinct outcomes — one signalling mechanism, not two.
+When the step declares `retry:`, a non-zero exit is instead a hard failure retried per §B.16; this
+rule is what applies once `retry:`'s attempts (if any) are exhausted.
 
 ### 2. `${key}` substitution — exactly where, and how
 
