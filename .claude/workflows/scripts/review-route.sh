@@ -45,6 +45,8 @@
 # For each surviving fresh finding, in order:
 #   1. Delta-scope enforcement (only when <review_pass> is "delta" — see
 #      prepare-review.sh): a finding whose severity is minor/nitpick, OR
+#      (unless its category is "stale-docs" — docs_review flags existing
+#      docs the delta made stale, which are rarely files the delta touched)
 #      whose `file` is not one of <delta_file>'s `+++ b/<path>` paths, is
 #      NOT routed — it becomes a ledger entry with status "suppressed" and
 #      a reason, and is otherwise dropped. This is the deterministic
@@ -73,7 +75,8 @@
 # CI-originated round) appends this round's fixable ("open") count to
 # <blocking_history> (the `blocking_history` state key, a JSON array of
 # integers). If the array now has >=3 entries, the last 3 are
-# non-decreasing, and the last one is >0, the round is routed `stalled`
+# non-decreasing, and the first of them is >0 (growth from zero is not a
+# stall), the round is routed `stalled`
 # instead of `blocking` — fixable findings keep being raised but the count
 # never drops, so another round won't help; a human needs to look
 # (see review-pr.yaml's `stalled` terminal).
@@ -147,7 +150,7 @@ result=$(jq -cn \
   | ($kept | to_entries | map(.value + {id: ("r" + ($round | tostring) + "-" + ((.key + 1) | tostring)), round: $round})) as $with_ids
   | ($with_ids | map(
       . as $it
-      | if ($review_pass == "delta") and (($it.severity == "minor") or ($it.severity == "nitpick") or ($delta_paths | index($it.file) == null))
+      | if ($review_pass == "delta") and (($it.severity == "minor") or ($it.severity == "nitpick") or (($it.category != "stale-docs") and ($delta_paths | index($it.file) == null)))
       then . + {status: "suppressed", reason: ("delta pass: " + (if ($it.severity == "minor" or $it.severity == "nitpick") then "minor/nitpick findings are not routed in a delta pass" else "file is outside this delta (" + ($it.file // "?") + ")" end))}
       elif .pre_existing then . + {status: "held", reason: "pre-existing"}
       elif (.severity == "minor") or (.severity == "nitpick")
@@ -162,7 +165,7 @@ result=$(jq -cn \
   | ($optional | length) as $optional_count
   | ($history + [$fixable_count]) as $history_new
   | ( ($history_new | length) >= 3
-      and ($history_new[-3:] as $last3 | $last3[0] <= $last3[1] and $last3[1] <= $last3[2])
+      and ($history_new[-3:] as $last3 | $last3[0] > 0 and $last3[0] <= $last3[1] and $last3[1] <= $last3[2])
       and ($history_new[-1] > 0)
     ) as $stalled
   | {
