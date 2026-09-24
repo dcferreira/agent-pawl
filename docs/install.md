@@ -59,14 +59,15 @@ make install
 
 This is exactly `go install ./cmd/pawl` (see the `Makefile`). It builds `cmd/pawl` and drops `pawl` at
 `$(go env GOPATH)/bin/pawl` — make sure that directory is on your `PATH`. Equivalent, if you don't
-want to clone the repo yourself and it's published somewhere your `go install` can reach:
+want to clone the repo yourself, it's published on GitHub:
 
 ```
 go install github.com/dcferreira/agent-pawl/cmd/pawl@latest
 ```
 
-There is no `go install ./cmd/pawl@latest`-with-version story: nothing here is tagged or released,
-so `@latest` means "whatever is on the default branch," not a pinned build.
+`@latest` resolves to the latest tagged release (pin one with `@vX.Y.Z` instead), but it's still a
+source build, so `pawl version` still prints `pawl dev` rather than the tag — use `install.sh` if
+you want a stamped release binary.
 
 If you'd rather not touch `$GOPATH/bin`, `make build` puts the binary at `./dist/pawl` in the repo
 instead (not `./bin/`, which is a committed plugin directory — see the plugin section below):
