@@ -2007,7 +2007,7 @@ func TestRun_BannerReportsInvariantsEngineChecked(t *testing.T) {
 		t.Fatalf("pawl run: exit %d, want 3 (BLOCKED terminal); stdout = %q", code, stdout)
 	}
 	want := fmt.Sprintf(`workflow: %s/.claude/workflows/invariant-demo.yaml (repo-local)
-enforcement: off (milestone 1)
+enforcement: off (PAWL_ENFORCEMENT=off)
 invariants: 1 (engine-checked after every step)
 soft: 0/1 steps (0.0%%): (none)
 `, root)
