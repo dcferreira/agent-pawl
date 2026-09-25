@@ -319,6 +319,22 @@ EOF
 git add -A && git commit -q -m "double digit minor sorts correctly")
 assert_ok "v0.10.0 sorts after v0.1.0 (sort -V, not lexical) -> pass" check_version_consistency "$FIXTURE_DIR"
 
+new_fixture
+(cd "$FIXTURE_DIR" && cat >.changes/v1.0.0.md <<'EOF'
+## v1.0.0 - 2026-04-01
+EOF
+cat >.changes/v1.0.0-rc1.md <<'EOF'
+## v1.0.0-rc1 - 2026-03-15
+EOF
+cat >.claude-plugin/plugin.json <<'EOF'
+{
+  "name": "fixture",
+  "version": "1.0.0"
+}
+EOF
+git add -A && git commit -q -m "a prerelease file next to its final release")
+assert_ok "prerelease file (v1.0.0-rc1.md) ignored, v1.0.0 is latest -> pass" check_version_consistency "$FIXTURE_DIR"
+
 echo
 echo "$tests_run tests run, $failures failed"
 if [ "$failures" -ne 0 ]; then

@@ -135,8 +135,8 @@ Makefile targets (all real, all in CI or documented for local use):
 CI (`.github/workflows/ci.yml`) gates a PR on: `make fmt-check`, `make vet`, `make staticcheck`,
 `go mod tidy` producing no diff to `go.mod`/`go.sum`, `claude plugin validate . --strict`,
 `scripts/release/check-version-consistency.sh` (plugin.json's version vs. the latest `.changes/`
-release), and both `make test` and `make test-race` (which now also runs
-`make test-release-checks`). `.github/workflows/changelog.yml` gates a PR separately (so labeling a
+release), and both `make test` and `make test-race`; the same job also runs
+`make test-release-checks` as a separate step. `.github/workflows/changelog.yml` gates a PR separately (so labeling a
 PR doesn't rerun the whole suite) on `scripts/release/check-fragment.sh` and
 `scripts/release/check-no-version-bump.sh` — see `docs/releasing.md`. Existing tests and `e2e/` set
 `PAWL_ENFORCEMENT=off` in their

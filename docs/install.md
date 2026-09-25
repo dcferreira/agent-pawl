@@ -163,8 +163,9 @@ Once hooks are on, `Stop` will refuse to end the driving session's turn while it
 make check
 ```
 
-runs `go fmt ./...`, `go vet ./...`, `go test ./...`, and `scripts/test-install.sh` (install.sh's
-unit tests). This is the same check a change to this repo is expected to pass; running it after
+runs `go fmt ./...`, `go vet ./...`, `go test ./...`, `scripts/test-install.sh` (install.sh's
+unit tests), and `scripts/release/test-checks.sh` (the release check scripts' unit tests). This is
+the same check a change to this repo is expected to pass; running it after
 `make install` is a reasonable sanity check that your Go toolchain and checkout are in order,
 though it is not required just to use the binary.
 

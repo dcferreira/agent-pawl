@@ -11,9 +11,13 @@
 # semver among .changes/v*.md filenames, computed here with `sort -V` so
 # this check has no tooling dependency beyond git/jq/coreutils (CI installs
 # changie anyway, for release-pr.yml and release.yml, but this script
-# doesn't need it). This must compute "latest" the same way changie does —
-# highest semver, prereleases sorted after their release per semver, which
-# `sort -V` matches for the plain X.Y.Z filenames this repo uses.
+# doesn't need it). Prerelease filenames (a "-" after the version, e.g.
+# v1.0.0-rc1.md) are excluded before sorting: `sort -V` orders a
+# prerelease AFTER its final release — the opposite of changie/semver
+# precedence — so if one were left in, it would win the "latest" pick
+# whenever a prerelease file sits next to its release. This repo only
+# ever writes plain X.Y.Z release-notes filenames, so excluding anything
+# with a "-" is enough, and `sort -V` is correct for ordering those.
 #
 # Sourced by test-checks.sh; guarded at the bottom by
 # PAWL_RELEASE_CHECK_TEST like the other two release check scripts.
@@ -21,13 +25,19 @@ set -euo pipefail
 
 # latest_version_from_changes DIR
 # Echoes the highest vX.Y.Z among DIR/.changes/v*.md filenames, or nothing
-# (and a non-zero exit) if there are none.
+# (and a non-zero exit) if there are none. Filenames with a "-" after the
+# version (prereleases, e.g. v1.0.0-rc1.md) are excluded — see the header
+# comment above for why.
 latest_version_from_changes() {
   local dir="$1"
-  local f latest=""
+  local f base latest=""
   shopt -s nullglob
   for f in "$dir"/.changes/v*.md; do
-    latest="${latest:+$latest$'\n'}$(basename "$f" .md)"
+    base="$(basename "$f" .md)"
+    case "$base" in
+    *-*) continue ;;
+    esac
+    latest="${latest:+$latest$'\n'}$base"
   done
   shopt -u nullglob
   [ -n "$latest" ] || return 1
