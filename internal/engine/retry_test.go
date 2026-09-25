@@ -891,3 +891,57 @@ terminal: {done: {status: ok}}
 		t.Errorf("final last_error = %q, want empty: a recovered hard-retry clears last_error (TestRetry_DeterministicHardRetrySuccessClearsLastError)", rs.LastError)
 	}
 }
+
+// TestRetry_InvariantEvaluatedOnceAfterHardRetryRecovers: combines #13's
+// retry: with #16's invariants: — a deterministic step's run: hard-fails
+// once (non-zero exit) then succeeds on its retry: {max_attempts: 2} retry.
+// An always-holding invariant appends one line to a file every time it is
+// evaluated. design/format-spec.md §10 point 2 (and advanceDeterministic's
+// own doc comments) require invariants to be evaluated only once the step
+// has actually completed with a resolved outcome — immediately before its
+// TRANSITION — never in the middle of the hard-retry loop itself. So the
+// invariant must have been evaluated exactly once for this step's one
+// visit, not once per try, and the run must continue normally to its
+// terminal.
+func TestRetry_InvariantEvaluatedOnceAfterHardRetryRecovers(t *testing.T) {
+	const yamlTmpl = `
+workflow: retry-invariant-combined
+start: a
+invariants:
+  - id: record-evaluation
+    check: 'echo hit >> invariant-hits.txt; true'
+    message: "should never fire"
+steps:
+  - id: a
+    kind: deterministic
+    run: '%s'
+    retry: {max_attempts: 3, backoff: 10s}
+    max_visits: 1
+    next: done
+terminal: {done: {status: ok}}
+`
+	e := newTestEngine(t, sprintfYAML(yamlTmpl, counterRun("counter", 1)))
+	clock := newFakeClock()
+	clock.install(e)
+
+	instr, err := e.Start("run1", nil)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	term, ok := instr.(Terminal)
+	if !ok || term.Status != "ok" {
+		t.Fatalf("got %+v, want Terminal{ok} (the retry should have succeeded and the run should continue)", instr)
+	}
+	if n := readCounter(t, e, "counter"); n != 2 {
+		t.Fatalf("run: was invoked %d times, want exactly 2 (1 hard failure + 1 successful retry)", n)
+	}
+
+	data, err := os.ReadFile(filepath.Join(e.Root, "invariant-hits.txt"))
+	if err != nil {
+		t.Fatalf("reading invariant-hits.txt: %v", err)
+	}
+	hits := strings.Count(string(data), "hit")
+	if hits != 1 {
+		t.Errorf("invariant evaluated %d times, want exactly 1: it must run once per completed step, not once per hard-retry try", hits)
+	}
+}
