@@ -1,0 +1,10 @@
+workflow: retry-valid-wait
+start: a
+steps:
+  - id: a
+    kind: wait
+    poll: echo tick
+    timeout: 5m
+    retry: {max_attempts: 3, backoff: 10s}
+    next: done
+terminal: {done: {status: ok}}

@@ -118,7 +118,10 @@ Monitor, because Claude's Bash tool has a ceiling around ten minutes and a CI wa
 poller loops `poll:` every `every:` seconds; the first *iteration* whose last-non-empty-stdout line
 carries a routed token ends the loop, and `pawl poll` then does what `pawl submit` would do internally and
 prints the resulting `DISPATCH`/`ASK`/`WAIT`/`TERMINAL` line. On `timeout:` expiry it does the same
-with outcome `timeout`. It exits early, doing nothing, if the run directory has gone or the run's
+with outcome `timeout`. A hard-failing tick (non-zero exit, a wall-clock kill, or an unparseable
+routed payload) does not itself end the loop when the step declares `retry:` — it retries the tick
+and ends the loop as a `failure` only once `retry:`'s attempts are exhausted (format-spec.md §B.16).
+It exits early, doing nothing, if the run directory has gone or the run's
 current step is no longer this step. **The model never runs `pawl submit` for a `wait` result.** On
 resume the model simply runs `pawl poll` again — a wait asks about the present state of the world.
 

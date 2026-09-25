@@ -306,8 +306,11 @@ pawl poll --run <id> --step <step>
 ```
 
 Runs a `wait` step's `poll:` command every `every:`. Each iteration reads the last non-empty stdout
-line; the first carrying a routed token ends the loop, as does `timeout:` expiring. `pawl poll` then
-does internally what `pawl submit` would, printing the next line. See [steps/wait.md](steps/wait.md).
+line; the first carrying a routed token ends the loop, as does `timeout:` expiring. A hard-failing
+tick (non-zero exit, a wall-clock kill, or an unparseable routed payload) does not end the loop by
+itself when the step declares `retry:` — it retries the tick per `retry:` and only ends the loop as
+a `failure` once retries are exhausted (format-spec.md §B.16). `pawl poll` then does internally what
+`pawl submit` would, printing the next line. See [steps/wait.md](steps/wait.md).
 
 `pawl poll` runs unattended, under Monitor — DESIGN.md §3 treats "the run moved on" as an expected
 race, not a failure — so it deliberately exits quietly (0) rather than refusing in two cases: the run

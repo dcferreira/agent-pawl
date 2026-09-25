@@ -52,6 +52,13 @@ type PollIteration struct {
 	// Next is how long the loop will sleep before the next iteration; 0 when
 	// this iteration ended the loop.
 	Next time.Duration
+	// Retrying is true when this iteration hard-failed (§B.16: non-zero
+	// exit, the wall-clock ceiling, or an unparseable routed payload) but
+	// retry: has attempts left, so the loop is sleeping backoff×n and
+	// trying the tick again rather than ending — Routed and ExitCode still
+	// describe the failed tick itself, so a caller must check Retrying
+	// before treating Routed as "the loop is done".
+	Retrying bool
 }
 
 // Poll implements `pawl poll --run <id> --step <name>` (DESIGN.md §3,
@@ -105,6 +112,19 @@ func (e *Engine) Poll(runID, stepID string, observe func(PollIteration)) (Instru
 	}
 	deadline := parkedAt.Add(timeout)
 
+	// hardFailStreak counts CONSECUTIVE hard-failure ticks for retry:
+	// (design/format-spec.md §B.16): poll:'s own non-zero exit, the
+	// wall-clock timeout on poll:, or a routed token whose payload fails
+	// emit.Parse. It resets on any clean tick — routed or "not yet" — and
+	// lives only on this Go stack: the whole poll loop, sleeps included,
+	// runs to completion inside this one Poll call (a fresh `pawl poll`
+	// process only ever starts this loop over from n=1), so there is no
+	// process boundary for it to survive across and nothing to journal
+	// (unlike deterministic's retry:, whose backoff sleep happens inside
+	// advanceDeterministic, which a crash can interrupt mid-run: see
+	// Event.HardRetry).
+	hardFailStreak := 0
+
 	for n := 1; ; n++ {
 		// Re-check every iteration, not only at entry: the run may have been
 		// abandoned, or advanced by another process, while this loop slept.
@@ -127,6 +147,7 @@ func (e *Engine) Poll(runID, stepID string, observe func(PollIteration)) (Instru
 		it.ExitCode = exitCode
 		it.Line = emit.EscapeC0(emit.LastNonEmptyLine(stdout))
 		it.Token, it.Routed = emit.Routed(stdout, exitCode, step)
+		hardFailed := errors.Is(execErr, errTimeout) || exitCode != 0
 		if errors.Is(execErr, errTimeout) {
 			// The poll: command itself blew the engine-wide wall-clock
 			// ceiling: a hard failure exactly as it is for a deterministic
@@ -135,6 +156,7 @@ func (e *Engine) Poll(runID, stepID string, observe func(PollIteration)) (Instru
 		}
 
 		if !it.Routed {
+			hardFailStreak = 0
 			it.Next = every
 			if observe != nil {
 				observe(it)
@@ -142,22 +164,67 @@ func (e *Engine) Poll(runID, stepID string, observe func(PollIteration)) (Instru
 			e.sleep(every)
 			continue
 		}
+
+		if it.Token == "failure" && !hardFailed {
+			// A routed "failure" token from a *successful* (exit-0) poll: —
+			// the author's own script explicitly printed the reserved
+			// failure token — is not one of §B.16's three hard-failure
+			// cases (non-zero exit, timeout, unintelligible payload): it is
+			// an ordinary clean routed tick that happens to route to
+			// failure, so it is never retried and never touches
+			// hardFailStreak, exactly as an un-retried wait step always
+			// completed it.
+			if observe != nil {
+				observe(it)
+			}
+			return e.completeWait(dir, runID, stepID, "failure", nil, firstNonEmpty(stderr, stdout))
+		}
+
+		var failureText string
+		if hardFailed {
+			failureText = firstNonEmpty(stderr, stdout)
+		} else {
+			// A routed token with an unintelligible payload (§B.16's third
+			// hard-failure case) is only knowable once Parse has tried it —
+			// unlike the exit-code/timeout cases above, it needs the actual
+			// parse attempt, not just exitCode/execErr.
+			if result, perr := emit.Parse(stdout, exitCode, step, e.Workflow.State); perr != nil {
+				hardFailed = true
+				failureText = perr.Error()
+			} else {
+				if observe != nil {
+					observe(it)
+				}
+				return e.completeWait(dir, runID, stepID, result.Outcome, result.Writes, "")
+			}
+		}
+
+		// hardFailed: retry: (if configured) retries the tick itself — the
+		// loop is NOT ended — up to max_attempts consecutive hard failures,
+		// with backoff × n between tries (linear, no jitter); every: is not
+		// additionally slept on a retry tick, and the backoff sleep still
+		// counts against timeout:'s deadline (checked again at the top of
+		// the next iteration).
+		hardFailStreak++
+		if step.Retry != nil && hardFailStreak < step.Retry.MaxAttempts {
+			backoff, berr := time.ParseDuration(step.Retry.Backoff)
+			if berr != nil {
+				// Validate rejects an unparseable backoff:; unreachable from
+				// a workflow that passed Validate.
+				return nil, fmt.Errorf("engine: step %q: retry.backoff: %q is not a duration (validator should have rejected this): %w", step.ID, step.Retry.Backoff, berr)
+			}
+			it.Next = backoff * time.Duration(hardFailStreak)
+			it.Retrying = true
+			if observe != nil {
+				observe(it)
+			}
+			e.sleep(it.Next)
+			continue
+		}
 		if observe != nil {
 			observe(it)
 		}
-
-		if it.Token == "failure" {
-			return e.completeWait(dir, runID, stepID, "failure", nil, firstNonEmpty(stderr, stdout))
-		}
-		result, perr := emit.Parse(stdout, exitCode, step, e.Workflow.State)
-		if perr != nil {
-			// A routed token with an unintelligible payload is an authoring
-			// bug, routed rather than thrown for finding I3's reason: a
-			// thrown error here would leave the run parked forever with no
-			// TRANSITION and no way out but pawl abandon.
-			return e.completeWait(dir, runID, stepID, "failure", nil, perr.Error())
-		}
-		return e.completeWait(dir, runID, stepID, result.Outcome, result.Writes, "")
+		return e.completeWait(dir, runID, stepID, "failure", nil, failureText)
 	}
 }
 

@@ -452,6 +452,10 @@ func formatPollIteration(it engine.PollIteration) string {
 	switch {
 	case it.TimedOut:
 		w.line(0, head, "timeout: expired — routing the timeout outcome")
+	case it.Retrying && it.ExitCode != 0:
+		w.line(0, head, fmt.Sprintf("poll: exited %d — hard failure, retrying in %s (retry:)", it.ExitCode, it.Next))
+	case it.Retrying:
+		w.line(0, head, it.Line, "→ unparseable payload, hard failure, retrying in", it.Next.String(), "(retry:)")
 	case it.Routed && it.ExitCode != 0:
 		w.line(0, head, fmt.Sprintf("poll: exited %d — routing failure (§B.1: a non-zero exit is always failure)", it.ExitCode))
 	case it.Routed:

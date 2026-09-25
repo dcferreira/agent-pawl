@@ -1,0 +1,9 @@
+workflow: retry-unknown-key
+start: a
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    retry: {max_attempts: 3, backoff: 30s, jitter: true}
+    next: done
+terminal: {done: {status: ok}}

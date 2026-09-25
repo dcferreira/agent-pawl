@@ -55,6 +55,8 @@ escapes C0 control characters at this boundary, once, for all workflows.
 
 **Non-zero exit is always `failure`**, whatever was printed; token parsing happens only on exit 0.
 Distinct non-zero exit codes do not select distinct outcomes — one signalling mechanism, not two.
+When the step declares `retry:`, a non-zero exit is instead a hard failure retried per §B.16; this
+rule is what applies once `retry:`'s attempts (if any) are exhausted.
 
 ### 2. `${key}` substitution — exactly where, and how
 
@@ -351,6 +353,69 @@ This is the full extent of `kind: parallel` as shipped: one branch group, one jo
 `foreach:` fan-out over a runtime-discovered list, with per-item postconditions and a
 **partial**-success join, remains Milestone 3 (§I) — not this.
 
+### 16. `retry:` retries the body on a hard failure
+
+`retry:` (`deterministic`, `wait` only) re-runs a step's **body** — `run:` or one `poll:` tick —
+when it *hard-fails*, before any outcome is resolved and before `attempts:`/postcondition
+evaluation ever sees the try. This is a different failure class from a postcondition failure,
+which stays `attempts:`'s domain entirely; `retry:` never sees one.
+
+**"Hard failure" is exactly:**
+
+- `deterministic`: `run:` exits non-zero, `run:` hits the engine-wide wall-clock ceiling, or
+  `run:`'s stdout is unintelligible under §B.1 (an author-named-outcomes step with no TOKEN, or one
+  routing nowhere).
+- `wait`: one `poll:` tick's command exits non-zero, that tick hits the wall-clock ceiling, or a
+  *routed* tick's payload fails to parse. An **unrouted** ("not yet") tick is not a hard failure —
+  it is `wait`'s ordinary, expected "nothing to report" tick, and never touches `retry:`'s counter.
+
+**`max_attempts:`** is the total number of tries, including the first — `max_attempts: 3` means 1
+try plus up to 2 retries. It must be an integer ≥ 2 (1 would never retry, a no-op — the validator
+rejects it, §H rule 19).
+
+**`backoff:`** is one duration. Retry *n* (n = 1, 2, …) sleeps `backoff × n` — linear, no jitter —
+before the next try.
+
+**Blocking duration and visibility (`deterministic` only).** A `deterministic` retry runs
+synchronously inside whichever `pawl` command is currently executing the step (`pawl run`, `pawl
+submit`, or `pawl poll` continuing on into a later step) — there is no separate command to poll, the
+way `wait`'s `poll:` loop has. In the worst case that call blocks for up to `max_attempts × Timeout`
+(the engine-wide wall-clock ceiling, `DefaultTimeout` = 10m unless overridden) plus
+`backoff × 1 + backoff × 2 + ... + backoff × (max_attempts-1)` of sleep before it returns an
+instruction — a driving session running that command as an ordinary blocking call must budget for
+that, not the few-second ceiling a step without `retry:` would need. The engine writes one line per
+retried try to `Engine.Stderr` (wired to the CLI process's stderr) —
+`pawl: step "<id>" hard-failed (try <k> of <max_attempts>); retrying in <backoff × k>` — so the call is
+not silent even though nothing is emitted on stdout (the DISPATCH/WAIT/ASK/TERMINAL grammar,
+`internal/emit`) until the retry loop ends. `Engine.Stderr` is nil (no output) unless the caller
+sets it; every `pawl` CLI command that can reach a deterministic step's retry loop (`run`, `submit`,
+`poll`) sets it to its own stderr.
+
+**`deterministic`:** `max_attempts:` counts tries of the *same* `run:` invocation, all under the
+same `attempts:`-level attempt: retries consume neither the `attempts:` budget nor `max_visits:`.
+Once retries are exhausted, the step behaves exactly as an un-retried hard failure always has —
+the journaled failure diagnostic from the last try, routed via the reserved `failure` outcome
+(`catch:`, or the default route to `blocked`). No "previous failure" text is threaded into a
+retried try — that context is `attempts:`-only, since a hard failure was never a postcondition
+judgement to begin with. Crash-safety: the engine journals its intent to run retry *n* (a
+`STEP_ENTER{hard_retry: n}`) *before* sleeping `backoff × n`, not after, so a crash mid-`run:` or
+mid-backoff-sleep always resumes at that same retry count — the same way a crash mid-`attempts:`-
+retry resumes at the same attempt number. Resuming re-runs exactly the try that was interrupted,
+never skipping it and never re-running a try that had already completed; a crash mid-backoff-sleep
+does start that retry's `backoff:` sleep over from the top rather than resuming it partway through
+— an accepted trade-off, not a bug.
+
+**`wait`:** the counter is **consecutive** hard-failure ticks, reset by *any* clean tick — routed
+or "not yet" alike. `backoff:`'s sleep counts against the step's own `timeout:` deadline exactly
+like `every:`'s does: if the deadline passes during or after a backoff sleep, the step takes the
+normal `timeout` outcome, not a retry. `every:` is not additionally slept on a retry tick —
+`backoff:` replaces it for that one tick. A retried hard-failure tick does not end the poll loop
+(the loop only ends on a clean routed tick, `timeout:`, or retries exhausted). The whole poll
+loop — including every backoff sleep — runs inside one `pawl poll` process; a `pawl poll` that is
+killed and restarted simply starts the loop, and its consecutive-failure count, over from
+iteration 1, bounded the same way an un-retried `pawl poll` always has been by `timeout:`'s own
+journalled deadline.
+
 ---
 
 ## C. The five kinds
@@ -560,6 +625,9 @@ work to an agent. See `docs/quickstart.md`.
     command), or an *unquoted* entry (e.g. `!git diff main`), which YAML parses as some other
     custom tag (`!git`) applied to the rest of the scalar (`diff main`), not as that literal text.
     The error names the corrected `!cmd "..."` form either way.
+19. `retry:` on a kind other than `deterministic`/`wait` (including a `parallel` branch, which owns
+    no `retry:` of its own — §B.15); `max_attempts:` missing or less than 2; `backoff:` missing, not
+    a valid duration, or not greater than zero; or an unknown key inside `retry:`.
 
 Plus two warnings: a key written and never read; a key read on some path before anything writes it.
 And one census, printed every time: the `soft:` count, percentage and list.

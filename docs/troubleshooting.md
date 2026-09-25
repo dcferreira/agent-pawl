@@ -37,9 +37,11 @@ poller, or a retry of an old tool call. Nothing was applied. Run `pawl status --
 
 `pawl status` says `waiting` and nothing moves. Run your poller by hand. Three causes: no routed token
 on the last line (only the last non-empty line is read); the token isn't in `outcomes:` (check
-case — `Success` isn't `SUCCESS`); the poller exits non-zero (that's `failure` via `catch:`, not
-"keep waiting" — exit 0, print nothing instead). If the poll process died, `pawl run <name>` re-enters
-the step and restarts it; the `timeout:` deadline restarts too.
+case — `Success` isn't `SUCCESS`); the poller exits non-zero (that's `failure` via `catch:` — unless
+the step declares `retry:`, in which case a non-zero exit is instead a hard failure retried in-place
+first, per `docs/steps/wait.md`'s `retry:` section — not "keep waiting" either way; exit 0, print
+nothing instead). If the poll process died, `pawl run <name>` re-enters the step and restarts it; the
+`timeout:` deadline restarts too.
 
 ## Lock held
 

@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/dcferreira/agent-pawl/internal/emit"
 	"github.com/dcferreira/agent-pawl/internal/journal"
+	"github.com/dcferreira/agent-pawl/internal/render"
 	"github.com/dcferreira/agent-pawl/internal/spec"
 )
 
@@ -15,10 +17,22 @@ import (
 // stopping short of any routing decision.
 type deterministicAttempt struct {
 	// hardFailed is true once this attempt's own failure diagnostic has
-	// already been journaled (I1/I3, or a timeout): the caller must treat
-	// the step as failed with outcome "failure" and must not evaluate (or
-	// act on) a postcondition.
+	// already been journaled (I1/I3, a timeout, or an exit-0 author-printed
+	// reserved "failure" token): the caller must treat the step as failed
+	// with outcome "failure" and must not evaluate (or act on) a
+	// postcondition — exactly the pre-retry: behavior for all of these
+	// cases.
 	hardFailed bool
+	// retryable is true only when hardFailed is also true for one of
+	// §B.16's three actual hard-failure cases — a non-zero exit, the
+	// wall-clock timeout, or unintelligible stdout (ErrParse) — and false
+	// for an exit-0 author-printed reserved "failure" token, which is a
+	// clean routed tick that happens to route to failure (mirrors wait's
+	// `it.Token == "failure" && !hardFailed` in poll.go,
+	// TestRetry_WaitExitZeroFailureTokenIsNotHardFailure). Only retryable
+	// attempts may be retried by retry: (see advanceDeterministic's
+	// hard-retry loop, which checks this instead of hardFailed).
+	retryable bool
 	// outcome is the exec result's own success/failure outcome (emit),
 	// valid only when hardFailed is false.
 	outcome string
@@ -40,10 +54,21 @@ type deterministicAttempt struct {
 // journal, exactly as advanceDeterministic's loop already did inline)
 // alongside the attempt result, since the caller needs post-write state for
 // whatever it does next.
-func (e *Engine) runDeterministicAttempt(dir string, log *journal.Log, runID string, step *spec.Step, attempt int, rs *journal.RunState) (deterministicAttempt, *journal.RunState, error) {
+//
+// lastErrorOverride, when non-nil, replaces the ${last_error} value that
+// would otherwise come from rs.LastError: advanceDeterministic's hard-retry
+// loop (§B.16) passes the attempt's own frozen AttemptLastError here so a
+// retried try never sees the diagnostic journaled by the previous hard-
+// failed try of the *same* attempt. A caller with no such concern (the
+// plain first-try path, or a kind: parallel branch, which owns no retry:
+// budget of its own) passes nil and gets the ordinary rs.LastError.
+func (e *Engine) runDeterministicAttempt(dir string, log *journal.Log, runID string, step *spec.Step, attempt int, rs *journal.RunState, lastErrorOverride *string) (deterministicAttempt, *journal.RunState, error) {
 	vals := buildValues(e.Workflow, rs, runID, step.ID, attempt, rs.Visits[step.ID])
+	if lastErrorOverride != nil {
+		vals["last_error"] = render.StringValue(*lastErrorOverride)
+	}
 
-	result, timedOut, stdout, stderr, execErr := e.execDeterministic(step, vals)
+	result, timedOut, stdout, stderr, exitCode, execErr := e.execDeterministic(step, vals)
 	e.writeStepOutput(dir, step.ID, attempt, stdout, stderr)
 
 	if execErr != nil {
@@ -54,7 +79,7 @@ func (e *Engine) runDeterministicAttempt(dir string, log *journal.Log, runID str
 			if derr := e.journalFailureDiagnostic(log, runID, step.ID, attempt, execErr.Error()); derr != nil {
 				return deterministicAttempt{}, rs, derr
 			}
-			return deterministicAttempt{hardFailed: true}, rs, nil
+			return deterministicAttempt{hardFailed: true, retryable: true}, rs, nil
 		}
 		return deterministicAttempt{}, rs, execErr
 	}
@@ -63,7 +88,7 @@ func (e *Engine) runDeterministicAttempt(dir string, log *journal.Log, runID str
 		if derr := e.journalFailureDiagnostic(log, runID, step.ID, attempt, text); derr != nil {
 			return deterministicAttempt{}, rs, derr
 		}
-		return deterministicAttempt{hardFailed: true}, rs, nil
+		return deterministicAttempt{hardFailed: true, retryable: true}, rs, nil
 	}
 	if result.Writes != nil {
 		if _, err := log.Append(journal.Event{
@@ -78,11 +103,18 @@ func (e *Engine) runDeterministicAttempt(dir string, log *journal.Log, runID str
 			return deterministicAttempt{}, rs, err
 		}
 		vals = buildValues(e.Workflow, rs, runID, step.ID, attempt, rs.Visits[step.ID])
+		if lastErrorOverride != nil {
+			vals["last_error"] = render.StringValue(*lastErrorOverride)
+		}
 	}
 	if result.Outcome == "failure" {
 		// I1: a non-zero exit never runs a postcondition, so nothing would
 		// otherwise set last_error for it (DESIGN.md §3 requires it set
-		// here).
+		// here). An exit-0 author-printed reserved "failure" token takes
+		// the exact same hardFailed routing (straight to routeReserved,
+		// no postcondition, no attempts: retry) as it did before retry:
+		// existed — only retryable distinguishes the two, so retry:
+		// retries the former but never the latter.
 		text := strings.TrimSpace(stderr)
 		if text == "" {
 			text = strings.TrimSpace(stdout)
@@ -90,7 +122,7 @@ func (e *Engine) runDeterministicAttempt(dir string, log *journal.Log, runID str
 		if derr := e.journalFailureDiagnostic(log, runID, step.ID, attempt, text); derr != nil {
 			return deterministicAttempt{}, rs, derr
 		}
-		return deterministicAttempt{hardFailed: true}, rs, nil
+		return deterministicAttempt{hardFailed: true, retryable: exitCode != 0}, rs, nil
 	}
 
 	cr, err := e.evaluatePostcondition(step, combinedRaw(e.Workflow, rs), vals)
@@ -123,11 +155,21 @@ func (e *Engine) advanceDeterministic(dir string, log *journal.Log, runID string
 		return nil, nil, err
 	}
 	retry := false
+	// hardRetry carries a resumed hard-retry-in-progress count (Event.
+	// HardRetry, journal.go) for the very first pass through the loop below
+	// only: a crash mid hard-retry backoff leaves cur.HardRetry set to the
+	// last try number that was journaled, and resuming must re-run that same
+	// try, not advance past it (mirrors how a crash never advances the
+	// attempts:-level attempt number — TestAttempts_NotAdvancedByCrash).
+	// Every subsequent postcondition-level attempt in this same call (this
+	// loop looping back after a postcondition failure) starts its own
+	// retry: budget fresh, since retry: retries one attempt's body.
+	hardRetry := cur.HardRetry
 
 	for {
 		if _, err := log.Append(journal.Event{
 			Kind: journal.KindStepEnter, RunID: runID, Step: step.ID,
-			Attempt: attempt, AttemptKey: key, Retry: retry,
+			Attempt: attempt, AttemptKey: key, Retry: retry, HardRetry: hardRetry,
 		}); err != nil {
 			return nil, nil, err
 		}
@@ -135,11 +177,72 @@ func (e *Engine) advanceDeterministic(dir string, log *journal.Log, runID string
 		if err != nil {
 			return nil, nil, err
 		}
+		// attemptLastError freezes ${last_error} as this attempt's first try
+		// sees it (rs.AttemptLastError, journal/replay.go) — captured once
+		// here and reused, unchanged, for every hard-retry of this same
+		// attempt below, so a retried try never sees the diagnostic the
+		// previous try's own hard failure just journaled (§B.16). It also
+		// covers a crash-resume mid hard-retry: rs.AttemptLastError was
+		// reconstructed by the full Replay from the attempt's own first
+		// STEP_ENTER (HardRetry: 0), not from whatever the log's tail
+		// happens to be now.
+		attemptLastError := rs.AttemptLastError
 
-		at, _, err := e.runDeterministicAttempt(dir, log, runID, step, attempt, rs)
+		at, _, err := e.runDeterministicAttempt(dir, log, runID, step, attempt, rs, &attemptLastError)
 		if err != nil {
 			return nil, nil, err
 		}
+
+		// retry: (design/format-spec.md §B.16) retries a hard-failed body
+		// before any outcome is resolved — never a postcondition failure,
+		// which stays attempts:'s domain, and never an exit-0 author-
+		// printed reserved "failure" token, which is hardFailed (it takes
+		// the same no-postcondition, no-attempts:-retry routing) but not
+		// retryable — see deterministicAttempt.retryable.
+		for at.retryable && step.Retry != nil && hardRetry+1 < step.Retry.MaxAttempts {
+			tryNumber := hardRetry + 1
+			backoff, berr := time.ParseDuration(step.Retry.Backoff)
+			if berr != nil {
+				// Validate rejects an unparseable backoff:; this is only
+				// reachable from a *Workflow built by hand (a test literal)
+				// that skipped Validate.
+				return nil, nil, fmt.Errorf("engine: step %q: retry.backoff: %q is not a duration (validator should have rejected this): %w", step.ID, step.Retry.Backoff, berr)
+			}
+			sleepFor := backoff * time.Duration(tryNumber)
+			e.logRetry("pawl: step %q hard-failed (try %d of %d); retrying in %s", step.ID, tryNumber, step.Retry.MaxAttempts, sleepFor)
+			hardRetry = tryNumber
+			// Journal intent to run try hardRetry BEFORE sleeping, not after: a
+			// crash mid-backoff-sleep must resume at the try that has not yet
+			// run, never at the try that already ran and already journaled its
+			// own failure diagnostic (which a post-sleep append would leave the
+			// cursor pointing back at, causing resume to re-run a completed
+			// try). Skipping the remainder of an interrupted backoff sleep on
+			// resume is an accepted trade-off (design/format-spec.md §B.16).
+			if _, err := log.Append(journal.Event{
+				Kind: journal.KindStepEnter, RunID: runID, Step: step.ID,
+				Attempt: attempt, AttemptKey: key, Retry: retry, HardRetry: hardRetry,
+			}); err != nil {
+				return nil, nil, err
+			}
+			e.sleep(sleepFor)
+			rs, err = replayDir(dir)
+			if err != nil {
+				return nil, nil, err
+			}
+			at, _, err = e.runDeterministicAttempt(dir, log, runID, step, attempt, rs, &attemptLastError)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
+		// This attempt's own hard-retry budget (if any) is spent; the next
+		// postcondition-level attempt (if the loop continues) starts fresh.
+		// hardRetried records, before the reset, whether at least one
+		// hard-failure diagnostic was journaled for *this* attempt/key
+		// (each hard-failed try journals one via journalFailureDiagnostic
+		// inside runDeterministicAttempt) before it went on to succeed.
+		hardRetried := hardRetry > 0
+		hardRetry = 0
+
 		if at.hardFailed {
 			return e.routeReserved(dir, log, runID, step, "failure", attempt)
 		}
@@ -150,6 +253,24 @@ func (e *Engine) advanceDeterministic(dir string, log *journal.Log, runID string
 				if _, err := log.Append(journal.Event{
 					Kind: journal.KindPostcondition, RunID: runID, Step: step.ID,
 					Attempt: attempt, OK: true, Soft: cr.Soft, AttemptKey: key,
+				}); err != nil {
+					return nil, nil, err
+				}
+			} else if hardRetried {
+				// A step with no postcondition: never otherwise journals a
+				// KindPostcondition{OK:true}, so without this, a try that
+				// hard-failed (journaling OK:false, per journalFailureDiagnostic)
+				// and then recovered on retry: would leave that earlier
+				// try's diagnostic stuck in ${last_error} (Replay clears it
+				// only on OK:true) and would leave Replay's per-step
+				// postcondition-ok flag false, which would wrongly block the
+				// §B.4 attempt-key-budget clearing a clean non-catch
+				// TRANSITION is supposed to do. Journal one here, exactly as
+				// a declared postcondition's own pass would, now that this
+				// attempt has actually succeeded.
+				if _, err := log.Append(journal.Event{
+					Kind: journal.KindPostcondition, RunID: runID, Step: step.ID,
+					Attempt: attempt, OK: true, AttemptKey: key,
 				}); err != nil {
 					return nil, nil, err
 				}

@@ -92,6 +92,11 @@ func cmdPoll(args []string, cwd string, stdout, stderr io.Writer) int {
 	w := pinned.Workflow
 
 	e := engine.New(w, root)
+	// Poll can run the workflow on past the wait step it was called for
+	// (into a following deterministic step's own retry: loop), which is
+	// just as silent on stdout for the same reason pawl run is — see the
+	// comment in cmdRun.
+	e.Stderr = stderr
 	instr, err := e.Poll(runID, stepID, func(it engine.PollIteration) {
 		fmt.Fprint(stdout, formatPollIteration(it))
 		flush(stdout)

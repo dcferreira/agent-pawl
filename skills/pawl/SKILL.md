@@ -228,10 +228,10 @@ user. There is nothing further to submit — the loop ends here.
 
 ## What this skill does not cover
 
-If a workflow file declares top-level `invariants:`, or a step's `retry:`, `pawl validate` and
-`pawl run` reject it outright with a "not implemented in this build" message — you will see that
-instead of a DISPATCH/DISPATCH_PARALLEL/ASK/WAIT/TERMINAL block, and there is nothing to drive: fix
-or report the workflow file instead.
+If a workflow file declares top-level `invariants:`, `pawl validate` and `pawl run` reject it
+outright with a "not implemented in this build" message — you will see that instead of a
+DISPATCH/DISPATCH_PARALLEL/ASK/WAIT/TERMINAL block, and there is nothing to drive: fix or report
+the workflow file instead.
 
 Top-level `guards:` is different: it is parsed, validated (id required+unique, `match:` required,
 RE2-compilable, and not able to match zero characters; `only_in:` required), and now enforced by
@@ -243,3 +243,24 @@ this skill's protocol is unaffected — report the line to the user if they ask 
 keep driving the run as usual. If a guard denies a command you (or a dispatched subagent) tried to
 run, the tool call is simply denied with the hook's reason — treat it the same as any other tool
 denial: don't retry the literal same command hoping the hook relents, work within what it allows.
+
+A step's `retry:` is implemented and needs nothing from this skill to drive: a `deterministic`
+step's `run:` retries a hard failure in place before any DISPATCH/WAIT line is even emitted, so
+this skill never sees a new instruction because of it. A `wait` step's `poll:` retries are
+different: they happen inside the `pawl poll` this skill is already driving, and each retried tick
+prints its own `poll N (... parked): ...retrying in ...` line in that command's output — still no
+new DISPATCH/WAIT to act on, but visible while the loop keeps going rather than silent.
+
+**A `deterministic` step's `retry:` can make `pawl run`/`pawl submit`/`pawl poll` itself block for a
+long time, silently.** Unlike `wait`'s poll loop (above), a deterministic retry has no separate
+command to run under Monitor — it happens inside whichever `pawl` command you're already running,
+sleeping `backoff × 1 + backoff × 2 + ... + backoff × (max_attempts-1)` in total on top of up to
+`max_attempts` tries each allowed the full engine wall-clock ceiling (10m by default). A
+`{max_attempts: 4, backoff: 30s}` step adds 3 minutes of sleep on top of however long the tries
+themselves take; a step that hits the wall-clock ceiling on every try can block for 40+ minutes.
+Run that `pawl` command with a Bash timeout generous enough to cover the worst case (or in the
+background, the same way a `wait` step's `pawl poll` is run under Monitor) whenever a workflow's
+steps declare `retry:` — don't assume the ordinary few-second command ceiling is enough. `pawl`
+does print one line to **stderr** per retried try (`pawl: step "<id>" hard-failed (try <k> of
+<max_attempts>); retrying in <backoff>`), so a backgrounded or generously-timed run is not silent
+even though nothing appears on stdout until the next real instruction.

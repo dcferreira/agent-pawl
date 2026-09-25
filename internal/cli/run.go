@@ -98,6 +98,11 @@ func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 
 	e := engine.New(w, root)
 	e.Enforcement = enforcementLabel(mode)
+	// A step's retry: (design/format-spec.md §B.16) sleeps and re-execs
+	// synchronously inside this blocking call with nothing on stdout — wire
+	// stderr through so the engine can print a per-retry progress line
+	// instead of leaving the call silent for the whole backoff.
+	e.Stderr = stderr
 	// Right after RUN_START, before any deterministic prefix runs: stamp the
 	// gated session as driver and link the run into live/, so a pawl run
 	// killed mid-prefix still leaves both for the hooks. (cli.Run's

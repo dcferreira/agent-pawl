@@ -1,0 +1,9 @@
+workflow: retry-backoff-zero
+start: a
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    retry: {max_attempts: 3, backoff: "0s"}
+    next: done
+terminal: {done: {status: ok}}

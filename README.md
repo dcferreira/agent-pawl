@@ -26,8 +26,11 @@ describe:
   pattern-matched: `pawl run`'s banner prints `guards: N advisory (pattern-matched)` when the hooks
   are on, or `guards: N declared, NOT enforced (enforcement off)` when enforcement is off, and
   `pawl validate` (which has no run) prints `guards: N declared (enforced only when a run starts
-  with the pawl hooks installed)`. Top-level `invariants:`, and a step's `retry:`, are still parsed
-  and rejected outright, not ignored.
+  with the pawl hooks installed)`. Top-level `invariants:` is still parsed and rejected outright,
+  not ignored. A step's `retry:` (deterministic and wait only) is implemented: it retries a
+  hard-failed body — a non-zero exit, the wall-clock timeout, or unintelligible stdout — before any
+  outcome is resolved, and is distinct from `attempts:`, which re-runs a step on a postcondition
+  failure (see [design/format-spec.md](design/format-spec.md) §B.16).
 - **The enforcement layer is built.** `pawl hook pre|stop` (`internal/hook`, wired by the plugin's
   `hooks/hooks.json` → `bin/pawl-hook`) backs a `PreToolUse`/`Stop` pair. `pawl run` refuses to
   start (exit 4) unless a fresh PreToolUse heartbeat (≤5 minutes old) exists for the working copy, unless

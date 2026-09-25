@@ -23,6 +23,13 @@ type Cursor struct {
 	Step       string
 	Attempt    int
 	AttemptKey string
+	// HardRetry carries through the last STEP_ENTER/RESUME's Event.HardRetry
+	// for this step: how many hard-failure retries (retry:, §B.16) have
+	// already been spent on the body of the current attempt. The engine
+	// (advanceDeterministic) reads it on resume to continue a hard-retry
+	// loop interrupted by a crash at the same retry count, never advancing
+	// it — see Event.HardRetry.
+	HardRetry int
 }
 
 // RunState is everything Replay reconstructs from a run's events.
@@ -56,6 +63,17 @@ type RunState struct {
 	// LastError is the pseudo-key populated from the text of the most
 	// recent POSTCONDITION: cleared on a pass, set on a failure.
 	LastError string
+	// AttemptLastError is the value LastError held at the start of the
+	// current attempt — frozen at the most recent non-group STEP_ENTER/
+	// RESUME whose HardRetry was 0 (the first try of an attempt, whether a
+	// fresh visit or an attempts:-level retry), and left untouched by any
+	// later STEP_ENTER with HardRetry > 0 (a retry: hard-retry re-running
+	// that same attempt's body). A retry: hard-retry of an attempt must see
+	// the same ${last_error} its attempt's first try saw, never the
+	// diagnostic journaled by the previous hard-failed try of the same
+	// attempt (design/format-spec.md §B.16) — see
+	// engine.runDeterministicAttempt's lastErrorOverride.
+	AttemptLastError string
 	// BlockedReason is the pseudo-key populated from the reason on the
 	// most recent RUN_END{status: blocked}.
 	BlockedReason string
@@ -180,11 +198,14 @@ func Replay(events []Event) (*RunState, error) {
 				rs.Args[k] = v
 			}
 		case KindResume:
-			lastEnter = Cursor{Step: e.Step, Attempt: e.Attempt, AttemptKey: e.AttemptKey}
+			lastEnter = Cursor{Step: e.Step, Attempt: e.Attempt, AttemptKey: e.AttemptKey, HardRetry: e.HardRetry}
 			haveEnter = true
 			transitionedSinceEnter = false
 			rs.Attempts[AttemptRef{e.Step, e.AttemptKey}] = e.Attempt
 			lastKeyByStep[e.Step] = e.AttemptKey
+			if e.HardRetry == 0 {
+				rs.AttemptLastError = rs.LastError
+			}
 			// No POSTCONDITION has run yet for this entry: deterministic/
 			// wait/human steps may legitimately have none at all (§B.7), in
 			// which case there is nothing to fail and the step is free to
@@ -210,13 +231,19 @@ func Replay(events []Event) (*RunState, error) {
 				rs.PendingBranches[e.Group][e.Step] = true
 				break
 			}
-			lastEnter = Cursor{Step: e.Step, Attempt: e.Attempt, AttemptKey: e.AttemptKey}
+			lastEnter = Cursor{Step: e.Step, Attempt: e.Attempt, AttemptKey: e.AttemptKey, HardRetry: e.HardRetry}
 			haveEnter = true
 			transitionedSinceEnter = false
 			rs.Attempts[AttemptRef{e.Step, e.AttemptKey}] = e.Attempt
 			lastKeyByStep[e.Step] = e.AttemptKey
 			lastPostconditionOKByStep[e.Step] = true
-			if !e.Retry {
+			if e.HardRetry == 0 {
+				rs.AttemptLastError = rs.LastError
+			}
+			// A hard-failure retry (Event.HardRetry > 0, §B.16) re-runs the
+			// same attempt's body, exactly like an attempts:-driven Retry
+			// re-entry — neither counts as a fresh visit.
+			if !e.Retry && e.HardRetry == 0 {
 				rs.Visits[e.Step]++
 			}
 		case KindWrites:

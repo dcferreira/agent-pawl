@@ -249,15 +249,15 @@ func wantCompletedRunStates() map[int]*RunState {
 		7: {Args: map[string]any{"branch": "feat/x"}, State: map[string]any{"artifact": "a.bin"}, Visits: map[string]int{"build": 1, "test": 1},
 			Attempts: map[AttemptRef]int{ref("test", ""): 1}, PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{}, Cursor: Cursor{Step: "test", Attempt: 1}, LastError: "1 failure"},
 		8: {Args: map[string]any{"branch": "feat/x"}, State: map[string]any{"artifact": "a.bin"}, Visits: map[string]int{"build": 1, "test": 1},
-			Attempts: map[AttemptRef]int{ref("test", ""): 1, ref("test", "h1"): 2}, PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{}, Cursor: Cursor{Step: "test", Attempt: 2, AttemptKey: "h1"}, LastError: "1 failure"},
+			Attempts: map[AttemptRef]int{ref("test", ""): 1, ref("test", "h1"): 2}, PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{}, Cursor: Cursor{Step: "test", Attempt: 2, AttemptKey: "h1"}, LastError: "1 failure", AttemptLastError: "1 failure"},
 		9: {Args: map[string]any{"branch": "feat/x"}, State: map[string]any{"artifact": "a.bin", "tests_passed": true}, Visits: map[string]int{"build": 1, "test": 1},
-			Attempts: map[AttemptRef]int{ref("test", ""): 1, ref("test", "h1"): 2}, PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{}, Cursor: Cursor{Step: "test", Attempt: 2, AttemptKey: "h1"}, LastError: "1 failure"},
+			Attempts: map[AttemptRef]int{ref("test", ""): 1, ref("test", "h1"): 2}, PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{}, Cursor: Cursor{Step: "test", Attempt: 2, AttemptKey: "h1"}, LastError: "1 failure", AttemptLastError: "1 failure"},
 		10: {Args: map[string]any{"branch": "feat/x"}, State: map[string]any{"artifact": "a.bin", "tests_passed": true}, Visits: map[string]int{"build": 1, "test": 1},
-			Attempts: map[AttemptRef]int{ref("test", ""): 1, ref("test", "h1"): 2}, PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{}, Cursor: Cursor{Step: "test", Attempt: 2, AttemptKey: "h1"}, LastError: ""},
+			Attempts: map[AttemptRef]int{ref("test", ""): 1, ref("test", "h1"): 2}, PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{}, Cursor: Cursor{Step: "test", Attempt: 2, AttemptKey: "h1"}, LastError: "", AttemptLastError: "1 failure"},
 		11: {Args: map[string]any{"branch": "feat/x"}, State: map[string]any{"artifact": "a.bin", "tests_passed": true}, Visits: map[string]int{"build": 1, "test": 1},
-			Attempts: map[AttemptRef]int{ref("test", ""): 1}, PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{}, Cursor: Cursor{Step: "done", Attempt: 1}, LastError: ""},
+			Attempts: map[AttemptRef]int{ref("test", ""): 1}, PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{}, Cursor: Cursor{Step: "done", Attempt: 1}, LastError: "", AttemptLastError: "1 failure"},
 		12: {Args: map[string]any{"branch": "feat/x"}, State: map[string]any{"artifact": "a.bin", "tests_passed": true}, Visits: map[string]int{"build": 1, "test": 1},
-			Attempts: map[AttemptRef]int{ref("test", ""): 1}, PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{}, Cursor: Cursor{Step: "done", Attempt: 1}, LastError: "",
+			Attempts: map[AttemptRef]int{ref("test", ""): 1}, PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{}, Cursor: Cursor{Step: "done", Attempt: 1}, LastError: "", AttemptLastError: "1 failure",
 			Ended: true, EndStatus: "ok"},
 	}
 }
@@ -338,6 +338,16 @@ func naiveReplay(events []Event) (*RunState, error) {
 				rs.Args[k] = v
 			}
 		case KindStepEnter, KindResume:
+			// AttemptLastError: recomputed independently from Replay's
+			// running-field approach by re-deriving it fresh on every
+			// HardRetry: 0 entry (the start of an attempt) rather than
+			// carrying a dedicated "frozen" flag forward — it is simply
+			// re-set to whatever LastError already folded up to by this
+			// point in the scan, same as Replay, but recomputed here rather
+			// than shared code.
+			if e.HardRetry == 0 {
+				rs.AttemptLastError = rs.LastError
+			}
 			rs.Attempts[AttemptRef{e.Step, e.AttemptKey}] = e.Attempt
 			if e.Kind == KindStepEnter {
 				// C1: a retry re-runs the step it is already on, not a
@@ -611,6 +621,49 @@ func TestReplay_RetryDoesNotCountAsVisit(t *testing.T) {
 	want := map[string]int{"loop": 2, "recover": 1}
 	if !reflect.DeepEqual(rs.Visits, want) {
 		t.Errorf("Visits = %v, want %v (five STEP_ENTERs for loop, but only two are fresh visits)", rs.Visits, want)
+	}
+}
+
+// TestReplay_HardRetryDoesNotCountAsVisit: a STEP_ENTER with HardRetry > 0
+// (design/format-spec.md §B.16's retry:, distinct from the Retry field
+// above, which marks an attempts:-level re-entry) must not be counted as a
+// visit either — retries consume neither attempts: nor max_visits:.
+func TestReplay_HardRetryDoesNotCountAsVisit(t *testing.T) {
+	events := []Event{
+		{Kind: KindRunStart, Seq: 0},
+		{Kind: KindStepEnter, Seq: 1, Step: "a", Attempt: 1},
+		{Kind: KindStepEnter, Seq: 2, Step: "a", Attempt: 1, HardRetry: 1},
+		{Kind: KindStepEnter, Seq: 3, Step: "a", Attempt: 1, HardRetry: 2},
+		{Kind: KindTransition, Seq: 4, Step: "a", Target: "b"},
+		{Kind: KindStepEnter, Seq: 5, Step: "b", Attempt: 1},
+	}
+	rs, err := Replay(events)
+	if err != nil {
+		t.Fatalf("Replay: %v", err)
+	}
+	want := map[string]int{"a": 1, "b": 1}
+	if !reflect.DeepEqual(rs.Visits, want) {
+		t.Errorf("Visits = %v, want %v (three STEP_ENTERs for a, but only the first is a fresh visit)", rs.Visits, want)
+	}
+}
+
+// TestReplay_CursorCarriesHardRetry: a crash-resume cursor (no TRANSITION
+// since the last STEP_ENTER) must carry that STEP_ENTER's HardRetry through,
+// so the engine can continue a hard-retry loop at the same count instead of
+// restarting it (see internal/engine/deterministic.go).
+func TestReplay_CursorCarriesHardRetry(t *testing.T) {
+	events := []Event{
+		{Kind: KindRunStart, Seq: 0},
+		{Kind: KindStepEnter, Seq: 1, Step: "a", Attempt: 1},
+		{Kind: KindStepEnter, Seq: 2, Step: "a", Attempt: 1, HardRetry: 1},
+	}
+	rs, err := Replay(events)
+	if err != nil {
+		t.Fatalf("Replay: %v", err)
+	}
+	want := Cursor{Step: "a", Attempt: 1, AttemptKey: "", HardRetry: 1}
+	if rs.Cursor != want {
+		t.Errorf("Cursor = %+v, want %+v", rs.Cursor, want)
 	}
 }
 

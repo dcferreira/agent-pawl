@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dcferreira/agent-pawl/internal/engine"
 )
@@ -1832,6 +1833,36 @@ func TestFormatBranchRecorded(t *testing.T) {
 	want := "~ branch b1 recorded (parallel p: waiting on: b2, b3)\n"
 	if got != want {
 		t.Errorf("formatBranchRecorded mismatch:\n--- got ---\n%q\n--- want ---\n%q", got, want)
+	}
+}
+
+// TestFormatPollIteration_RetryIsNotReportedAsRouted is the fix-round-6
+// regression: a hard-failed tick that retry: is about to retry must never be
+// printed as if the loop had ended. Before this fix, formatPollIteration had
+// no way to see PollIteration.Retrying, so a retried non-zero exit printed
+// "routing failure" and a retried unparseable routed payload printed
+// "routed outcome <token>" — both wrong, since the loop keeps polling.
+func TestFormatPollIteration_RetryIsNotReportedAsRouted(t *testing.T) {
+	nonZeroExit := engine.PollIteration{
+		N: 1, ExitCode: 1, Token: "failure", Routed: true, Retrying: true, Next: 2 * time.Second,
+	}
+	got := formatPollIteration(nonZeroExit)
+	if strings.Contains(got, "routing failure") {
+		t.Errorf("formatPollIteration reported a retried hard failure as routed:\n%s", got)
+	}
+	if !strings.Contains(got, "retry") || !strings.Contains(got, "2s") {
+		t.Errorf("formatPollIteration did not say it is retrying with the backoff:\n%s", got)
+	}
+
+	unparseablePayload := engine.PollIteration{
+		N: 2, ExitCode: 0, Line: "PASSED", Token: "PASSED", Routed: true, Retrying: true, Next: 4 * time.Second,
+	}
+	got = formatPollIteration(unparseablePayload)
+	if strings.Contains(got, "routed outcome") {
+		t.Errorf("formatPollIteration reported a retried unparseable payload as a routed outcome:\n%s", got)
+	}
+	if !strings.Contains(got, "retry") || !strings.Contains(got, "4s") {
+		t.Errorf("formatPollIteration did not say it is retrying with the backoff:\n%s", got)
 	}
 }
 

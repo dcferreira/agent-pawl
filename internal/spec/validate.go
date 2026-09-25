@@ -33,7 +33,7 @@ func (r *Report) SoftPercent() float64 {
 
 // Validate runs the static checks against w and returns a Report. The
 // checks implemented are design/format-spec.md §H rules 1, 2, 3, 3b, 4, 5,
-// 6, 7, 8, 9, 9b, 10, 11, 12, 13, 14, 15, 18 (Ruling R4), plus guards:
+// 6, 7, 8, 9, 9b, 10, 11, 12, 13, 14, 15, 18, 19 (Ruling R4), plus guards:
 // validation (checkGuards — id required+unique, match: required and
 // RE2-compilable, only_in: required with rule 15 checking each entry names
 // a declared step), the R8 invariants: rejection (guards: is no longer
@@ -41,9 +41,10 @@ func (r *Report) SoftPercent() float64 {
 // parallel branches: validation (checkParallelBranches, rule 17).
 // deterministic, agentic, wait, human and parallel are all supported
 // (Ruling R3); wait's own required fields (poll:) and duration parsing
-// (every:, timeout:) are checked alongside rule 7, and human's own required
-// fields and options routing are checked by rule 8. Rule 16 and the two
-// warnings are deferred per R4.
+// (every:, timeout:) are checked alongside rule 7, human's own required
+// fields and options routing are checked by rule 8, and a step's retry:
+// block (Ruling R7, no longer deferred) is checked by rule 19. Rule 16 and
+// the two warnings are deferred per R4.
 func Validate(w *Workflow) (*Report, error) {
 	if w == nil {
 		return nil, fmt.Errorf("spec: Validate: nil workflow")
@@ -346,11 +347,42 @@ func minMatchWidth(re *syntax.Regexp) int {
 	}
 }
 
-// checkRetry rejects retry: (Ruling R7): parsed, never silently ignored.
+// checkRetry implements §H rule 19: retry: is restricted to deterministic
+// and wait steps (a hard-failed body is the only thing it retries, and
+// those are the only two kinds whose body can hard-fail — see
+// design/format-spec.md §B.16), and its own fields are checked: max_attempts:
+// is required and must be an integer ≥ 2 (1 would retry zero times, a
+// no-op — reject it rather than silently accept a field that does nothing),
+// backoff: is required and must parse as a positive time.ParseDuration
+// (mirroring how wait's own every:/timeout: durations are checked by
+// checkWaitDurations), and no key other than max_attempts:/backoff: is
+// accepted (mirrored from Postcondition.UnknownKeys / rule 14).
 func checkRetry(w *Workflow, errs *[]string) {
 	for _, s := range w.Steps {
-		if s.Retry != nil {
-			*errs = append(*errs, stepErr(w, s.ID, "retry: is not implemented in this build; remove the retry: block"))
+		if s.Retry == nil {
+			continue
+		}
+		if s.Kind != "deterministic" && s.Kind != "wait" {
+			*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
+				"rule 19: retry: is only valid on kind: deterministic or kind: wait, not kind: %s; remove the retry: block", s.Kind)))
+			continue
+		}
+		if len(s.Retry.UnknownKeys) > 0 {
+			*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
+				"rule 19: retry: uses unknown key(s) %s; use only max_attempts and backoff", strings.Join(s.Retry.UnknownKeys, ", "))))
+		}
+		if s.Retry.MaxAttempts < 2 {
+			*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
+				"rule 19: retry.max_attempts: %d is less than 2; max_attempts: counts the first try, so 1 would never retry — use 2 or more, or remove the retry: block", s.Retry.MaxAttempts)))
+		}
+		if s.Retry.Backoff == "" {
+			*errs = append(*errs, stepErr(w, s.ID, "rule 19: retry.backoff: is required; add a backoff: duration (e.g. \"30s\")"))
+		} else if d, err := time.ParseDuration(s.Retry.Backoff); err != nil {
+			*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
+				"rule 19: retry.backoff: %q is not a valid duration; use Go duration syntax, e.g. \"30s\", \"1m\"", s.Retry.Backoff)))
+		} else if d <= 0 {
+			*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
+				"rule 19: retry.backoff: %q must be greater than zero", s.Retry.Backoff)))
 		}
 	}
 }
@@ -646,7 +678,7 @@ func branchStepIDs(w *Workflow) map[string]string {
 // claimed as a branch by more than one parallel step, a branch may not be
 // the workflow's start: step, and a branch step may declare none of the
 // fields the owning parallel step alone controls (next:, outcomes:, catch:,
-// attempts:, attempt_key:, max_visits:).
+// attempts:, attempt_key:, max_visits:, retry:).
 func checkParallelBranches(w *Workflow, errs *[]string) {
 	owner := branchStepIDs(w)
 
@@ -660,6 +692,7 @@ func checkParallelBranches(w *Workflow, errs *[]string) {
 		{"attempts:", func(s Step) bool { return s.AttemptsRaw != nil }},
 		{"attempt_key:", func(s Step) bool { return s.AttemptKey != "" }},
 		{"max_visits:", func(s Step) bool { return s.MaxVisitsRaw != nil }},
+		{"retry:", func(s Step) bool { return s.Retry != nil }},
 	}
 
 	for _, s := range w.Steps {
