@@ -29,3 +29,10 @@ Stale docs are rated on this same scale — there is no floor that makes a stale
 least "minor"; a wording nit in a doc is still a nitpick.
 
 Classify honestly; do not inflate or deflate severity.
+
+## Changelog fragment
+
+Check that the PR's `.changes/unreleased/` fragment exists (unless the PR is labeled `skip
+changelog`) and that its body and kind accurately describe the user-visible change — see
+`docs/releasing.md`. A missing or mismatched fragment is a normal finding on this same severity
+scale, not a special case.

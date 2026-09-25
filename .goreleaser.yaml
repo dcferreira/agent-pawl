@@ -45,11 +45,20 @@ archives:
 checksum:
   name_template: checksums.txt
 
-# No changelog section override: goreleaser's default (commits since the
-# previous tag, grouped) is fine here — there's no changelog tooling
-# elsewhere in this repo to stay consistent with.
+# Release notes come from changie, not from goreleaser's own commit-log
+# changelog: .github/workflows/release.yml passes
+# `--release-notes=<path to .changes/vX.Y.Z.md, minus its header line>` on
+# the goreleaser CLI invocation, which goreleaser uses verbatim as the
+# GitHub Release body instead of generating one from commits.
+#
+# `changelog.disable: true` must NEVER be set here — per goreleaser's own
+# docs (https://goreleaser.com/customization/changelog/), disabling the
+# changelog also discards `--release-notes`, which would silently blank out
+# every future release's notes. Leave `changelog:` unset/default; it's
+# simply unused whenever `--release-notes` is passed.
 
 release:
-  # Draft off: release.yml only runs on a real `v*` tag push, so publishing
-  # immediately is correct — there's no separate promotion step in this repo.
+  # Draft off: release.yml tags and publishes in one run once a release PR
+  # merges to main, so publishing immediately is correct — there's no
+  # separate promotion step in this repo.
   draft: false

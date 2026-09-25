@@ -86,7 +86,12 @@ it by writing the design doc's version of reality into code comments or docs.
   distribution). Current through §5 (enforcement); §9 (distribution) is still the target system,
   not this build.
 - `docs/` — user-facing docs. `docs/install.md` and `docs/dogfood.md` describe this build
-  honestly; `docs/README.md` describes the finished system (says so explicitly).
+  honestly; `docs/README.md` describes the finished system (says so explicitly); `docs/releasing.md`
+  is the release-management flow (see the Conventions section below).
+- `.changes/` — changie's fragment store: `unreleased/*.yaml` (one per PR), `vX.Y.Z.md` per
+  release, `header.tpl.md`. `CHANGELOG.md` at the repo root is generated from these by `changie
+  merge` — never hand-edited. `scripts/release/` — the check scripts `changelog.yml`/`ci.yml`/
+  `release.yml` run; see `docs/releasing.md`.
 
 ### This repo is also a Claude Code plugin
 
@@ -122,12 +127,19 @@ Makefile targets (all real, all in CI or documented for local use):
   what CI runs, not `make fmt`.
 - `make vet` — `go vet ./...`.
 - `make staticcheck` — pinned version (`v0.8.1`) run via `go run`, so no separate install needed.
-- `make check` — `fmt vet test` (uses the rewriting `fmt`, so it's a dev convenience, not what CI
-  gates on for formatting).
+- `make test-release-checks` — `bash scripts/release/test-checks.sh`, unit tests for
+  `scripts/release/*.sh` against throwaway git fixture repos; no network. See `docs/releasing.md`.
+- `make check` — `fmt vet test test-install test-release-checks` (uses the rewriting `fmt`, so it's
+  a dev convenience, not what CI gates on for formatting).
 
 CI (`.github/workflows/ci.yml`) gates a PR on: `make fmt-check`, `make vet`, `make staticcheck`,
-`go mod tidy` producing no diff to `go.mod`/`go.sum`, `claude plugin validate . --strict`, and both
-`make test` and `make test-race`. Existing tests and `e2e/` set `PAWL_ENFORCEMENT=off` in their
+`go mod tidy` producing no diff to `go.mod`/`go.sum`, `claude plugin validate . --strict`,
+`scripts/release/check-version-consistency.sh` (plugin.json's version vs. the latest `.changes/`
+release), and both `make test` and `make test-race` (which now also runs
+`make test-release-checks`). `.github/workflows/changelog.yml` gates a PR separately (so labeling a
+PR doesn't rerun the whole suite) on `scripts/release/check-fragment.sh` and
+`scripts/release/check-no-version-bump.sh` — see `docs/releasing.md`. Existing tests and `e2e/` set
+`PAWL_ENFORCEMENT=off` in their
 shared setup (`setupWorkingCopy` and friends) so the enforcement gate added by `pawl run` doesn't
 require a real heartbeat in every test; the gate itself is tested directly in
 `internal/cli/enforce_test.go`. The test job installs `jq` (the `green-tests` example's
@@ -144,6 +156,14 @@ runtime either — see the next section.
   subject line, a body explaining *why* and any non-obvious trade-off, trailers for
   `Co-Authored-By:`/`Claude-Session:` where applicable — verified against this repo's actual
   commit history, not assumed.
+- **Every PR adds a `.changes/unreleased/` fragment via `changie new`, or gets the `skip
+  changelog` label** — `.github/workflows/changelog.yml` enforces one or the other. Never edit
+  `CHANGELOG.md`, a `.changes/v*.md` file, or `.claude-plugin/plugin.json`'s `version` field by
+  hand in a normal PR: releases only happen through the Release PR workflow
+  (`.github/workflows/release-pr.yml`, manually dispatched), which bumps all three together and
+  opens a `release/v*` PR for review. Never push a `v*` tag by hand — `release.yml` tags and
+  publishes itself, triggered by a merged release PR's push to `main` (a `CHANGELOG.md` diff), not
+  by a tag push. See `docs/releasing.md`.
 - **Contributors may use git, jj, or no VCS at all; nothing here assumes one.**
   `internal/journal.ResolveRoot` never shells out to either: it walks up from cwd looking for the
   nearest directory containing a `.git` or `.jj` entry (either can be a plain file, e.g. a git

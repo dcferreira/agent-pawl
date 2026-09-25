@@ -1,19 +1,35 @@
 name: Release
 
+# Triggered by a push to main that changes CHANGELOG.md — i.e. a merged
+# release PR (release-pr.yml opens release/vX.Y.Z; CHANGELOG.md is the one
+# file every release PR always touches, via `changie merge`). This job
+# tags vX.Y.Z itself and runs goreleaser with notes from
+# .changes/vX.Y.Z.md in the SAME run, rather than reacting to a `v*` tag
+# push: a tag pushed with the default GITHUB_TOKEN wouldn't trigger this
+# workflow at all (GitHub's anti-recursion rule for the default token), so
+# tag-push-triggered was never viable once tagging itself happens in CI.
+# workflow_dispatch lets the owner re-run a failed release (e.g. goreleaser
+# flaked) without needing a new CHANGELOG.md-touching push.
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
+    paths: [CHANGELOG.md]
+  workflow_dispatch:
 
 jobs:
   goreleaser:
     name: goreleaser
     runs-on: ubuntu-latest
+    # The push trigger above is already scoped to main, but workflow_dispatch
+    # can be run from any branch in the Actions UI — without this guard,
+    # dispatching from a feature branch would tag and release *that*
+    # branch's tip. See docs/releasing.md.
+    if: github.ref == 'refs/heads/main'
     # The default GITHUB_TOKEN is read-only content access on this repo,
     # which makes goreleaser's release-publish step fail with "403 Resource
     # not accessible by integration". contents: write is what lets it
     # create the GitHub Release and upload archives/checksums.txt as
-    # assets.
+    # assets, and lets this job push the vX.Y.Z tag itself.
     permissions:
       contents: write
     steps:
@@ -21,8 +37,8 @@ jobs:
         with:
           # goreleaser needs the full history and all tags to generate the
           # changelog (commits since the previous tag) and resolve the
-          # current version from the pushed tag; a shallow checkout would
-          # only see the tagged commit itself.
+          # current version; a shallow checkout would only see the latest
+          # commit itself.
           fetch-depth: 0
 
       - name: Install Go
@@ -30,16 +46,88 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Install changie
+        run: go install github.com/miniscruff/changie@v1.26.0
+
+      - name: Resolve the version to release
+        run: |
+          set -euo pipefail
+          echo "VERSION=$(changie latest)" >>"$GITHUB_ENV"
+
+      - name: Sanity-check plugin.json agrees with .changes/
+        run: bash scripts/release/check-version-consistency.sh
+
+      - name: Configure git identity for the release tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      # Idempotent across three states — workflow_dispatch (a manual
+      # re-run), or a second CHANGELOG.md-touching push before this job got
+      # to run, must not blow up trying to recreate something that's
+      # already there, and a goreleaser failure after a previous run's tag
+      # push must be resumable without re-tagging (git tag -a on an
+      # existing tag fails outright — and it would already exist locally
+      # here, since checkout's fetch-depth: 0 fetches all tags):
+      #   - tag exists, release exists: nothing to do.
+      #   - tag exists, no release: a prior run tagged and then failed
+      #     before goreleaser published. Don't re-tag; just confirm the
+      #     existing tag still points at the commit this run is releasing
+      #     from (it always should, since a release is only ever cut from
+      #     the tip of main), then fall through to goreleaser.
+      #   - neither exists: tag, push, then run goreleaser.
+      - name: Tag the release (unless it already exists)
+        run: |
+          set -euo pipefail
+
+          tag_exists=0
+          git rev-parse -q --verify "refs/tags/${VERSION}" >/dev/null 2>&1 && tag_exists=1 || true
+          release_exists=0
+          gh release view "${VERSION}" >/dev/null 2>&1 && release_exists=1 || true
+
+          if [ "$tag_exists" = "1" ] && [ "$release_exists" = "1" ]; then
+            echo "::notice::${VERSION} is already tagged and released — nothing to do."
+            echo "SKIP=1" >>"$GITHUB_ENV"
+          elif [ "$tag_exists" = "1" ]; then
+            tagged_sha=$(git rev-list -n1 "${VERSION}")
+            head_sha=$(git rev-parse HEAD)
+            if [ "$tagged_sha" != "$head_sha" ]; then
+              echo "::error::${VERSION} is already tagged, but at ${tagged_sha}, not the commit this run is releasing from (${head_sha}). Refusing to publish against a mismatched tag — investigate by hand." >&2
+              exit 1
+            fi
+            echo "::notice::${VERSION} is already tagged (at HEAD) with no release yet — resuming from goreleaser without re-tagging."
+          else
+            git tag -a "${VERSION}" -m "${VERSION}"
+            # This push deliberately triggers nothing further: pushing a tag
+            # with the default GITHUB_TOKEN fires no workflow (the same
+            # anti-recursion rule this workflow's own trigger comment
+            # explains), which is exactly fine here since goreleaser runs
+            # right below in this same job.
+            git push origin "${VERSION}"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Write release notes from .changes/
+        if: env.SKIP != '1'
+        run: |
+          set -euo pipefail
+          # Drop the version-file's own header line ("## vX.Y.Z - date");
+          # goreleaser's --release-notes file becomes the GitHub Release
+          # body as-is.
+          tail -n +2 ".changes/${VERSION}.md" >"$RUNNER_TEMP/notes.md"
+
       # Pinned to match the version verified locally (see .goreleaser.yaml
       # and the packaging PR that introduced it), rather than floating on
       # `latest`, for reproducibility — same rationale as pinning
       # staticcheck's version in the Makefile.
       - name: Run goreleaser
+        if: env.SKIP != '1'
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
           version: v2.18.2
-          args: release --clean
+          args: release --clean --release-notes=${{ runner.temp }}/notes.md
         env:
           # Used by goreleaser to publish the GitHub release and upload
           # archives/checksums.txt as its assets.
