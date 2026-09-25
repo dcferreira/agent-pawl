@@ -468,6 +468,79 @@ terminal: {done: {status: ok}}
 	}
 }
 
+// TestInvariant_BlockedTerminalMessageRendered: when the workflow declares
+// its own `blocked` terminal message:, an invariant violation renders it
+// with ${blocked_reason} bound to the invariant's reason — exactly as an
+// author-routed blocked does via afterTransition (docs/guards-and-invariants.md:
+// "The reason goes into the journal and ${blocked_reason}, for your `blocked`
+// terminal message").
+func TestInvariant_BlockedTerminalMessageRendered(t *testing.T) {
+	const yaml = `
+workflow: invariant-blocked-template
+start: a
+invariants:
+  - id: never-holds
+    check: "false"
+    message: "the world changed underneath the run"
+steps:
+  - id: a
+    kind: deterministic
+    run: "true"
+    next: done
+terminal:
+  done: {status: ok}
+  blocked: {status: blocked, message: "Paused: ${blocked_reason}"}
+`
+	e := newTestEngine(t, yaml)
+	instr, err := e.Start("run1", nil)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	term, ok := instr.(Terminal)
+	if !ok || term.Status != "blocked" {
+		t.Fatalf("got %+v, want Terminal{blocked}", instr)
+	}
+	wantMsg := `Paused: invariant "never-holds" violated: the world changed underneath the run`
+	if term.Message != wantMsg {
+		t.Errorf("Terminal.Message = %q, want %q (the declared blocked terminal template, rendered)", term.Message, wantMsg)
+	}
+}
+
+// TestInvariant_BlockedTerminalMessageFallsBackToRawReason: when the
+// workflow declares no `blocked` terminal at all, an invariant violation's
+// Terminal.Message is the raw reason (RunState.BlockedReason) — today's
+// behaviour, preserved as the fallback when there's no template to render.
+func TestInvariant_BlockedTerminalMessageFallsBackToRawReason(t *testing.T) {
+	const yaml = `
+workflow: invariant-blocked-no-template
+start: a
+invariants:
+  - id: never-holds
+    check: "false"
+    message: "the world changed underneath the run"
+steps:
+  - id: a
+    kind: deterministic
+    run: "true"
+    next: done
+terminal:
+  done: {status: ok}
+`
+	e := newTestEngine(t, yaml)
+	instr, err := e.Start("run1", nil)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	term, ok := instr.(Terminal)
+	if !ok || term.Status != "blocked" {
+		t.Fatalf("got %+v, want Terminal{blocked}", instr)
+	}
+	wantMsg := `invariant "never-holds" violated: the world changed underneath the run`
+	if term.Message != wantMsg {
+		t.Errorf("Terminal.Message = %q, want %q (no declared blocked terminal message, so the raw reason)", term.Message, wantMsg)
+	}
+}
+
 // TestInvariant_ViolatedAfterParallelBranchSubmit: an invariant is
 // evaluated at a kind: parallel step's group-join (routeParallel), once
 // every branch has resolved — the one place a violation can be journaled

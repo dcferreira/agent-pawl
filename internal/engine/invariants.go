@@ -113,9 +113,14 @@ func (e *Engine) preTransitionInvariantBlock(dir string, log *journal.Log, runID
 		if err != nil {
 			return nil, err
 		}
+		msgTmpl := ""
+		if t, ok := e.Workflow.Terminal["blocked"]; ok {
+			msgTmpl = t.Message
+		}
+		message := e.renderBlockedMessage(rs2, runID, cursorStep, cursorStep, msgTmpl)
 		return Terminal{
 			RunID: runID, Status: "blocked", StepID: cursorStep,
-			Outcome: "invariant", Message: rs2.BlockedReason,
+			Outcome: "invariant", Message: message,
 		}, nil
 	}
 	return nil, nil

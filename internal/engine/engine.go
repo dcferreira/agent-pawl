@@ -472,14 +472,28 @@ func (e *Engine) afterTransition(dir string, log *journal.Log, runID, fromStep, 
 	if err != nil {
 		return nil, nil, err
 	}
+	message := e.renderBlockedMessage(rs, runID, target, fromStep, msgTmpl)
+	return Terminal{RunID: runID, Status: status, StepID: target, Outcome: outcome, Message: message}, nil, nil
+}
+
+// renderBlockedMessage renders msgTmpl (a workflow terminal's declared
+// message:, empty when none was declared for the target in play) against
+// vals built for stepForVals/stepForVisits, falling back to rs.BlockedReason
+// when no template is declared or rendering fails. Shared by afterTransition
+// (an author-routed transition to a terminal, most commonly `blocked`) and
+// preTransitionInvariantBlock (an engine-forced block on invariant
+// violation), so both render a declared `blocked` terminal message's
+// ${blocked_reason} the same way (design/format-spec.md §B.2,
+// docs/guards-and-invariants.md).
+func (e *Engine) renderBlockedMessage(rs *journal.RunState, runID, stepForVals, stepForVisits, msgTmpl string) string {
 	message := rs.BlockedReason
 	if msgTmpl != "" {
-		vals := buildValues(e.Workflow, rs, runID, target, 0, rs.Visits[fromStep])
+		vals := buildValues(e.Workflow, rs, runID, stepForVals, 0, rs.Visits[stepForVisits])
 		if rendered, rerr := render.RenderProse(msgTmpl, vals); rerr == nil {
 			message = rendered
 		}
 	}
-	return Terminal{RunID: runID, Status: status, StepID: target, Outcome: outcome, Message: message}, nil, nil
+	return message
 }
 
 // dispatchInstruction builds the Dispatch instruction for step at attempt,
