@@ -4,8 +4,7 @@ description: >
   hand a short human-readable summary to an agentic step once it passes.
   Exercises deterministic → wait → agentic in sequence. See NOTES.md for
   what this example exercises and the judgment calls made while authoring
-  it (`wait` is not yet accepted by the engine — this is spec-writing
-  ahead of implementation).
+  it.
 start: kick_off_build
 max_steps: 20                          # backstop; this workflow has no cycles
 
