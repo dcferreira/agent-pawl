@@ -35,7 +35,7 @@ func (e *Engine) dispatchParallel(dir string, log *journal.Log, runID string, st
 		return nil, err
 	}
 	if e.checkCaps(rs, step) {
-		instr, next, err := e.routeReserved(dir, log, runID, step, "exhausted", cur.Attempt)
+		instr, next, err := e.routeReserved(dir, log, runID, step, "exhausted", cur.Attempt, false)
 		if err != nil {
 			return nil, err
 		}
@@ -193,6 +193,19 @@ func journalBranchTransition(log *journal.Log, runID, parallelID, branchID strin
 // attempts: govern what happens next, unchanged — and journaled as the
 // parallel step's own (ungrouped) TRANSITION, moving rs.Cursor on exactly
 // like any other step's transition.
+//
+// This is also the only place invariants: are evaluated for a kind:
+// parallel step — once, here, at the join, never once per branch as each
+// branch's own submit lands. Checking per branch instead would mean the
+// first branch to submit could trip an invariant while sibling branches
+// were still outstanding and already dispatched: those siblings' own
+// eventual submits would land against a run the engine had already ended
+// blocked, which the fix-forward, all-or-nothing branches join this
+// function implements assumes never happens (see its own doc comment
+// above). Checking once at the join, after every branch has already
+// transitioned, keeps that invariant intact — a violated invariant blocks
+// the run only once the whole group's own side effects are already
+// accounted for, exactly like any other step.
 func (e *Engine) routeParallel(dir string, log *journal.Log, runID string, step *spec.Step, attempt int) (Instruction, error) {
 	rs, err := replayDir(dir)
 	if err != nil {
@@ -204,6 +217,11 @@ func (e *Engine) routeParallel(dir string, log *journal.Log, runID string, step 
 			outcome = "failure"
 			break
 		}
+	}
+	if instr, err := e.preTransitionInvariantBlock(dir, log, runID, step.ID); err != nil {
+		return nil, err
+	} else if instr != nil {
+		return instr, nil
 	}
 	target, viaCatch, err := resolveTarget(step, outcome)
 	if err != nil {
@@ -227,14 +245,18 @@ func (e *Engine) routeParallel(dir string, log *journal.Log, runID string, step 
 
 // resumeParallel re-derives, from rs.PendingBranches[step.ID] (already
 // post-replay), which of step's branches are still outstanding after a
-// crash or blocked-run intervention: an already-transitioned branch is
-// never re-run or re-dispatched. A still-outstanding deterministic branch is
-// safely re-exec'd inline (the same fix-forward caveat DESIGN.md §4 states
-// generally for any interrupted step); a still-outstanding agentic branch is
-// re-collected into a DispatchParallel{Interrupted: true}. If re-executing
-// the deterministic stragglers leaves no agentic branch outstanding, the
-// group resolves right here via routeParallel instead of returning an
-// instruction with nothing to dispatch.
+// crash (only — Resume routes a blocked-run intervention straight to
+// dispatchParallel instead, since every branch has already transitioned by
+// the time RUN_END{blocked} is journaled and there is nothing left in
+// PendingBranches to re-derive; see Resume's "parallel" case): an
+// already-transitioned branch is never re-run or re-dispatched. A
+// still-outstanding deterministic branch is safely re-exec'd inline (the
+// same fix-forward caveat DESIGN.md §4 states generally for any interrupted
+// step); a still-outstanding agentic branch is re-collected into a
+// DispatchParallel{Interrupted: true}. If re-executing the deterministic
+// stragglers leaves no agentic branch outstanding, the group resolves right
+// here via routeParallel instead of returning an instruction with nothing to
+// dispatch.
 func (e *Engine) resumeParallel(dir string, log *journal.Log, runID string, step *spec.Step, rs *journal.RunState) (Instruction, error) {
 	pending := rs.PendingBranches[step.ID]
 	var agentic []Dispatch

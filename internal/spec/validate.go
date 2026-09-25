@@ -36,9 +36,12 @@ func (r *Report) SoftPercent() float64 {
 // 6, 7, 8, 9, 9b, 10, 11, 12, 13, 14, 15, 18, 19 (Ruling R4), plus guards:
 // validation (checkGuards — id required+unique, match: required and
 // RE2-compilable, only_in: required with rule 15 checking each entry names
-// a declared step), the R8 invariants: rejection (guards: is no longer
-// rejected outright — see checkGuards's own doc comment), and the kind:
-// parallel branches: validation (checkParallelBranches, rule 17).
+// a declared step), invariants: validation (checkInvariants — id
+// required+unique, check: required with its ${key} references checked
+// against state:/args: by checkRule4 exactly like a postcondition's
+// command, message: required; guards: and invariants: are both accepted
+// and validated now — see checkGuards's own doc comment for guards:), and
+// the kind: parallel branches: validation (checkParallelBranches, rule 17).
 // deterministic, agentic, wait, human and parallel are all supported
 // (Ruling R3); wait's own required fields (poll:) and duration parsing
 // (every:, timeout:) are checked alongside rule 7, human's own required
@@ -125,14 +128,58 @@ func sortedOutcomeKeys(m map[string]string) []string {
 	return keys
 }
 
-// checkInvariants rejects invariants: (Ruling R8): it is still deferred,
-// and silently disabling enforcement is the failure class DESIGN.md §5
-// exists to prevent, so a declared block is rejected outright rather than
-// ignored. guards: used to be rejected the same way; it no longer is — see
-// checkGuards.
+// invariantRef names an invariants[] entry for an error message: its quoted
+// id when one was declared, else its positional index (invariants[i]) —
+// mirroring guardRef, for the same reason: one bad invariant should produce
+// one error per bad field rather than being skipped wholesale.
+func invariantRef(inv InvariantDecl, i int) string {
+	if inv.ID != "" {
+		return fmt.Sprintf("invariant %q", inv.ID)
+	}
+	return fmt.Sprintf("invariants[%d]", i)
+}
+
+// checkInvariants validates invariants: (design/format-spec.md §B.10, §B.12,
+// §D, §H). invariants: is engine-checked now, not rejected — the engine
+// evaluates every declared invariant, in order, after every step completion
+// and after every pawl submit/pawl poll (internal/engine), stopping at the
+// first violated one; a violation blocks the run. Per invariants[] entry:
+//   - id: is required and must be unique across the file (reusing
+//     stepIDPattern, mirroring checkGuards — an invariant id ends up in a
+//     RUN_END's reason text and the journal, so the same identifier-safety
+//     reasoning applies).
+//   - check: is required; its ${key} references are validated the same way
+//     a postcondition's command: is (checkRule4), since check: is rendered
+//     and run exactly like one (internal/engine reuses
+//     evaluateCommandPostcondition's own render/exec path).
+//   - message: is required: it is what a violation's blocked_reason and
+//     TERMINAL message: show, so an invariant with no message: would block
+//     a run with nothing to tell the reader why.
 func checkInvariants(w *Workflow, errs *[]string) {
-	if len(w.Invariants) > 0 {
-		*errs = append(*errs, fileErr(w, "invariants: is not implemented in this build; remove the invariants: block"))
+	seen := map[string]bool{}
+	for i, inv := range w.Invariants {
+		ref := invariantRef(inv, i)
+
+		if inv.ID == "" {
+			*errs = append(*errs, fileErr(w, fmt.Sprintf("%s: id: is required; add a unique id", ref)))
+		} else {
+			if !stepIDPattern.MatchString(inv.ID) {
+				*errs = append(*errs, fileErr(w, fmt.Sprintf(
+					"invariant %q: id is not a valid invariant id; use only letters, digits, \"_\" and \"-\", starting with a letter or digit — rename the invariant", inv.ID)))
+			}
+			if seen[inv.ID] {
+				*errs = append(*errs, fileErr(w, fmt.Sprintf(
+					"invariant %q is declared more than once; invariant ids must be unique — rename one of them", inv.ID)))
+			}
+			seen[inv.ID] = true
+		}
+
+		if inv.Check == "" {
+			*errs = append(*errs, fileErr(w, fmt.Sprintf("%s: check: is required; add a check: command", ref)))
+		}
+		if inv.Message == "" {
+			*errs = append(*errs, fileErr(w, fmt.Sprintf("%s: message: is required; add a message: describing what broke", ref)))
+		}
 	}
 }
 
@@ -149,17 +196,19 @@ func guardRef(g GuardDecl, i int) string {
 }
 
 // checkGuards validates guards: (design/format-spec.md §B.10, §D, §H rule
-// 15). Unlike invariants:, guards: is no longer rejected outright: it is
-// accepted and validated here so the enforcement hook (internal/hook,
-// internal/guard) has something to consume — the hook reads a live run's
-// guards straight out of plan.json's Workflow.Guards, not a separate
-// guards.json. Accepted-and-validated is only advisory enforcement, though:
-// it's a PreToolUse pattern match against the Bash command, not a semantic
-// guarantee ($(), a variable, or a renamed binary all evade it), and it's
-// only live at all while the hooks are actually installed and firing —
-// internal/cli's run banner prints "guards: N advisory (pattern-matched)"
-// when a fresh heartbeat exists, or "guards: N declared, NOT enforced" when
-// enforcement is off, whenever N > 0 (nothing extra when N == 0).
+// 15). Like invariants: (checkInvariants, above), guards: is not rejected
+// outright: it is accepted and validated here so the enforcement hook
+// (internal/hook, internal/guard) has something to consume — the hook reads
+// a live run's guards straight out of plan.json's Workflow.Guards, not a
+// separate guards.json. Accepted-and-validated is only advisory
+// enforcement, though: it's a PreToolUse pattern match against the Bash
+// command, not a semantic guarantee ($(), a variable, or a renamed binary
+// all evade it), and it's only live at all while the hooks are actually
+// installed and firing — internal/cli's run banner prints "guards: N
+// advisory (pattern-matched)" when a fresh heartbeat exists, or "guards: N
+// declared, NOT enforced" when enforcement is off, whenever N > 0 (nothing
+// extra when N == 0). invariants:, by contrast, really is engine-checked
+// (see checkInvariants).
 //
 // Per guards[] entry:
 //   - id: is required and must be unique across the file (reusing
@@ -900,6 +949,11 @@ func checkRule4(w *Workflow, errs *[]string) {
 		t := w.Terminal[id]
 		add := func(msg string) { *errs = append(*errs, terminalErr(w, id, msg)) }
 		scanTemplate("message", t.Message, add)
+	}
+
+	for i, inv := range w.Invariants {
+		add := func(msg string) { *errs = append(*errs, fileErr(w, msg)) }
+		scanTemplate(fmt.Sprintf("%s: check", invariantRef(inv, i)), inv.Check, add)
 	}
 }
 

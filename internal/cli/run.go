@@ -114,7 +114,7 @@ func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 		}
 		_ = journal.SyncLiveIndex(root)
 	}
-	fmt.Fprint(stdout, formatBanner(rw, report, len(w.Guards), mode))
+	fmt.Fprint(stdout, formatBanner(rw, report, len(w.Guards), len(w.Invariants), mode))
 
 	if ref != nil {
 		if len(raw) > 0 {

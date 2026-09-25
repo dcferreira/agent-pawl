@@ -146,7 +146,11 @@ func (e *Engine) advanceDeterministic(dir string, log *journal.Log, runID string
 		return nil, nil, err
 	}
 	if e.checkCaps(rs, step) {
-		return e.routeReserved(dir, log, runID, step, "exhausted", cur.Attempt)
+		// Point 2: this cap check runs before the step's body has executed
+		// at all this visit — nothing new has been journaled for it to
+		// re-observe, so invariants are not evaluated here (runInvariants:
+		// false), unlike every other routeReserved call below.
+		return e.routeReserved(dir, log, runID, step, "exhausted", cur.Attempt, false)
 	}
 
 	vals := buildValues(e.Workflow, rs, runID, step.ID, cur.Attempt, rs.Visits[step.ID])
@@ -244,7 +248,7 @@ func (e *Engine) advanceDeterministic(dir string, log *journal.Log, runID string
 		hardRetry = 0
 
 		if at.hardFailed {
-			return e.routeReserved(dir, log, runID, step, "failure", attempt)
+			return e.routeReserved(dir, log, runID, step, "failure", attempt, true)
 		}
 		cr := at.cr
 
@@ -274,6 +278,11 @@ func (e *Engine) advanceDeterministic(dir string, log *journal.Log, runID string
 				}); err != nil {
 					return nil, nil, err
 				}
+			}
+			if instr, err := e.preTransitionInvariantBlock(dir, log, runID, step.ID); err != nil {
+				return nil, nil, err
+			} else if instr != nil {
+				return instr, nil, nil
 			}
 			target, viaCatch, err := resolveTarget(step, at.outcome)
 			if err != nil {
@@ -311,12 +320,16 @@ func (e *Engine) advanceDeterministic(dir string, log *journal.Log, runID string
 		// how Visits is accounted can never silently reopen the "un-enforced
 		// within a single visit" half of the finding.
 		if e.checkCaps(rs, step) {
-			return e.routeReserved(dir, log, runID, step, "exhausted", attempt)
+			// C1's defensive re-check, after at least one real attempt of
+			// this visit already ran (WRITES/POSTCONDITION already
+			// journaled for it) — unlike the top-of-function checkCaps
+			// above, invariants ARE evaluated here.
+			return e.routeReserved(dir, log, runID, step, "exhausted", attempt, true)
 		}
 
 		nextAttempt := nextTryNumber(attempt, rs.Attempts[journal.AttemptRef{Step: step.ID, Key: nextKey}])
 		if nextAttempt > step.Attempts {
-			return e.routeReserved(dir, log, runID, step, "failure", attempt)
+			return e.routeReserved(dir, log, runID, step, "failure", attempt, true)
 		}
 		attempt, key = nextAttempt, nextKey
 		retry = true
@@ -324,8 +337,20 @@ func (e *Engine) advanceDeterministic(dir string, log *journal.Log, runID string
 }
 
 // routeReserved resolves and journals the transition for a reserved outcome
-// (failure or exhausted) and continues via afterTransition.
-func (e *Engine) routeReserved(dir string, log *journal.Log, runID string, step *spec.Step, outcome string, attempt int) (Instruction, *journal.Cursor, error) {
+// (failure or exhausted) and continues via afterTransition. runInvariants is
+// false only for the one call site (a step's own top-of-visit checkCaps)
+// where the step's body has not executed at all this visit — every other
+// call site has already journaled a real attempt's WRITES/POSTCONDITION (or
+// a hard-failure diagnostic) and evaluates invariants before appending the
+// TRANSITION (design/format-spec.md §10, point 2).
+func (e *Engine) routeReserved(dir string, log *journal.Log, runID string, step *spec.Step, outcome string, attempt int, runInvariants bool) (Instruction, *journal.Cursor, error) {
+	if runInvariants {
+		if instr, err := e.preTransitionInvariantBlock(dir, log, runID, step.ID); err != nil {
+			return nil, nil, err
+		} else if instr != nil {
+			return instr, nil, nil
+		}
+	}
 	target, viaCatch, err := resolveTarget(step, outcome)
 	if err != nil {
 		return nil, nil, err

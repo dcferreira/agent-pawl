@@ -57,9 +57,21 @@ type GuardDecl struct {
 	OnlyIn []string `yaml:"only_in" json:"only_in"`
 }
 
-// InvariantDecl is an invariant declaration. Invariants are parsed but
-// still rejected by Validate in this build (Ruling R8) — only the
-// guards:/invariants: split is new; invariants: is unaffected.
+// InvariantDecl is an invariant declaration: {id, check, message}
+// (design/format-spec.md §B.10, §D). Validate accepts and validates
+// invariants: (id required+unique, check: required with its ${key}
+// references checked against state:/args: exactly like a postcondition's
+// command, message: required), and the engine evaluates every declared
+// invariant, in order, after every step completion and after every `pawl
+// submit`/`pawl poll` — stopping at the first violated one — strictly before
+// the completed step's own TRANSITION is journaled (internal/engine). check:
+// runs exactly like a postcondition's command: exit 0 holds, non-zero
+// violates, and anything that keeps it from running at all (an unresolvable
+// ${key}, a missing script, an exec failure, the wall-clock ceiling) also
+// counts as violated, never as a thrown error. A violation blocks the run
+// (status "blocked"), journalling a RUN_END whose reason names the
+// invariant and carries message:, reusing the same mechanism an
+// author-routed `blocked` transition already uses — no new event kind.
 type InvariantDecl struct {
 	ID      string `yaml:"id"`
 	Check   string `yaml:"check"`

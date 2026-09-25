@@ -262,6 +262,14 @@ Exit 0 holds; non-zero violates; a check that *cannot run* — missing script, u
 network error — counts as violated. A violation blocks the run with the invariant's `message:` as the
 reason.
 
+For a `kind: parallel` step, "after every step completion" means once, when the whole group joins
+(§B.15) — not once per branch, as each branch's own `pawl submit` lands. A parallel group's branches
+are dispatched all at once and its join is all-or-nothing (§B.15): checking invariants per branch
+would let the first branch's submit trip a violation and block the run while sibling branches were
+still outstanding and already dispatched, so their own eventual submits would land against a run the
+engine had already ended blocked. Checking once at the join, after every branch has already
+transitioned, keeps the group's own side effects fully accounted for before an invariant gets a say.
+
 ### 11. No fall-through: every step names its own routes
 
 Every step must have exactly one of `next:` or a complete `outcomes:` map. "Complete" means every
@@ -352,6 +360,15 @@ what a branch wrote, route from a following `deterministic` step that reads the 
 This is the full extent of `kind: parallel` as shipped: one branch group, one join, all-or-nothing.
 `foreach:` fan-out over a runtime-discovered list, with per-item postconditions and a
 **partial**-success join, remains Milestone 3 (§I) — not this.
+
+**Invariants and the join.** `invariants:` (§10) are evaluated once per parallel step, at the join —
+after every branch has transitioned and the group's own `success`/`failure` outcome is resolved —
+never once per branch as each branch's own `pawl submit` lands. The join is all-or-nothing: a
+still-outstanding agentic branch always leaves the run parked, so checking invariants against an
+individual branch's submit, before its siblings have reported, would risk blocking the run while a
+sibling branch was still outstanding and already dispatched — that sibling's own eventual submit
+would then land against a run the engine had already ended blocked. Waiting for the join keeps the
+whole group's side effects accounted for before an invariant gets a say, exactly like any other step.
 
 ### 16. `retry:` retries the body on a hard failure
 

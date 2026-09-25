@@ -1,0 +1,13 @@
+workflow: invariantunknownfield
+start: a
+invariants:
+  - id: bad
+    check: scripts/check.sh
+    message: "it broke"
+    frobnicate: true
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    next: done
+terminal: {done: {status: ok}}

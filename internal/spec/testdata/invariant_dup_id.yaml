@@ -1,0 +1,15 @@
+workflow: invariantdupid
+start: a
+invariants:
+  - id: dup
+    check: scripts/check.sh
+    message: "it broke"
+  - id: dup
+    check: scripts/check2.sh
+    message: "it broke again"
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    next: done
+terminal: {done: {status: ok}}

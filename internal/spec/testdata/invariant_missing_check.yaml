@@ -1,0 +1,11 @@
+workflow: invariantmissingcheck
+start: a
+invariants:
+  - id: no-check
+    message: "it broke"
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    next: done
+terminal: {done: {status: ok}}
