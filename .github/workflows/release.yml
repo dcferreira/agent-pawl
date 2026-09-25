@@ -71,11 +71,17 @@ jobs:
       # here, since checkout's fetch-depth: 0 fetches all tags):
       #   - tag exists, release exists: nothing to do.
       #   - tag exists, no release: a prior run tagged and then failed
-      #     before goreleaser published. Don't re-tag; just confirm the
-      #     existing tag still points at the commit this run is releasing
-      #     from (it always should, since a release is only ever cut from
-      #     the tip of main), then fall through to goreleaser.
-      #   - neither exists: tag, push, then run goreleaser.
+      #     before goreleaser published. Don't re-tag; check out the tagged
+      #     commit (it needn't be HEAD any more — other PRs may have merged
+      #     to main since) so goreleaser runs from the commit that was
+      #     actually released, not whatever main has moved to.
+      #   - neither exists: tag, push, then run goreleaser. On a manual
+      #     workflow_dispatch (not the CHANGELOG.md-touching push this
+      #     workflow normally reacts to), refuse unless HEAD is the commit
+      #     that last changed CHANGELOG.md — otherwise a dispatch could tag
+      #     and release main's current tip, which may carry commits merged
+      #     after the release PR under a version those commits were never
+      #     part of.
       - name: Tag the release (unless it already exists)
         run: |
           set -euo pipefail
@@ -89,14 +95,15 @@ jobs:
             echo "::notice::${VERSION} is already tagged and released — nothing to do."
             echo "SKIP=1" >>"$GITHUB_ENV"
           elif [ "$tag_exists" = "1" ]; then
-            tagged_sha=$(git rev-list -n1 "${VERSION}")
+            echo "::notice::${VERSION} is already tagged with no release yet — checking out the tag and resuming from goreleaser without re-tagging."
+            git checkout "refs/tags/${VERSION}"
+          else
+            changelog_sha=$(git log -1 --format=%H -- CHANGELOG.md)
             head_sha=$(git rev-parse HEAD)
-            if [ "$tagged_sha" != "$head_sha" ]; then
-              echo "::error::${VERSION} is already tagged, but at ${tagged_sha}, not the commit this run is releasing from (${head_sha}). Refusing to publish against a mismatched tag — investigate by hand." >&2
+            if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ "$changelog_sha" != "$head_sha" ]; then
+              echo "::error::Neither tag ${VERSION} nor its release exist, and this is a manual workflow_dispatch run where HEAD (${head_sha}) is not the commit that last changed CHANGELOG.md (${changelog_sha}). Refusing to tag and release main's current tip, which may include commits merged after the release PR. Re-run via 'Re-run failed jobs' on the original run instead, or dispatch from the commit CHANGELOG.md was last changed at." >&2
               exit 1
             fi
-            echo "::notice::${VERSION} is already tagged (at HEAD) with no release yet — resuming from goreleaser without re-tagging."
-          else
             git tag -a "${VERSION}" -m "${VERSION}"
             # This push deliberately triggers nothing further: pushing a tag
             # with the default GITHUB_TOKEN fires no workflow (the same
@@ -107,6 +114,7 @@ jobs:
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
 
       - name: Write release notes from .changes/
         if: env.SKIP != '1'

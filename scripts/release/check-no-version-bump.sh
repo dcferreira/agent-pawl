@@ -30,19 +30,24 @@ changie_config_exists_at() {
 }
 
 # diff_touches_changelog BASE HEAD
+# Uses merge-base (three-dot) semantics: what the PR branch itself did
+# since it diverged from base, not what changed on base since then (which
+# a later release merged into base would otherwise make look like the PR's
+# own doing).
 diff_touches_changelog() {
   local base="$1" head="$2"
   local touched
-  touched=$(git diff --name-only "$base" "$head" -- 'CHANGELOG.md')
+  touched=$(git diff --name-only "$base...$head" -- 'CHANGELOG.md')
   [ -n "$touched" ]
 }
 
 # diff_touches_release_notes BASE HEAD
-# Any add/modify/delete of a .changes/v*.md release-notes file.
+# Any add/modify/delete of a .changes/v*.md release-notes file, relative to
+# the merge-base (see diff_touches_changelog).
 diff_touches_release_notes() {
   local base="$1" head="$2"
   local touched
-  touched=$(git diff --name-only "$base" "$head" -- '.changes/v*.md')
+  touched=$(git diff --name-only "$base...$head" -- '.changes/v*.md')
   [ -n "$touched" ]
 }
 
@@ -57,11 +62,14 @@ plugin_version_at() {
 # Fails (in the "problem found" sense, i.e. returns 0) only when the file
 # exists at both revisions and its .version field differs — a file that's
 # missing on either side, or any other plugin.json edit, is not this
-# check's business.
+# check's business. Compares against the merge-base, not base directly —
+# same reasoning as diff_touches_changelog: base may have advanced (e.g. a
+# release bumped plugin.json) since the PR branched.
 diff_bumps_plugin_version() {
   local base="$1" head="$2"
-  local before after
-  before=$(plugin_version_at "$base")
+  local merge_base before after
+  merge_base=$(git merge-base "$base" "$head")
+  before=$(plugin_version_at "$merge_base")
   after=$(plugin_version_at "$head")
   [ -n "$before" ] && [ -n "$after" ] && [ "$before" != "$after" ]
 }

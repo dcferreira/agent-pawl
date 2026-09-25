@@ -50,12 +50,16 @@ changie_config_exists_at() {
 }
 
 # diff_adds_fragment BASE HEAD
-# True if the base...head diff adds at least one .changes/unreleased/*.yaml
-# file.
+# True if the PR branch itself (merge-base...head, three-dot) adds at least
+# one .changes/unreleased/*.yaml file. Three-dot rather than two-dot: a
+# release merged into base after the PR branched deletes fragments on base,
+# which a two-dot base-vs-head diff would otherwise report as "added" by
+# this PR (absent on base, present on head) even though the PR added none
+# of its own.
 diff_adds_fragment() {
   local base="$1" head="$2"
   local added
-  added=$(git diff --name-only --diff-filter=A "$base" "$head" -- '.changes/unreleased/*.yaml')
+  added=$(git diff --name-only --diff-filter=A "$base...$head" -- '.changes/unreleased/*.yaml')
   [ -n "$added" ]
 }
 

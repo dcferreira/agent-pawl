@@ -125,9 +125,14 @@ across all three states a re-run can find:
 
 - tag and GitHub Release both already exist: nothing to do.
 - tag exists but the release doesn't (goreleaser failed after the tag push): the tag isn't
-  recreated (that would fail outright); the workflow just confirms the existing tag still points at
-  the commit it's releasing from, then runs goreleaser.
-- neither exists: tag, push, then run goreleaser — the normal path.
+  recreated (that would fail outright); the workflow checks out the tagged commit (it needn't be
+  main's current tip any more — other PRs may have merged since) and runs goreleaser from there.
+- neither exists: tag, push, then run goreleaser — the normal path, but on a manual
+  `workflow_dispatch` this only proceeds if `main`'s current tip is still the commit that last
+  changed `CHANGELOG.md`. If later commits have merged to `main` since the release PR, the workflow
+  refuses rather than tag and release those unreleased commits under the old version — use
+  **Re-run failed jobs** on the original run instead (it keeps the original commit), or dispatch
+  before anything else merges.
 
 Never push a `v*` tag by hand — `release.yml` no longer triggers on a tag push (it creates the tag
 itself, from a `CHANGELOG.md`-touching push to `main`), so a hand-pushed tag wouldn't publish

@@ -10,9 +10,10 @@ on:
     inputs:
       version:
         description: >-
-          Version to release (e.g. "1.2.3" or "minor"/"major"/"patch"). Leave
+          Version to release (e.g. "v1.2.3" or "minor"/"major"/"patch"). Leave
           empty to let changie pick automatically from the fragments' kinds
-          ("auto").
+          ("auto"). A leading-digit form like "1.2.3" is accepted too — it's
+          normalized to "v1.2.3" before being passed to changie.
         required: false
         default: ""
 
@@ -72,6 +73,15 @@ jobs:
         run: |
           set -euo pipefail
           version="${RELEASE_VERSION_INPUT:-auto}"
+          # changie preserves the version string as given: an explicit
+          # "1.2.3" (no leading v) would write .changes/1.2.3.md, which
+          # check-version-consistency.sh (only globs .changes/v*.md) and the
+          # release/v* branch-name exemption both miss. Normalize a
+          # leading-digit input to the v-prefixed form; "auto"/"major"/
+          # "minor"/"patch" and an already-prefixed "v1.2.3" pass through.
+          case "$version" in
+            [0-9]*) version="v$version" ;;
+          esac
           changie batch "$version"
           changie merge
           echo "RELEASE_VERSION=$(changie latest)" >>"$GITHUB_ENV"

@@ -152,6 +152,27 @@ EOF
 git add -A && git commit -q -m "introduce changie, no fragment yet")
 assert_ok "bootstrap: .changie.yaml missing at base -> pass" bash -c "cd '$FIXTURE_DIR' && export PAWL_RELEASE_CHECK_TEST=1 && source '$REPO_ROOT/scripts/release/check-fragment.sh' && check_fragment \$(git rev-parse base) \$(git rev-parse HEAD)"
 
+# base advances after the PR branches: a release merged into base deletes
+# .changes/unreleased/*.yaml fragments other PRs had added before the PR
+# branched. A stale PR that adds none of its own must still fail — a
+# two-dot base-vs-head diff would see that deletion-on-base as "added" by
+# this PR (absent at base's new tip, present at the PR's head, since the PR
+# never deleted it) and let it slide.
+new_fixture
+(cd "$FIXTURE_DIR" && cat >.changes/unreleased/other-pr.yaml <<'EOF'
+kind: added
+body: someone else's change
+EOF
+git add -A && git commit -q -m "an earlier PR's fragment, already on base")
+fixture_git tag pr-point
+(cd "$FIXTURE_DIR" && echo "unrelated" >README.md && git add -A && git commit -q -m "PR branch: no fragment of its own")
+fixture_git tag head
+(cd "$FIXTURE_DIR" && git checkout -q pr-point && rm .changes/unreleased/other-pr.yaml && cat >CHANGELOG.md <<'EOF'
+whatever
+EOF
+git add -A && git commit -q -m "release commit lands on base" && git tag base && git checkout -q -)
+assert_fails "base advances (release deletes fragments) after PR branches, PR adds none of its own -> fail" bash -c "cd '$FIXTURE_DIR' && export PAWL_RELEASE_CHECK_TEST=1 && source '$REPO_ROOT/scripts/release/check-fragment.sh' && check_fragment \$(git rev-parse base) \$(git rev-parse head)"
+
 echo
 echo "== check-no-version-bump.sh =="
 
@@ -227,6 +248,36 @@ unreleasedDir: unreleased
 EOF
 git add -A && git commit -q -m "introduce changie")
 assert_ok "bootstrap: .changie.yaml missing at base -> pass" bash -c "cd '$FIXTURE_DIR' && export PAWL_RELEASE_CHECK_TEST=1 && source '$REPO_ROOT/scripts/release/check-no-version-bump.sh' && check_no_version_bump \$(git rev-parse base) \$(git rev-parse HEAD)"
+
+# base advances after the PR branches: a release lands on base after the PR
+# branched, touching CHANGELOG.md, adding a .changes/vX.md and bumping
+# plugin.json's version — none of which is this PR's doing. A two-dot
+# base-vs-head diff would see main's release changes "in reverse" (as if
+# the PR itself reverted/touched them) and fail the PR; the merge-base form
+# must still pass it.
+new_fixture
+fixture_git tag pr-point
+(cd "$FIXTURE_DIR" && cat >.changes/unreleased/added-1.yaml <<'EOF'
+kind: added
+body: something
+EOF
+git add -A && git commit -q -m "PR branch: unrelated fragment only")
+fixture_git tag head
+(cd "$FIXTURE_DIR" && git checkout -q pr-point && cat >CHANGELOG.md <<'EOF'
+whatever
+EOF
+cat >.changes/v0.2.0.md <<'EOF'
+## v0.2.0 - 2026-02-01
+EOF
+rm -f .changes/unreleased/*.yaml
+cat >.claude-plugin/plugin.json <<'EOF'
+{
+  "name": "fixture",
+  "version": "0.2.0"
+}
+EOF
+git add -A && git commit -q -m "release commit lands on base" && git tag base && git checkout -q -)
+assert_ok "base advances (release commit) after PR branches -> pass" bash -c "cd '$FIXTURE_DIR' && export PAWL_RELEASE_CHECK_TEST=1 && source '$REPO_ROOT/scripts/release/check-no-version-bump.sh' && check_no_version_bump \$(git rev-parse base) \$(git rev-parse head)"
 
 echo
 echo "== check-version-consistency.sh =="
