@@ -333,7 +333,39 @@ cat >.claude-plugin/plugin.json <<'EOF'
 }
 EOF
 git add -A && git commit -q -m "a prerelease file next to its final release")
-assert_ok "prerelease file (v1.0.0-rc1.md) ignored, v1.0.0 is latest -> pass" check_version_consistency "$FIXTURE_DIR"
+assert_ok "prerelease file (v1.0.0-rc1.md) sorts before its final release, v1.0.0 is latest -> pass" check_version_consistency "$FIXTURE_DIR"
+
+new_fixture
+(cd "$FIXTURE_DIR" && cat >.changes/v0.3.0.md <<'EOF'
+## v0.3.0 - 2026-02-15
+EOF
+cat >.changes/v1.0.0-rc1.md <<'EOF'
+## v1.0.0-rc1 - 2026-03-15
+EOF
+cat >.claude-plugin/plugin.json <<'EOF'
+{
+  "name": "fixture",
+  "version": "1.0.0-rc1"
+}
+EOF
+git add -A && git commit -q -m "prerelease-only Release PR, no final release for its base version yet")
+assert_ok "no v1.0.0 release yet, v1.0.0-rc1 is latest (prerelease-only cut) -> pass" check_version_consistency "$FIXTURE_DIR"
+
+new_fixture
+(cd "$FIXTURE_DIR" && cat >.changes/v1.0.0-rc1.md <<'EOF'
+## v1.0.0-rc1 - 2026-03-01
+EOF
+cat >.changes/v1.0.0-rc2.md <<'EOF'
+## v1.0.0-rc2 - 2026-03-15
+EOF
+cat >.claude-plugin/plugin.json <<'EOF'
+{
+  "name": "fixture",
+  "version": "1.0.0-rc2"
+}
+EOF
+git add -A && git commit -q -m "two prereleases of the same base version")
+assert_ok "v1.0.0-rc2 sorts after v1.0.0-rc1, rc2 is latest -> pass" check_version_consistency "$FIXTURE_DIR"
 
 echo
 echo "$tests_run tests run, $failures failed"

@@ -8,40 +8,65 @@
 # repo-dir defaults to ".".
 #
 # Deliberately doesn't shell out to changie: "latest" is just the highest
-# semver among .changes/v*.md filenames, computed here with `sort -V` so
-# this check has no tooling dependency beyond git/jq/coreutils (CI installs
-# changie anyway, for release-pr.yml and release.yml, but this script
-# doesn't need it). Prerelease filenames (a "-" after the version, e.g.
-# v1.0.0-rc1.md) are excluded before sorting: `sort -V` orders a
-# prerelease AFTER its final release — the opposite of changie/semver
-# precedence — so if one were left in, it would win the "latest" pick
-# whenever a prerelease file sits next to its release. This repo only
-# ever writes plain X.Y.Z release-notes filenames, so excluding anything
-# with a "-" is enough, and `sort -V` is correct for ordering those.
+# semver among .changes/v*.md filenames, computed here so this check has no
+# tooling dependency beyond git/jq/coreutils (CI installs changie anyway,
+# for release-pr.yml and release.yml, but this script doesn't need it).
+# Plain `sort -V` gets prerelease ordering backwards (it puts v1.0.0-rc1
+# AFTER v1.0.0, and can't compare prereleases of different base versions
+# correctly either), so each filename's basename (without ".md") is turned
+# into a three-field sort key "<base> <flag> <pre>": base is the X.Y.Z
+# part, flag is 0 for a prerelease (has a "-") and 1 for a plain release,
+# and pre is the prerelease suffix (empty for a plain release). Sorting
+# that key with `sort -k1,1V -k2,2n -k3,3V` orders by base version first,
+# then puts a bare release after all of its own prereleases, then orders
+# same-base prereleases amongst themselves — matching changie/semver
+# precedence while still keeping prereleases as candidates for "latest"
+# (needed so a prerelease-only Release PR, e.g. version=v1.0.0-rc1, has
+# something for latest_version_from_changes to return).
 #
 # Sourced by test-checks.sh; guarded at the bottom by
 # PAWL_RELEASE_CHECK_TEST like the other two release check scripts.
 set -euo pipefail
 
 # latest_version_from_changes DIR
-# Echoes the highest vX.Y.Z among DIR/.changes/v*.md filenames, or nothing
-# (and a non-zero exit) if there are none. Filenames with a "-" after the
-# version (prereleases, e.g. v1.0.0-rc1.md) are excluded — see the header
-# comment above for why.
+# Echoes the semver-highest vX.Y.Z or vX.Y.Z-PRE among DIR/.changes/v*.md
+# filenames, or nothing (and a non-zero exit) if there are none. A bare
+# release sorts after its own prereleases; prereleases remain eligible to
+# be "latest" when no bare release for that base version exists yet — see
+# the header comment above for the sort-key scheme.
 latest_version_from_changes() {
   local dir="$1"
-  local f base latest=""
+  local f base_full version_part base pre flag key
+  local keys=""
   shopt -s nullglob
   for f in "$dir"/.changes/v*.md; do
-    base="$(basename "$f" .md)"
-    case "$base" in
-    *-*) continue ;;
+    base_full="$(basename "$f" .md)"
+    version_part="${base_full#v}"
+    case "$version_part" in
+    *-*)
+      base="${version_part%%-*}"
+      pre="${version_part#*-}"
+      flag=0
+      ;;
+    *)
+      base="$version_part"
+      pre=""
+      flag=1
+      ;;
     esac
-    latest="${latest:+$latest$'\n'}$base"
+    key="$base $flag $pre"
+    keys="${keys:+$keys$'\n'}$key"
   done
   shopt -u nullglob
-  [ -n "$latest" ] || return 1
-  echo "$latest" | sort -V | tail -n1
+  [ -n "$keys" ] || return 1
+  local top base_out flag_out pre_out
+  top="$(printf '%s\n' "$keys" | sort -k1,1V -k2,2n -k3,3V | tail -n1)"
+  read -r base_out flag_out pre_out <<<"$top"
+  if [ "$flag_out" = "1" ]; then
+    echo "v${base_out}"
+  else
+    echo "v${base_out}-${pre_out}"
+  fi
 }
 
 # plugin_version DIR
