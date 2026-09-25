@@ -12,12 +12,15 @@ prints the first `DISPATCH`/`ASK`/`WAIT` line and exits (inspect only). Either w
 ```
 › pawl run manage-mr mr_url_arg=https://gitlab/x/y/-/merge_requests/41
   run 7f3a  manage-mr  .claude/workflows/manage-mr.yaml
-  hooks: PreToolUse ✔  Stop ✔   guards: 4 advisory (pattern-matched)  invariants: 2
+  hooks: PreToolUse ✔ (heartbeat)  Stop assumed (same hooks.json)
+  guards: 4 advisory (pattern-matched)
 ```
 
 Arguments are `key=value`, declared in `args:`; a missing required one refuses to start and prints
-the usage. Line 1: run id, workflow, resolved file. Line 2: the enforcement self-test — `pawl` refuses
-to start if either hook doesn't answer (see
+the usage. Line 1: run id, workflow, resolved file. Line 2: the enforcement banner — `pawl` refuses
+to start a new run unless a fresh `PreToolUse` heartbeat exists for this working copy (a resume
+doesn't need one — see below); `Stop` is assumed
+installed from the same `hooks.json`, not independently checked (see
 [troubleshooting](troubleshooting.md#hooks-not-live)); [guards are advisory, invariants
 hold](guards-and-invariants.md).
 
@@ -98,6 +101,12 @@ A non-terminal run for this working copy resumes. Steps before the cursor are no
 interrupted step *is*, noted in `DISPATCH` — a crash never consumes an attempt, and nothing rolls
 back.
 
+You can resume from a plain terminal: a resume needs no hook heartbeat. An enforced run stays
+enforced — its mode was fixed at start, the banner reads
+`enforcement: on (bound at run start; no hook heartbeat for this resume)`, and the hooks keep
+applying to it. Deterministic steps run and the run stops at the next `DISPATCH`/`ASK`; hand that to
+a Claude Code session (whose `pawl run`/`submit` makes it the run's driver) to carry on.
+
 `--fresh` starts a new run, resetting every counter; `pawl run` refuses to resume if the workflow file
 changed. `pawl abandon --run 7f3a [--reason <text>]` ends a run for good, any time.
 
@@ -116,7 +125,7 @@ violated; or a step exhausted `max_visits:`/`max_steps:` unrouted.
 It releases `Stop` — the session is yours again; guards still deny, the run is still live.
 
 **What to do:** read the reason (`pawl status --run 7f3a`), fix the world by hand, then `pawl run
-manage-mr` to resume at the blocked step (`attempts:` reset to 1) — or `pawl abandon --run 7f3a` to end
+manage-mr` (from a plain terminal is fine) to resume at the blocked step (`attempts:` reset to 1) — or `pawl abandon --run 7f3a` to end
 it for good. You can also ask the model to investigate and propose a fix first — resuming is still
 your call. Resuming elsewhere (`--from <step>`) isn't yet available — see
 [README.md#not-yet](README.md#not-yet).

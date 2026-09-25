@@ -99,13 +99,62 @@ pawl
 ```
 
 with no arguments prints the command list — `run`, `validate`, `status`, `abandon`, `list`,
-`submit`, `version`, `update`. That is the complete command surface of this build. In particular:
+`submit`, `poll`, `hook`, `version`, `update`. That is the complete command surface of this build. In particular:
 
-- **`pawl poll` and `pawl hook` do not exist.** There is no `wait`/`human` step kind to poll for
-  (see below), and there are no hooks to invoke.
-- **`pawl run` never refuses to start for lack of enforcement.** It prints
-  `enforcement: off (milestone 1)` in its banner and proceeds — see
+- **`pawl hook pre|stop`** is the enforcement hooks' entry point — see [#hooks](#hooks) below.
+- **`pawl run` refuses to start (exit 4) without a live `PreToolUse` heartbeat**, unless you pass
+  `--no-enforcement` or set `PAWL_ENFORCEMENT=off` — see [#hooks](#hooks) and
   [dogfood.md](dogfood.md) for what that means in practice.
+
+## Hooks
+
+`pawl run` won't start unless `pawl`'s `PreToolUse` hook has fired for this working copy within the last
+5 minutes — its way of confirming the enforcement hooks are actually wired up, since it has no
+other way to ask Claude Code that directly. Without a fresh heartbeat, `pawl run` refuses:
+
+```
+pawl: refusing to start: pawl's PreToolUse hook has not fired for this working copy in the last 5 minutes.
+Install the agent-pawl Claude Code plugin (docs/install.md#hooks), or pass --no-enforcement.
+```
+
+Allowlisting `Bash(pawl:*)` in Claude Code's permissions avoids an approval prompt on every `pawl`
+call — worth doing on its own, and it also means the heartbeat gets written without you having to
+wait on a prompt first.
+
+**The Claude Code plugin wires the hooks automatically.** Once installed (see the README's
+Installation section), the plugin's `hooks/hooks.json` binds `PreToolUse` (matcher `Bash`) and `Stop`
+to `${CLAUDE_PLUGIN_ROOT}/bin/pawl-hook pre|stop` — a fast-path wrapper that hands the payload to
+`pawl hook pre|stop` once anything is actually live, or once the payload itself mentions `pawl` (so a
+fresh heartbeat is written even before any run is live). Nothing further to configure; restart the
+session after installing so the hooks bind.
+
+**Without the plugin**, add the same two hooks to your own `settings.json` directly — there is no
+`pawl-hook` on your `PATH` to fast-path through, so these call `pawl hook pre`/`pawl hook stop`
+straight:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [{ "matcher": "Bash", "hooks": [{ "type": "command", "command": "pawl hook pre" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "pawl hook stop" }] }]
+  }
+}
+```
+
+**Opting out**: pass `--no-enforcement` to `pawl run`, or set `PAWL_ENFORCEMENT=off` — the banner
+says so (`enforcement: off (--no-enforcement)` / `enforcement: off (PAWL_ENFORCEMENT=off)`), and any
+`guards:` the workflow declares are reported as declared but not enforced. This is a real, visible
+opt-out, not a workaround: nothing is checked for that run. The opt-out is recorded in the run's
+journal at start and holds for the run's whole life — the hooks ignore it (no guards, no subagent VCS
+rule, no `Stop` refusal) even on resume, submit or poll. It works the other way too: an opted-out
+run resumes without a heartbeat, and an enforced run can't be opted out on resume (`pawl run`
+refuses `--no-enforcement` there). An enforced run doesn't need a heartbeat to resume either: you can
+resume it from a plain terminal, and it stays enforced. See [cli.md](cli.md).
+
+Once hooks are on, `Stop` will refuse to end the driving session's turn while its run is at an
+`agentic`/`parallel` step awaiting `pawl submit` — finish the dispatch, or run
+`pawl abandon --run <id>` to release it. See [cli.md](cli.md) and
+[troubleshooting.md](troubleshooting.md) for the exact messages.
 
 ## What `make check` runs
 
@@ -130,9 +179,12 @@ or, if installed via `install.sh`:
 rm "${INSTALL_DIR:-$HOME/.local/bin}/pawl"
 ```
 
-There is no other installed state to remove: no plugin directory, no `~/.claude/pawl/`, no global
-`~/.local/state/pawl/`. Where run state actually lives is `internal/journal`'s run directory — see
-`docs/running.md` and `pawl status`'s `root:` line for the mechanism that exists today.
+There is no other installed state from the binary install itself to remove: no plugin directory, no
+global `~/.local/state/pawl/`. `~/.claude/pawl/` does now hold state — `runs/`, `live/`, and
+`heartbeat/`, written by the enforcement hooks — but that's plugin/hook state, not something this
+binary uninstall touches; remove it by hand if you also want that gone. Where run state actually
+lives is `internal/journal`'s run directory — see `docs/running.md` and `pawl status`'s `root:` line
+for the mechanism that exists today.
 
 ## Step kinds and validator scope in this build
 
@@ -140,10 +192,9 @@ All five step kinds are implemented: `deterministic`, `agentic`, `wait`, `human`
 (single-group, all-or-nothing `branches:` join — [design/format-spec.md](../design/format-spec.md)
 §B.15). Top-level `guards:` is now parsed and validated (id required+unique, `match:` required,
 RE2-compilable, and not able to match zero characters; `only_in:` required — see
-[validation.md](validation.md) rule 15), but not yet enforced: there is no `PreToolUse` hook in this
-build to actually deny a matched command, and `pawl run`'s banner and `pawl validate` say so. Top-level
-`invariants:`, and a step's `retry:` field, remain unimplemented: declaring either is still a
-validation error, not a quietly-ignored field.
+[validation.md](validation.md) rule 15) and enforced by the `PreToolUse` hook, advisory and
+pattern-matched — see [#hooks](#hooks) above. Top-level `invariants:`, and a step's `retry:` field,
+remain unimplemented: declaring either is still a validation error, not a quietly-ignored field.
 
 ---
 

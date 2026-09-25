@@ -13,6 +13,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
+
+	"github.com/dcferreira/agent-pawl/internal/journal"
 )
 
 // usage is the single source of truth for pawl's command-line surface
@@ -23,7 +26,7 @@ import (
 const usage = `Usage: pawl <command> [args]
 
 Commands:
-  pawl run <name> [key=value …] [--fresh] [--force] [--run <id>]
+  pawl run <name> [key=value …] [--fresh] [--force] [--run <id>] [--no-enforcement]
         start, or resume a non-terminal run
   pawl validate <name> | --path <file>
         run the static checks against a workflow file (--path validates a
@@ -40,6 +43,9 @@ Commands:
   pawl poll --run <id> --step <name>
         internal: poll a wait step until it resolves, then submit for itself
         (the /pawl skill runs this under Monitor; an author never writes it)
+  pawl hook pre|stop
+        internal: Claude Code hook entry point (PreToolUse / Stop); reads the
+        hook payload on stdin. Wired by the plugin's hooks/hooks.json.
   pawl version
         print the pawl version
   pawl update [--check] [--version <vX.Y.Z>] [--force]
@@ -49,9 +55,17 @@ Commands:
 `
 
 // Run dispatches on args[1] and returns the process exit code. It is the
-// single entry point exercised by tests: no path through it calls
-// os.Exit, so every command is testable by capturing stdout/stderr.
+// single entry point exercised by every test but hook_test.go: no path
+// through it calls os.Exit, so every command is testable by capturing
+// stdout/stderr. It is RunIO fed an empty stdin, for the commands that
+// never read it.
 func Run(args []string, stdout, stderr io.Writer) int {
+	return RunIO(args, strings.NewReader(""), stdout, stderr)
+}
+
+// RunIO is Run plus a stdin reader for the one command that needs it:
+// `pawl hook pre|stop` reads a Claude Code hook payload from stdin.
+func RunIO(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) < 2 {
 		fmt.Fprint(stderr, usage)
 		return 2
@@ -61,23 +75,35 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		printLine(stderr, "pawl: resolving working directory:", err.Error())
 		return 1
 	}
+	var code int
 	switch args[1] {
 	case "run":
-		return cmdRun(args[2:], cwd, stdout, stderr)
+		code = cmdRun(args[2:], cwd, stdout, stderr)
 	case "submit":
-		return cmdSubmit(args[2:], cwd, stdout, stderr)
+		code = cmdSubmit(args[2:], cwd, stdout, stderr)
 	case "poll":
-		return cmdPoll(args[2:], cwd, stdout, stderr)
+		code = cmdPoll(args[2:], cwd, stdout, stderr)
 	case "status":
 		return cmdStatus(args[2:], cwd, stdout, stderr)
 	case "abandon":
-		return cmdAbandon(args[2:], cwd, stdout, stderr)
+		code = cmdAbandon(args[2:], cwd, stdout, stderr)
 	case "validate":
 		return cmdValidate(args[2:], cwd, stdout, stderr)
 	case "list":
 		return cmdList(args[2:], cwd, stdout, stderr)
+	case "hook":
+		return cmdHook(args[2:], stdin, stdout, stderr)
 	default:
 		fmt.Fprint(stderr, usage)
 		return 2
 	}
+	// Best-effort: a refused run has nothing to link, a failed submit/poll
+	// still leaves the index consistent with what actually happened, and a
+	// sync failure here never changes the command's own exit code — it is
+	// only bin/pawl-hook's fast-path cache (journal.Live(root) remains the
+	// authority on which runs are live).
+	if root, err := journal.ResolveRoot(cwd); err == nil {
+		_ = journal.SyncLiveIndex(root)
+	}
+	return code
 }

@@ -107,55 +107,97 @@ func (w *blockWriter) literal(s string) {
 }
 
 // formatBanner renders pawl run's start banner: which workflow file was used
-// (design/format-spec.md §I), the enforcement line (Ruling R5 — there are no
-// hooks in this build, so pawl run prints rather than refuses), an
-// additional guards: line whenever guardCount > 0 (below), and the soft:
-// census (design/format-spec.md §H, last line: "printed every time"). The
-// banner precedes the instruction grammar and is not itself
-// instruction-shaped (DESIGN.md §2's column-0 sentence names only
-// DISPATCH|ASK|WAIT|TERMINAL and END), but it is still built through
-// blockWriter for the same reason pawl status is (see formatStatus): a
-// workflow file's path is the least attacker-adjacent value in this
-// package, yet "least" is not "never", and there is no cost to guarding it
-// anyway.
+// (design/format-spec.md §I), the enforcement line, an additional guards:
+// line whenever guardCount > 0 (below), and the soft: census
+// (design/format-spec.md §H, last line: "printed every time"). The
+// enforcement line has three shapes, chosen by mode (enforce.go's
+// checkEnforcement/resumeEnforcement): when mode.On, the PreToolUse hook
+// has a fresh heartbeat for this session and the banner says so — or, for
+// a resume of a run bound on at start with no fresh heartbeat
+// (mode.BoundNoHeartbeat, a person resuming from a plain terminal), it says
+// enforcement is on as bound at run start with no heartbeat for this
+// resume — and in both a declared guard is "advisory (pattern-matched)":
+// the PreToolUse hook denies a match, but only by the same pattern match
+// spec.Validate already checked, not a semantic guarantee; when !mode.On
+// (an explicit --no-enforcement or PAWL_ENFORCEMENT=off, or a resume of a
+// run bound off — cmdRun refuses a fresh start before ever calling this
+// when enforcement is on but no heartbeat was found), the banner says
+// enforcement is off and, if guards exist, that they are declared but not
+// enforced. The banner precedes the
+// instruction grammar and is not itself instruction-shaped (DESIGN.md §2's
+// column-0 sentence names only DISPATCH|ASK|WAIT|TERMINAL and END), but it
+// is still built through blockWriter for the same reason pawl status is
+// (see formatStatus): a workflow file's path is the least attacker-adjacent
+// value in this package, yet "least" is not "never", and there is no cost
+// to guarding it anyway.
 //
 // guardCount is the number of guards: entries the workflow declares
 // (spec.Validate now accepts and validates guards:, where it used to
 // reject the block outright — Ruling R8 still applies to invariants:).
-// Silently accepting a declared guard would be exactly the failure R8
-// exists to prevent, since nothing in this build denies a matched command
-// — there is no PreToolUse hook yet (AGENTS.md's Status section). So
-// whenever guardCount > 0, the banner prints one additional, separate line
-// making that explicit; when guardCount == 0 nothing extra is printed, and
-// every banner golden output that predates guards: support (no guards:
-// block) is unchanged.
-func formatBanner(rw *resolvedWorkflow, report *spec.Report, guardCount int) string {
+func formatBanner(rw *resolvedWorkflow, report *spec.Report, guardCount int, mode enforcementMode) string {
 	w := &blockWriter{}
 	w.line(0, "workflow:", rw.Path, "("+rw.Source+")")
-	w.literal("enforcement: off (milestone 1)\n")
-	writeGuardsLine(w, guardCount)
+	if mode.On {
+		if mode.BoundNoHeartbeat {
+			w.literal("enforcement: on (bound at run start; no hook heartbeat for this resume)\n")
+		} else {
+			w.literal("hooks: PreToolUse ✔ (heartbeat)  Stop assumed (same hooks.json)\n")
+		}
+		writeGuardsLine(w, guardCount, guardsEnforced)
+	} else {
+		w.line(0, "enforcement: off ("+mode.OffReason+")")
+		writeGuardsLine(w, guardCount, guardsOff)
+	}
 	writeSoftCensus(w, report)
 	return w.String()
 }
 
-// writeGuardsLine appends the "guards: N declared, NOT enforced (no
-// PreToolUse hook in this build)" line to w whenever guardCount > 0, and
-// nothing at all when guardCount == 0 — factored out of formatBanner so
-// pawl run and pawl validate share the exact same wording rather than risk
-// drifting apart. pawl validate needs this too: it is the command an
-// author runs while writing guards:, and a workflow that declares guards
-// but never mentions their enforcement status leaves exactly the
-// silent-acceptance gap Ruling R8 exists to prevent (see checkGuards's doc
-// comment in internal/spec).
+// guardsLineMode picks writeGuardsLine's wording. pawl run knows whether
+// its run is enforced (guardsEnforced / guardsOff); pawl validate has no run
+// and no mode at all (guardsValidate), so it gets neutral wording that is
+// true whichever way a later run starts.
+type guardsLineMode int
+
+const (
+	// guardsEnforced: the run is enforced — the PreToolUse hook denies a
+	// matched command, but only by the same pattern match spec.Validate
+	// already checked, not a semantic guarantee, hence "advisory".
+	guardsEnforced guardsLineMode = iota
+	// guardsOff: the run's enforcement is off, so nothing denies anything.
+	guardsOff
+	// guardsValidate: pawl validate — no run exists to be on or off.
+	guardsValidate
+)
+
+// writeGuardsLine appends one guards: line to w whenever guardCount > 0,
+// and nothing at all when guardCount == 0 — factored out of formatBanner so
+// pawl run and pawl validate share one helper rather than risk their
+// wording drifting apart. The wording depends on mode (guardsLineMode):
+// "guards: N advisory (pattern-matched)" for an enforced run, "guards: N
+// declared, NOT enforced (enforcement off)" for a run with enforcement
+// off, and, for pawl validate, "guards: N declared (enforced only when a
+// run starts with the pawl hooks installed)". pawl validate needs this
+// too: it is the command an author runs while writing guards:, and a
+// workflow that declares guards but never mentions their enforcement
+// status leaves exactly the silent-acceptance gap Ruling R8 exists to
+// prevent (see checkGuards's doc comment in internal/spec).
 //
 // guardCount is an int, never attacker-controlled content, but this still
 // goes through w.line rather than w.literal — literal is reserved for this
 // package's own hardcoded string literals (see its doc comment), and
 // mixing a Sprintf result into a literal call is exactly the pattern that
 // doc comment asks reviewers to be able to rule out at a glance.
-func writeGuardsLine(w *blockWriter, guardCount int) {
-	if guardCount > 0 {
-		w.line(0, fmt.Sprintf("guards: %d declared, NOT enforced (no PreToolUse hook in this build)", guardCount))
+func writeGuardsLine(w *blockWriter, guardCount int, mode guardsLineMode) {
+	if guardCount <= 0 {
+		return
+	}
+	switch mode {
+	case guardsEnforced:
+		w.line(0, fmt.Sprintf("guards: %d advisory (pattern-matched)", guardCount))
+	case guardsOff:
+		w.line(0, fmt.Sprintf("guards: %d declared, NOT enforced (enforcement off)", guardCount))
+	default:
+		w.line(0, fmt.Sprintf("guards: %d declared (enforced only when a run starts with the pawl hooks installed)", guardCount))
 	}
 }
 

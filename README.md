@@ -22,23 +22,28 @@ describe:
 - Top-level `guards:` is now parsed and validated (id required+unique, `match:` required, must
   compile as a Go RE2 regexp, and must not be able to match zero characters; `only_in:` required —
   rule 15 checks every entry names a declared step; `only_in: []` denies everywhere — see
-  [internal/guard](internal/guard)), but **not enforced**: `pawl run`'s banner and `pawl validate`
-  print an additional `guards: N declared, NOT enforced (no PreToolUse hook in this build)` line
-  whenever a workflow declares any, since there is no hook yet to actually deny a matched command.
-  Top-level `invariants:`, and a step's `retry:`, are still parsed and rejected outright, not
-  ignored.
-- **There is no enforcement layer.** DESIGN.md §5's two static hooks (`PreToolUse`, `Stop`) are
-  not implemented. `pawl run` prints `enforcement: off (milestone 1)` instead of refusing to start —
-  nothing stops a session from walking away from a live run. See
-  [docs/dogfood.md](docs/dogfood.md) for what that means in practice.
+  [internal/guard](internal/guard)), and is now enforced by the `PreToolUse` hook, advisory and
+  pattern-matched: `pawl run`'s banner prints `guards: N advisory (pattern-matched)` when the hooks
+  are on, or `guards: N declared, NOT enforced (enforcement off)` when enforcement is off, and
+  `pawl validate` (which has no run) prints `guards: N declared (enforced only when a run starts
+  with the pawl hooks installed)`. Top-level `invariants:`, and a step's `retry:`, are still parsed
+  and rejected outright, not ignored.
+- **The enforcement layer is built.** `pawl hook pre|stop` (`internal/hook`, wired by the plugin's
+  `hooks/hooks.json` → `bin/pawl-hook`) backs a `PreToolUse`/`Stop` pair. `pawl run` refuses to
+  start (exit 4) unless a fresh PreToolUse heartbeat (≤5 minutes old) exists for the working copy, unless
+  `--no-enforcement` or `PAWL_ENFORCEMENT=off` is passed; a resume needs no heartbeat and keeps the
+  mode bound at run start. The `Stop` hook refuses to end the driving
+  session's turn while its run's cursor is at an `agentic`/`parallel` step awaiting `pawl submit`
+  (`wait`/`human` cursors and `BLOCKED` runs are exempt); a subagent may not mutate VCS while any run
+  is live. See [docs/dogfood.md](docs/dogfood.md) for what that means in practice.
 - `install.sh` and the release pipeline behind it exist (`.goreleaser.yaml`,
   `.github/workflows/release.yml`, cross-compiling `pawl` for linux/darwin × amd64/arm64), and
   tagged releases are published on GitHub for `install.sh` to fetch — see
   [docs/install.md](docs/install.md). There is also a Claude Code plugin (see Installation below)
   that ships the `/agent-pawl:pawl` skill, but a plugin cannot ship a compiled Go binary, so it
   still depends on installing the binary separately (`install.sh` or a source build).
-- `pawl poll --run … --step …` drives a `wait` step; `pawl hook pre|stop` still does not exist,
-  because there is no enforcement layer to invoke it.
+- `pawl poll --run … --step …` drives a `wait` step; `pawl hook pre|stop` is the `PreToolUse`/`Stop`
+  hook entry point (see above).
 
 The workflows under `docs/examples/` beyond `green-tests` remain authoring exercises rather than
 verified-runnable artefacts.
@@ -108,7 +113,7 @@ development.
 3. **[skills/pawl/SKILL.md](skills/pawl/SKILL.md)** — the `/agent-pawl:pawl` skill a Claude Code
    session follows to drive a run.
 4. **`docs/README.md`** — the user guide written during design; describes the finished system
-   (enforcement, full distribution, `foreach:` fan-out) rather than this build — read it for the
+   (full distribution, `foreach:` fan-out) rather than this build — read it for the
    target shape, not for what runs today.
 5. **`DESIGN.md`** — the engine design: handshake, execution, journal and resume, enforcement,
    testing, distribution, open questions.

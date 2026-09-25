@@ -20,12 +20,19 @@ guards:
 `match:` is a regexp over the Bash command string — Go's `regexp` package, RE2 syntax, close to
 POSIX ERE but with no backreferences — matched unanchored anywhere in the command. `${key}` does not
 work here — guards are static, checkable by the validator without running anything. The validator
-(rule 15) checks `id:`, `match:` and `only_in:` today; the `PreToolUse` denial this section describes
-is still target-system behavior — see the repo's README.md "Status" section for what actually
-enforces guards in the current build (currently: nothing yet).
+(rule 15) checks `id:`, `match:` and `only_in:`; the `PreToolUse` denial this section describes is
+real in this build (`internal/hook`, wired via the plugin's `hooks/hooks.json`), advisory and
+pattern-matched — see [install.md#hooks](install.md#hooks) for wiring the hooks up.
 
 `only_in:` lists the steps where the pattern is allowed — `[commit_and_pr]` allows it there, denies
 elsewhere; `[]` (empty) denies it for the whole run: "never do this by hand".
+
+"Active" means the step the run's cursor is on, plus — while a `kind: parallel` step fans out — each
+of its branches that hasn't resolved yet. The cursor stays parked on the `parallel` step itself for
+the whole fan-out, so the `parallel` step's own id counts as active until the join transitions:
+`only_in: [p]`, where `p` is a `parallel` step, permits the pattern in every branch for the entire
+fan-out. `only_in: [some_branch]` permits it only while that branch is still outstanding (not yet
+resolved).
 
 ### Multi-line commands
 
@@ -77,7 +84,8 @@ PreToolUse: denied by pawl guard `merge-only-in-merge-step` (run 7f3a, step wait
 The run banner says so on purpose:
 
 ```
-  hooks: PreToolUse ✔  Stop ✔   guards: 2 advisory (pattern-matched)  invariants: 1
+  hooks: PreToolUse ✔ (heartbeat)  Stop assumed (same hooks.json)
+  guards: 2 advisory (pattern-matched)
 ```
 
 A guard matches a string. Variable indirection (`CMD="gh pr merge"; $CMD 41`), a decoded command, or
@@ -132,13 +140,15 @@ consequence. Invariants run after every step: keep them to a handful, and fast.
   leave a trace.
 - **No trace, nothing catches it** — e.g. "posted a comment then deleted it".
 - **Nothing is rolled back.** An invariant tells you the MR was un-drafted; it cannot re-draft it.
-- **Two live runs in one working copy share one guard table, permissively** — `PreToolUse` denies a
-  command only if *no* live run's active step permits it.
+- **Two live runs in one working copy share one guard table, permissively** — `PreToolUse` lets a
+  guard's deny stand only if *no* live run's active step permits a guard with the same `match:`.
+- **Guards are scoped to the working copy of the Bash call's cwd** — a command run after `cd`-ing
+  elsewhere, or aimed elsewhere (`git -C /repo push`), isn't checked against this working copy's runs.
 - **Guards only see Bash** — an Edit-tool write fires no `match:`, and `subagent_args.tools` is
   guidance to the subagent, not an enforced allowlist ([agentic steps](steps/agentic.md)). The one
-  subagent rule the `PreToolUse` hook actually keeps is denying VCS-mutating `Bash` while an agentic
-  step is live.
-- **A harness that drops a hook mid-run** is outside the engine's reach — the self-test is at start,
+  subagent rule the `PreToolUse` hook actually keeps is denying VCS-mutating `Bash` from a subagent
+  while any run is live, not only during an agentic step.
+- **A harness that drops a hook mid-run** is outside the engine's reach — the heartbeat check is at start,
   not for the duration.
 - **A script that lies** — printing `CLEAN` without checking is indistinguishable from checking. The
   trust boundary is your script.

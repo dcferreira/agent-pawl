@@ -24,6 +24,9 @@ func setupWorkingCopy(t *testing.T) string {
 	root := t.TempDir()
 	t.Chdir(root)
 	t.Setenv(journal.EnvStateDir, t.TempDir())
+	// The enforcement gate is exercised in enforce_test.go; every other
+	// test runs with it explicitly off.
+	t.Setenv("PAWL_ENFORCEMENT", "off")
 	return root
 }
 

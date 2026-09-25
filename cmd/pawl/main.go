@@ -34,5 +34,5 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) >= 2 && args[1] == "update" {
 		return cli.CmdUpdate(args[2:], stdout, stderr, Version, nil)
 	}
-	return cli.Run(args, stdout, stderr)
+	return cli.RunIO(args, os.Stdin, stdout, stderr)
 }

@@ -73,11 +73,13 @@ unique, and must use step-id syntax (letters, digits, `_` and `-`, starting with
 against the whole command string), and must not be able to match zero characters (an unanchored
 pattern that can, e.g. `a*`, `foo|`, or a bare `\b`, would match — and deny — every command); and
 `only_in:` is itself a required key (missing it is an error; write `only_in: []` for "denied
-everywhere"). This rule then checks every `only_in:` entry names a declared step. **Not enforced**,
-though: there is no `PreToolUse` hook in this build to actually deny a matched command, so both
-`pawl run`'s start banner and `pawl validate` print an additional line — `guards: N declared, NOT
-enforced (no PreToolUse hook in this build)` — whenever a workflow declares any. Full field-by-field
-rules: `design/format-spec.md` §H rule 15.
+everywhere"). This rule then checks every `only_in:` entry names a declared step. Enforcement is
+advisory, and only while the hooks are actually installed and firing: with a fresh `PreToolUse`
+heartbeat, `pawl run`'s start banner adds `guards: N advisory (pattern-matched)`; without one
+(enforcement off, `--no-enforcement`/`PAWL_ENFORCEMENT=off`), it adds `guards: N declared, NOT
+enforced (enforcement off)` instead — whenever a workflow declares any. `pawl validate`, which has
+no run to be enforced or not, adds `guards: N declared (enforced only when a run starts with the
+pawl hooks installed)`. Full field-by-field rules: `design/format-spec.md` §H rule 15.
 
 **16 — missing or non-executable file.** A referenced script doesn't exist (relative to
 `.claude/workflows/`), or isn't `chmod +x`. Not implemented in this build: `validate` never touches

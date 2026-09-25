@@ -12,7 +12,7 @@ A human typing `pawl run` for an agentic workflow in a plain terminal gets one `
 the process exits with nothing driving it — deterministic-only workflows, or inspection, only.
 
 ```
-pawl run <name> [key=value …] [--run <id>] [--fresh] [--force]
+pawl run <name> [key=value …] [--run <id>] [--fresh] [--force] [--no-enforcement]
 pawl validate <workflow-name> | --path <file>
 pawl status [--run <id>] [--json]
 pawl list
@@ -31,7 +31,7 @@ Every command uses the same table (`pawl status` is the one deliberate exception
 | 1 | resolution error: unknown workflow, or another non-flag problem hit while resolving it |
 | 2 | usage error: bad/unrecognised flag, missing a flag's value, missing required arg, or validation failed |
 | 3 | run is `BLOCKED` — paused, resumable, not an error (`pawl run`/`pawl submit`/`pawl poll` only) |
-| 4 | refused: lock held, file changed, submit for a non-current step or kind, a poll of a current step that is not `kind: wait`, or a run that has already finished (the last one is `pawl submit`/`pawl abandon` only — `pawl poll` exits 0 quietly instead for the same case, see below); separately, `pawl update` refusing to overwrite a source/`go install` build without `--force` |
+| 4 | refused: `pawl run` with no fresh `PreToolUse` heartbeat and enforcement not opted out, lock held, file changed, submit for a non-current step or kind, a poll of a current step that is not `kind: wait`, or a run that has already finished (the last one is `pawl submit`/`pawl abandon` only — `pawl poll` exits 0 quietly instead for the same case, see below); separately, `pawl update` refusing to overwrite a source/`go install` build without `--force` |
 | 5 | engine error — a bug, or a broken/unreadable run directory or journal; for `pawl update`, any failure resolving, downloading, verifying or installing the release |
 
 ---
@@ -39,12 +39,12 @@ Every command uses the same table (`pawl status` is the one deliberate exception
 ## `pawl run` — human, model
 
 ```
-pawl run <name> [key=value …] [--run <id>] [--fresh] [--force]
+pawl run <name> [key=value …] [--run <id>] [--fresh] [--force] [--no-enforcement]
 ```
 
 Starts a run, or resumes the one for this working copy that is not `done` — `BLOCKED` included (see
-[running.md#blocked](running.md#blocked)). Executes consecutive `deterministic` steps itself, then
-prints exactly one of `DISPATCH`/`ASK`/`WAIT`/`TERMINAL`.
+[running.md#blocked](running.md#blocked)). First checks enforcement (below); then executes
+consecutive `deterministic` steps itself, then prints exactly one of `DISPATCH`/`ASK`/`WAIT`/`TERMINAL`.
 
 | Flag | Effect |
 |---|---|
@@ -52,11 +52,43 @@ prints exactly one of `DISPATCH`/`ASK`/`WAIT`/`TERMINAL`.
 | `--run <id>` | disambiguate which run to resume, when more than one resolves |
 | `--fresh` | start a new run, resetting every counter, even if one is live |
 | `--force` | steal a lock held by a dead process; refuses a live one regardless |
+| `--no-enforcement` | skip the `PreToolUse` heartbeat check and opt this run out of the hooks for its lifetime (same effect as `PAWL_ENFORCEMENT=off`) |
 
 Resuming at an arbitrary step (`--from <step>`) isn't yet available — see
 [README.md#not-yet](README.md#not-yet).
 
-Refusals you may see, all exit 4 (real output, not paraphrased):
+**Enforcement check.** Unless `--no-enforcement` or `PAWL_ENFORCEMENT=off` is set, `pawl run` refuses
+to start (exit 4) unless `pawl hook pre` has written a heartbeat for this working copy no more than 5 minutes
+ago — its way of confirming the `PreToolUse` hook is actually wired up:
+
+```
+pawl: refusing to start: pawl's PreToolUse hook has not fired for this working copy in the last 5 minutes.
+Install the agent-pawl Claude Code plugin (docs/install.md#hooks), or pass --no-enforcement.
+```
+
+On success the banner reads `hooks: PreToolUse ✔ (heartbeat)  Stop assumed (same hooks.json)`, plus
+`guards: N advisory (pattern-matched)` when the workflow declares any; with the opt-out, it reads
+`enforcement: off (--no-enforcement)` / `enforcement: off (PAWL_ENFORCEMENT=off)`, plus
+`guards: N declared, NOT enforced (enforcement off)`. See [install.md#hooks](install.md#hooks).
+
+**On resume, the mode recorded at run start wins.** A run's enforcement mode is bound when it starts,
+and the hooks follow that recorded mode for the run's whole life, so a resume does too. Resuming a run
+started opted out needs no heartbeat and no flag, and its banner reads
+`enforcement: off (bound at run start: --no-enforcement)` (or `…: PAWL_ENFORCEMENT=off)`). Resuming
+an enforced run needs no heartbeat either, so a person can resume it from a plain terminal — after a
+reboot, or after fixing the world for a `BLOCKED` run. The run stays enforced (the hooks keep applying
+to it), deterministic steps run, and it stops at the next `DISPATCH`/`ASK` as usual. Without a fresh
+heartbeat the banner reads `enforcement: on (bound at run start; no hook heartbeat for this resume)`
+and the run's existing `driver.json` is left as it is; with one (a hooked Claude Code session
+resuming), the banner is the usual `hooks: PreToolUse ✔ (heartbeat) …` line and that session becomes
+the run's driver. Passing `--no-enforcement` or `PAWL_ENFORCEMENT=off` on a resume of an enforced run
+is refused (exit 4), since it could not turn the hooks off for that run:
+
+```
+pawl run: run 7f3a was started with enforcement on, and enforcement is bound at run start — --no-enforcement cannot turn it off. To continue the run, resume without it (no hook heartbeat is needed to resume); it stays enforced
+```
+
+Other refusals you may see, all exit 4 (real output, not paraphrased):
 
 ```
 pawl run: journal: run locked by pid 48122 (alive); wait, or use --force if that process is gone
@@ -292,8 +324,22 @@ pawl hook pre
 pawl hook stop
 ```
 
-Bound once at install, called by Claude Code with a JSON payload on stdin. `pre` applies the guard
-table on `PreToolUse` for Bash, and denies VCS-mutating Bash from a subagent during an agentic step —
-its one subagent rule; `subagent_args:` is not enforced. `stop` exits 2 while a live run here is
-non-terminal, at most once per turn, printing `pawl abandon --run <id>`. A wrapper in front of each
-exits in ~2 ms when no run is live.
+Bound once at install, called by Claude Code with a JSON payload on stdin. `pre` writes the session's
+heartbeat whenever any simple command in it invokes `pawl`, applies the guard table (union across the
+cwd working copy's live runs, per guard pattern) on `PreToolUse` for Bash, and denies VCS-mutating Bash from a subagent while any run is live —
+its one subagent rule; `subagent_args:` is not enforced. A command made only of `pawl`/`cd` segments
+is never denied by a guard (its arguments may mention a guarded pattern, but `pawl` never runs it
+directly). Runs started with enforcement opted out are ignored entirely. `stop` blocks only for the
+session driving (per `driver.json`, found across every working copy, whatever the payload's cwd)
+a run that is at an `agentic`/`parallel` step awaiting `pawl submit` (not `BLOCKED`, not
+`wait`/`human`), at most once per turn, printing `pawl abandon --run <id>` — unless the Stop payload
+reports background work still in flight (`background_tasks`/`session_crons` non-empty), in which
+case it always allows: the session dispatched a background subagent or is polling under Monitor and
+will be woken back up. Exit protocol: allow = exit 0 with no output; `pre` deny = exit 0 with
+`{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"<reason>"}}`
+on stdout; `stop` block = exit 0 with `{"decision":"block","reason":"<reason>"}` on stdout;
+unparseable input or an I/O error = exit 1 for `pre` (fail open, non-blocking), while `stop` never
+fails closed — any error there allows. `pawl hook` never exits 2. `bin/pawl-hook`, the wrapper Claude
+Code actually calls, exits in a few ms when no run is live and the payload doesn't mention `pawl`,
+and turns any non-zero exit from the binary into exit 1 — so a `pawl` binary older than the plugin
+(no `hook` subcommand, usage exit 2) fails open instead of blocking.

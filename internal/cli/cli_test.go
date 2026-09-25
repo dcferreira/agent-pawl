@@ -58,7 +58,7 @@ func TestRun_FirstDispatch(t *testing.T) {
 	}
 
 	want := fmt.Sprintf(`workflow: %s/.claude/workflows/sample.yaml (repo-local)
-enforcement: off (milestone 1)
+enforcement: off (PAWL_ENFORCEMENT=off)
 soft: 0/1 steps (0.0%%): (none)
 DISPATCH RUNID greet
 attempt: 1 of 2
@@ -116,10 +116,13 @@ terminal:
 
 // TestRun_BannerReportsDeclaredGuardsNotEnforced checks that a workflow
 // declaring guards: gets an additional, separate banner line naming the
-// count and stating plainly that nothing enforces it yet — accepting
-// guards: silently would be exactly the failure class Ruling R8 exists to
-// prevent (there is no PreToolUse hook in this build; see
-// internal/spec.checkGuards's doc comment).
+// count and stating plainly that nothing enforces it while enforcement is
+// off (setupWorkingCopy's default: no heartbeat, PAWL_ENFORCEMENT=off) —
+// accepting guards: silently would be exactly the failure class Ruling R8
+// exists to prevent. With a fresh heartbeat instead, the same banner reads
+// "guards: N advisory (pattern-matched)" — see
+// TestRun_FreshHeartbeatStartsAndStampsDriver and internal/spec's
+// checkGuards doc comment.
 func TestRun_BannerReportsDeclaredGuardsNotEnforced(t *testing.T) {
 	root := setupWorkingCopy(t)
 	writeWorkflow(t, root, "sample-guards", sampleWorkflowWithGuards)
@@ -131,8 +134,8 @@ func TestRun_BannerReportsDeclaredGuardsNotEnforced(t *testing.T) {
 	}
 
 	want := fmt.Sprintf(`workflow: %s/.claude/workflows/sample-guards.yaml (repo-local)
-enforcement: off (milestone 1)
-guards: 2 declared, NOT enforced (no PreToolUse hook in this build)
+enforcement: off (PAWL_ENFORCEMENT=off)
+guards: 2 declared, NOT enforced (enforcement off)
 soft: 0/1 steps (0.0%%): (none)
 DISPATCH RUNID greet
 attempt: 1 of 2
@@ -316,7 +319,7 @@ END ASK RUNID ask
 `
 	gotAsk := normaliseRunID(stdout)
 	wantAskGolden := fmt.Sprintf(`workflow: %s/.claude/workflows/human-approval-cli.yaml (repo-local)
-enforcement: off (milestone 1)
+enforcement: off (PAWL_ENFORCEMENT=off)
 soft: 0/1 steps (0.0%%): (none)
 %s`, root, wantAsk)
 	if gotAsk != wantAskGolden {
@@ -573,13 +576,14 @@ func TestValidate_Clean(t *testing.T) {
 	}
 }
 
-// TestValidate_ReportsDeclaredGuardsNotEnforced is pawl validate's half of
-// the same fix TestRun_BannerReportsDeclaredGuardsNotEnforced covers for
-// pawl run: validate is the command an author runs while writing guards:,
-// so it needs the same "NOT enforced" line pawl run's banner prints,
-// through the same shared helper (writeGuardsLine), rather than reporting
-// a guards:-declaring workflow as clean with no mention of enforcement.
-func TestValidate_ReportsDeclaredGuardsNotEnforced(t *testing.T) {
+// TestValidate_ReportsDeclaredGuards is pawl validate's half of the same
+// fix TestRun_BannerReportsDeclaredGuardsNotEnforced covers for pawl run:
+// validate is the command an author runs while writing guards:, so it
+// prints a guards: line through the same shared helper (writeGuardsLine)
+// pawl run's banner uses, rather than reporting a guards:-declaring
+// workflow as clean with no mention of enforcement. validate has no run
+// whose enforcement is on or off, so its wording is the neutral one.
+func TestValidate_ReportsDeclaredGuards(t *testing.T) {
 	root := setupWorkingCopy(t)
 	writeWorkflow(t, root, "sample-guards", sampleWorkflowWithGuards)
 
@@ -588,7 +592,7 @@ func TestValidate_ReportsDeclaredGuardsNotEnforced(t *testing.T) {
 		t.Fatalf("exit = %d, stderr = %q", code, stderr)
 	}
 	want := fmt.Sprintf(`workflow: %s/.claude/workflows/sample-guards.yaml (repo-local)
-guards: 2 declared, NOT enforced (no PreToolUse hook in this build)
+guards: 2 declared (enforced only when a run starts with the pawl hooks installed)
 soft: 0/1 steps (0.0%%): (none)
 `, root)
 	if stdout != want {

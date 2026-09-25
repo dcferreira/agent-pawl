@@ -786,3 +786,28 @@ func TestReplay_ResumeProperty(t *testing.T) {
 		}
 	}
 }
+
+// TestReplay_EnforcementOptOut: RUN_START's hook_self_test is what pawl run
+// decided about enforcement for this run, and the run directory's only
+// persistent record of an opt-out — the hooks read it back through Replay
+// to leave an opted-out run alone.
+func TestReplay_EnforcementOptOut(t *testing.T) {
+	for _, tc := range []struct {
+		label string
+		off   bool
+	}{
+		{"off (--no-enforcement)", true},
+		{"off (PAWL_ENFORCEMENT=off)", true},
+		{"on (PreToolUse heartbeat)", false},
+		{"unknown", false},
+		{"", false},
+	} {
+		rs, err := Replay([]Event{{Kind: KindRunStart, RunID: "r1", Seq: 0, HookSelfTest: tc.label}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rs.Enforcement != tc.label || rs.EnforcementOff() != tc.off {
+			t.Fatalf("%q: Enforcement=%q EnforcementOff=%v, want off=%v", tc.label, rs.Enforcement, rs.EnforcementOff(), tc.off)
+		}
+	}
+}

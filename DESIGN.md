@@ -1,7 +1,8 @@
 # A state-machine workflow engine for Claude Code
 
-**Status:** implemented through Milestone 1 — all five kinds, state and resume, `pawl validate`.
-Enforcement (§5) and the fuller distribution story (§9) are not built. See README.md's Status
+**Status:** implemented through Milestone 1 — all five kinds, state and resume, `pawl validate`, and
+the enforcement hooks (§5: `pawl hook pre|stop`, `PreToolUse`/`Stop`). The fuller distribution story
+(§9: self-installing pinned release binaries via the hooks) is not built. See README.md's Status
 section for the authoritative list of what runs today.
 
 `design/format-spec.md` is authoritative for what an author writes — the nouns, the fields, the
@@ -77,7 +78,8 @@ waiting on. The run id is on every line because several runs may be live at once
 
 ```
 › pawl run ship-change mr_url=https://gitlab/x/y/-/merge_requests/41
-  hooks: PreToolUse ✔  Stop ✔   guards: 1 advisory (pattern-matched)  invariants: 1
+  hooks: PreToolUse ✔ (heartbeat)  Stop assumed (same hooks.json)
+  guards: 1 advisory (pattern-matched)
   ✔ preflight → wait_for_mr   FRESH  branch=feat/x title="Add retry budget"
   WAIT 7f3a wait_for_mr
 › pawl poll --run 7f3a --step wait_for_mr          (under Monitor)
@@ -163,12 +165,22 @@ A run directory, keyed `(working_copy_root, workflow_id, run_id)`:
 
 ```
 <state_base>/<slug>/<workflow_id>/<run_id>/
-    plan.json      parsed graph + definition digest (immutable for the run)
+    plan.json      parsed graph + definition digest (immutable for the run) — the hooks read
+                   guards and step kinds off this, not a separate guards.json
     events.jsonl   append-only journal        ← the truth
     status.json    a human-readable summary   ← cosmetic, rebuilt after every transition
-    guards.json    guard/invariant table, read by the static hooks
+    driver.json    {"session_id", "updated"}: the session currently driving this run, used by
+                   the Stop hook — re-stamped on every fresh-heartbeat pawl run/submit/poll
     lock           pid lockfile
 ```
+
+Beside the run directories, under `pawlHome = filepath.Dir(journal.StateBase())`:
+`live/<slug>__<workflow_id>__<run_id>` is a symlink to the run directory, created at `RUN_START` and
+removed on every terminal transition and on `pawl abandon` — a fast-path cache only, so `bin/pawl-hook`
+can skip invoking the real binary when nothing is live; identity always comes from
+`journal.ResolveRoot` + `journal.Live`, never from the symlink itself. `heartbeat/<slug>.json` is
+`{"session_id", "time"}`, written by `pawl hook pre` whenever any simple command in the Bash call
+invokes `pawl` (e.g. `cd x && pawl submit …` counts), and read by `pawl run` (§5) to decide whether to refuse to start.
 
 `slug` is the **working-copy root** — a git worktree or a jj workspace is its own root — with `/`
 replaced by `-`, followed by `-` and a short hex digest of the full root path (e.g.
@@ -183,7 +195,9 @@ session id is recorded as provenance only. The lock is an `O_EXCL` file holding 
 pid is not alive is taken, a live one is refused with the holder printed, and `--force` steals it.
 
 Eight event kinds, each carrying run id, sequence number, wall clock, step and attempt: `RUN_START`
-(args, digest, resumed flag, hook self-test result), `RESUME` (a crash resume, or a user intervention
+(args, digest, resumed flag, the enforcement mode `pawl run` actually decided — `on (PreToolUse
+heartbeat)`, `off (--no-enforcement)`, or `off (PAWL_ENFORCEMENT=off)` — recorded verbatim, never a
+placeholder), `RESUME` (a crash resume, or a user intervention
 on a `BLOCKED` run, which carries `intervention: true` and resets the step's attempt counter to 1 in
 the same record), `STEP_ENTER`, `WRITES`, `POSTCONDITION` (ok, text, soft), `TRANSITION` (target,
 outcome), `HUMAN_ASKED`, `RUN_END` (status, and a `reason`/`note` naming the invariant violation or
@@ -208,7 +222,8 @@ resolves for this working copy; `--run <id>` is only needed to disambiguate seve
      `blocked` outcome (the invariant-violating step, or the step whose route sent it there), with
      that step's attempt counter reset to 1, after appending a `RESUME` event with
      `intervention: true`.
-5. Self-test the two hooks against this run and print the enforcement banner.
+5. Re-check the `PreToolUse` heartbeat for this working copy (the same `checkEnforcement` a fresh
+   start runs) and print the enforcement banner.
 6. Print the resume line: run id, step, attempt, restored keys.
 7. Re-run the (interrupted, or newly-reset) attempt on the tree as it stands, telling the model that a
    previous attempt was interrupted or that a person intervened after a block, and that current state
@@ -222,42 +237,154 @@ there is nothing about the tree to restore.
 
 ## 5. Enforcement
 
-Two static hooks ship with the plugin, bound once at install. Each is a ≤10-line POSIX sh fast-path
-wrapper (`pawl-hook`) that checks cheaply for any live run — `[ -d "$HOME/.claude/pawl/live" ] || exit 0`,
-against a `live/` directory of symlinks maintained by `pawl run`/`pawl abandon`/terminal transitions — and
-only then `exec`s into the engine binary, keeping the no-run cost at ~2 ms:
+Two hooks ship with the plugin (`hooks/hooks.json`), bound once at install: `PreToolUse` (matcher
+`Bash`) and `Stop`, both pointed at `bin/pawl-hook`. `pawl-hook` is a short POSIX sh fast-path
+wrapper: when there is no live run indexed under `live/` *and* the payload doesn't mention `pawl`,
+it exits 0 without invoking the real binary at all; otherwise it pipes stdin to the sibling
+`bin/pawl` wrapper's `hook pre|stop`, which finds a real `pawl` on `PATH` without recursing. A deny
+or block is always exit 0 with Claude Code's JSON decision on stdout (PreToolUse
+`hookSpecificOutput.permissionDecision: "deny"`, Stop `{"decision":"block"}`), never exit 2, and
+`pawl-hook` turns every non-zero exit from the binary into exit 1 (fail open): the plugin and the
+binary update separately, and a binary older than `pawl hook` exits 2 with usage for the unknown
+subcommand, which would otherwise read as "block" to Claude Code:
 
 ```
-PreToolUse (matcher: Bash) → pawl-hook pre  → (live run only) exec pawl hook pre
-Stop                       → pawl-hook stop → (live run only) exec pawl hook stop
+PreToolUse (matcher: Bash) → bin/pawl-hook pre  → (maybe) pawl hook pre
+Stop                       → bin/pawl-hook stop → (maybe) pawl hook stop
 ```
 
-`pawl run` **checks** they are installed and responding, prints the result in the run-start banner, and
-refuses to start if either is missing; it never installs or repairs them. The `/pawl` skill's frontmatter
-`hooks:` block is the fallback wiring when a plugin cannot be installed. There is no per-run install
-lifecycle: a terminal run's directory simply stops matching the live-run glob.
+Non-plugin users wire `pawl hook pre`/`pawl hook stop` directly into their own `settings.json` (no
+fast path, since `pawl-hook` isn't on their `PATH`) — see `docs/install.md#hooks`.
+
+**Installation is detected by a heartbeat, not inspected (deviation 1).** There is no way for `pawl
+run` to ask Claude Code "is a `PreToolUse` hook wired up" directly, so it infers one the same way any
+liveness check does: `pawl hook pre` writes `heartbeat/<slug>.json` (`{"session_id", "time"}`)
+whenever any simple command in the Bash call invokes `pawl` — which every `pawl run`/`submit`/`poll`
+call does, including one chained after a `cd`.
+A fresh `pawl run` refuses to start unless a heartbeat for this working copy exists and is
+no older than **5 minutes** (`journal.HeartbeatTTL`), unless `--no-enforcement` or `PAWL_ENFORCEMENT=off`
+is passed (deviation 5) — an explicit, visible opt-out, not a silent one, recorded in `RUN_START`'s
+`hook_self_test` and bound for the run's lifetime: the hooks leave an opted-out run out of every
+decision (no guards, no subagent VCS rule, no `Stop` refusal) and never stamp its `driver.json`,
+even though the plugin's `PreToolUse` for the `pawl run … --no-enforcement` call has itself just
+written a fresh heartbeat. On success it stamps
+`driver.json` from the heartbeat's session id and links the run into `live/` right after `RUN_START`
+is journaled, before any deterministic prefix runs (`engine.Engine.OnRunStart`, so a `pawl run`
+killed mid-prefix still leaves both; the post-command `SyncLiveIndex` stays the reconciler), and prints
+`hooks: PreToolUse ✔ (heartbeat)  Stop assumed (same hooks.json)` — `Stop`'s installation is inferred
+from `PreToolUse`'s, on the assumption that a `hooks.json` binding one binds the other, never
+independently observed. When enforcement is off, the banner reads
+`enforcement: off (--no-enforcement)` / `enforcement: off (PAWL_ENFORCEMENT=off)`, and, if the
+workflow declares guards, `guards: N declared, NOT enforced (enforcement off)`. A resume follows the
+mode recorded at run start, not the resuming invocation's (`resumeEnforcement`): a run bound off
+resumes with no heartbeat gate and the banner `enforcement: off (bound at run start: …)`; a run bound
+on resumes with no heartbeat gate either, so a person can resume it from a plain terminal (after a
+reboot, or to continue a `BLOCKED` run) — it stays enforced, deterministic steps run, and it stops at
+the next `DISPATCH`/`ASK`. With a fresh heartbeat (a hooked session resuming) the banner is the usual
+`hooks: …` line and that session is stamped as driver; without one the banner reads
+`enforcement: on (bound at run start; no hook heartbeat for this resume)` and `driver.json` is left
+as it is. `--no-enforcement`/`PAWL_ENFORCEMENT=off` on a resume of an enforced run is refused (exit 4)
+rather than printing an "off" banner the hooks would contradict. Refusal (exit 4,
+`errNoHeartbeat`, verbatim):
+
+```
+pawl: refusing to start: pawl's PreToolUse hook has not fired for this working copy in the last 5 minutes.
+Install the agent-pawl Claude Code plugin (docs/install.md#hooks), or pass --no-enforcement.
+```
+
+`pawl submit`/`pawl poll` re-stamp `driver.json` when a fresh heartbeat exists (and the run was not
+started opted out) but never refuse for a missing one — refusing there would strand a run
+mid-flight, and an opt-out run needs no heartbeat by design. Terminal transitions and `pawl abandon` remove the `live/` symlink.
 
 **Identity comes from the run directory, and both sides derive it the same way.** `pawl run` resolves
 the working-copy root by walking up from cwd for the nearest directory containing a `.git` or `.jj`
 entry (falling back to cwd itself if none is found), never by asking a VCS binary or by
-string-manipulating cwd, and writes the run directory under the slug derived from it. A hook
-reads its own stdin payload for the tool name, input and cwd, derives that call's root by the same
-algorithm, globs for live runs under that slug, and reads each match's `guards.json` off disk. Hooks
-read stdin for *data*, never for identity: one algorithm run independently by both sides against the
-same disk state is the only structural way to stop the two layers disagreeing about which run is live.
-`pawl status` prints the resolved root and run id.
+string-manipulating cwd, and writes the run directory under the slug derived from it. `pawl hook
+pre|stop` reads its own stdin payload for the tool name, input and cwd, derives that call's root by
+the same algorithm (`journal.ResolveRoot`), loads the live runs under that slug (`journal.Live`) —
+`Stop` additionally loads, across every working copy, each run in `live/` whose `driver.json` names
+the payload's session (verified against its run directory, below) — and
+reads each match's `plan.json` (guards, step kinds — not a separate `guards.json`; deviation 3) and
+`driver.json` off disk. `live/<slug>__<workflow_id>__<run_id>` (a symlink to the run directory,
+created at `RUN_START` for an enforced run, removed on every terminal transition and `pawl abandon`,
+and re-synced for the call's slug — plus dangling links of any slug pruned — on every `pawl hook`
+invocation) is only a cache: `bin/pawl-hook`'s "is anything live at all" check, and `Stop`'s index of
+runs in other working copies. The actual decision always comes from the run directories themselves —
+`ResolveRoot` + `journal.Live`, and for a `live/` entry `journal.LiveIndexed`, which accepts it only
+if its target is `<state_base>/<slug>/<workflow_id>/<run_id>` spelling the entry's own name and
+replays as non-terminal — never from the symlink's presence alone (deviation 4). Hooks read stdin for *data*, never for identity: one algorithm run
+independently by both sides against the same disk state is the only structural way to stop the two
+layers disagreeing about which run is live. `pawl status` prints the resolved root and run id.
 
 With several live runs touching one working copy, `PreToolUse` applies the **union** of their guard
-tables: a guarded command is denied unless *some* live run's active step permits it. That is
-over-permissive, and acceptable because guards are advisory; the banner says so: `guards: N advisory
-(pattern-matched)`.
+tables, per guard: a guard whose `match:` hits the command denies it unless *some* live run's active
+step permits a guard with the same `match:` pattern — a permit for a different pattern does not count,
+so `git push && rm -rf build` is still denied by one run's `rm -rf` guard while another run's step
+permits `git push` (a `BLOCKED` run
+has no active steps, so all its guards deny — "while BLOCKED, `PreToolUse` keeps denying"; a run whose
+guards fail to compile denies every non-`pawl` command, fail closed, naming the run and the error).
+A command made only of `pawl` and `cd` segments is exempt from guards as well as from fail-closed:
+`pawl` never executes a guarded action itself (deterministic steps run in-process, unseen by the
+hook), so a guard's `match:` text inside a `pawl submit --json` summary or a `pawl run` argument
+must not deny the driver's own submit and strand the run. Segments are found by a small quote-aware
+lexer (`internal/hook.segments`): a `;`/`&`/`|` inside single or double quotes (or backslash-escaped)
+is part of the argument, and an fd redirect such as `2>&1`/`>&2` stays in its segment — so
+`pawl submit --json '{"summary":"a; b"}' 2>&1` is still pawl-only. A command containing a command or
+process substitution (`$(`, a backtick, `<(`, `>(`, outside single quotes) is never pawl-only, since
+the substitution runs an arbitrary command inside a `pawl` argument. The lexer fails safe: anything
+outside its small modelled subset (a `#` comment, `$'…'`, an unterminated quote, a heredoc, a
+subshell, a wrapper such as `bash -c`) marks the command "unsure", which is never pawl-only and makes
+`IsVCSMutation` fall back to a conservative raw token scan (a false deny, never a false allow).
+That union is over-permissive, and acceptable because guards are advisory; the banner says so:
+`guards: N advisory (pattern-matched)`.
 
-`PreToolUse` also denies VCS-mutating `Bash` from a subagent while an agentic step is live, using the
-`agent_id`/`agent_type` fields in the payload — the one subagent rule the hook keeps.
-`subagent_args:` (including `subagent_args.tools`) is passed through to the subagent launch
-verbatim; the engine and the hook do not read or enforce it. `Stop` exits 2 while a live run for
-this working copy is non-terminal, refuses at most once per turn, stops refusing once the run is
-`BLOCKED`, and always prints `pawl abandon --run <id>`.
+A run's *active steps*, for `only_in:`, are its cursor step plus every still-outstanding branch of
+the `kind: parallel` step it is parked on (`activeSteps` in `internal/cli/hook.go`). Replay keeps the
+cursor on the `parallel` step for the whole fan-out, so that step's own id is active until the join
+transitions: `only_in: [p]` for a `parallel` step `p` permits the pattern in every branch for the
+entire fan-out, while `only_in: [b]` for a branch `b` permits it only until `b` resolves (its grouped
+TRANSITION is journaled).
+
+`PreToolUse` also denies VCS-mutating `Bash` from a subagent (`agent_id` present in the payload)
+whenever any run is live for this working copy, not only while an agentic step is live — the one
+subagent rule the hook keeps. The classifier (`internal/hook.IsVCSMutation`, `gitMutates`,
+`jjMutates`) is default-deny for both VCSs: every `git` subcommand is mutating except a read-only
+allowlist (e.g. `status log diff show rev-parse ls-files ls-tree ls-remote blame grep describe
+cat-file for-each-ref merge-base shortlog name-rev count-objects help version`, plus the read-only
+forms of `config`/`remote`/`worktree list`/`reflog`/`stash list|show` and branch/tag listing), and
+every `jj` subcommand except a read-only allowlist (e.g. `log st status diff show evolog obslog
+interdiff root help version`, plus narrowed read-only forms of
+`file`/`op`/`workspace`/`bookmark`/`config`/`git remote list`) — the authoritative, exact lists are
+`gitReadOnly` and `jjReadOnly`/`jjReadOnlySub` in `internal/hook/classify.go`, not this prose. It
+classifies the command string including after an unquoted `&&`/`||`/`;`/`|`, with `--help`/`-h` read-only only
+directly after the subcommand (`git commit -m -h` still mutates)
+— advisory string matching, like guards: `$()`, a variable, or a renamed binary evades it.
+`subagent_args:` (including `subagent_args.tools`) is passed through to the subagent launch verbatim;
+the engine and the hook do not read or enforce it.
+
+`Stop` refuses (a `{"decision":"block"}` result) only the session **driving** a run — `driver.json`'s `session_id` matching the
+payload's, wherever the session's cwd now is: the Bash tool's working directory persists between calls,
+so a driver that has `cd`'d out of its working copy is still found, through `live/` — while that run is not `BLOCKED` and its cursor is at an `agentic` or `parallel` step, i.e.
+the session owes the run a `pawl submit` (deviation 2). `wait`/`human` cursors are exempt (the session
+may legitimately end its turn to ask the person or wait on a poller), and so are `BLOCKED` runs, other
+sessions' runs, and runs with no driver on record. It refuses at most once per turn — `stop_hook_active`
+true always allows, since Claude Code sets it on the retry after a prior refusal and force-ends the
+turn after 8 consecutive blocks. It also always allows when the Stop payload reports background work
+still in flight (`background_tasks` non-empty) or a scheduled wakeup (`session_crons` non-empty): the
+session ended its turn to wait for its own background subagent or a `pawl poll` under Monitor, and
+will be woken back up, so refusing would just make it loop. Absent arrays count as empty (unchanged
+current behaviour), and an entry shape pawl doesn't model still parses — only the counts matter. The
+reason always names the way out:
+
+```
+pawl run <id> (<workflow>) is at step <step> awaiting `pawl submit`. Finish it, or: pawl abandon --run <id>
+```
+
+Both hooks fail toward the least surprising side on an internal error: `pawl hook pre` fails **open**
+(exit 1, message on stderr — a non-blocking Claude Code error) on an unparseable payload or a
+`journal.Live` I/O error, except that a run whose guards fail to compile still fails **closed** for
+that run (above); `pawl hook stop` never fails closed — any error allows, so a bug in the hook can
+never trap a session mid-turn.
 
 **Invariants are engine checks, not a hook**, evaluated after every step completion and every `pawl
 submit`. A violation journals the reason into `RUN_END` and sets the run `BLOCKED`.
@@ -271,9 +398,12 @@ submit`. A violation journals the reason into `RUN_END` and sets the run `BLOCKE
 | Subagent mutates VCS | `PreToolUse` deny on `agent_id` | invariant | — |
 | Well-formed but wrong agentic output | — | postcondition + maker ≠ checker | the core residual of any LLM step |
 | Loop forever | `max_visits:`, `max_steps:`, validator | — | — |
-| End the session mid-run | `Stop` exits 2, prints `pawl abandon` | — | a harness that drops the hook |
+| End the driving session's turn mid-dispatch | `Stop` blocks, names `pawl abandon` | — | a harness that drops the hook, or a session that isn't the recorded driver; also, a session that owes a `pawl submit` but has *any* unrelated `background_tasks`/`session_crons` entry in the Stop payload — the exemption doesn't check that the in-flight work is the dispatched step's, so it can be used to end the turn while genuinely walking away |
 | Half-edit the tree, then die | — | — | fix-forward: the next attempt is told and inspects |
 | Two live runs in one working copy edit the same files | — | — | not prevented; the author's own idempotency only |
+| Guarded or VCS-mutating command run from outside the working copy (`cd /elsewhere`, `git -C /repo push`) | — | invariant, if it changed observable state | guards and the subagent VCS rule are scoped to the payload cwd's working copy; only `Stop` looks across working copies |
+| Two sessions launching `pawl` in one checkout within 5 minutes | — | — | heartbeat is per working copy; the driver can be misattributed |
+| `--no-enforcement`/`PAWL_ENFORCEMENT=off` | — | — | an explicit, visible opt-out — nothing is checked at all for that run |
 
 A step's postcondition is never evaluated by the actor that did the work: the engine evaluates it
 in-process (`all_set`, `equals`) or spawns it as a subprocess (`command`), and a subagent can

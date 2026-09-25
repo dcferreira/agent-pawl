@@ -111,6 +111,7 @@ func cmdSubmit(args []string, cwd string, stdout, stderr io.Writer) int {
 		printLine(stderr, "pawl submit:", err.Error())
 		return exitForEngineErr(err)
 	}
+	stampDriver(root, w.Workflow, runID)
 	fmt.Fprint(stdout, formatInstruction(instr, w, root))
 	return instructionExitCode(instr)
 }

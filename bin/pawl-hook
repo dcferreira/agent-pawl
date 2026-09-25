@@ -1,0 +1,59 @@
+#!/bin/sh
+# Claude Code hook entry point shipped by the agent-pawl plugin
+# (hooks/hooks.json): PreToolUse(Bash) -> `pawl-hook pre`, Stop -> `pawl-hook stop`.
+#
+# Fast path: with no live run and no mention of pawl in the payload there is
+# nothing to enforce and no heartbeat to write, so exit 0 without starting the
+# Go binary. The live/ directory is only a cache for this check — `pawl hook`
+# itself always re-derives the live runs from the run directories.
+#
+# Otherwise hand the payload to the real binary through the sibling bin/pawl
+# wrapper, which already finds a real `pawl` on PATH without recursing.
+#
+# Only a positive JSON decision on stdout (exit 0) denies or blocks; every
+# non-zero exit fails open (exit 1), never a bare exit 2. The plugin and the
+# binary update separately, and a binary older than `pawl hook` exits 2 for
+# the unknown subcommand — passing that through would deny every pawl-
+# mentioning Bash call (including the `go install` that fixes it).
+case "${1:-}" in
+  pre|stop) ;;
+  # A usage mistake fails open (exit 1), never exit 2: exit 2 means "block"
+  # to Claude Code, and a bad/missing event is not a considered block
+  # decision (this matches cmdHook's own usage exit).
+  *) echo "usage: pawl-hook pre|stop" >&2; exit 1 ;;
+esac
+
+if [ -n "${PAWL_STATE_DIR:-}" ]; then
+  # Strip trailing slashes explicitly, mirroring journal.StateBase's
+  # filepath.Clean, so both sides agree that PAWL_STATE_DIR=/x/runs/ puts
+  # live/ under /x rather than relying on dirname's own handling.
+  sd=$PAWL_STATE_DIR
+  while [ "$sd" != / ] && [ "${sd%/}" != "$sd" ]; do sd=${sd%/}; done
+  home=$(dirname "$sd")
+else
+  home="$HOME/.claude/pawl"
+fi
+
+payload=$(cat)
+
+live=no
+for f in "$home"/live/*; do
+  if [ -e "$f" ] || [ -L "$f" ]; then live=yes; break; fi
+done
+
+if [ "$live" = no ]; then
+  case "$payload" in
+    *pawl*) ;;
+    *) exit 0 ;;
+  esac
+fi
+
+here=$(cd "$(dirname "$0")" && pwd -P)
+out=$(printf '%s' "$payload" | "$here/pawl" hook "$1")
+code=$?
+if [ "$code" -ne 0 ]; then
+  echo "pawl-hook: \`pawl hook $1\` exited $code; failing open (is the pawl binary older than the plugin? docs/troubleshooting.md)" >&2
+  exit 1
+fi
+if [ -n "$out" ]; then printf '%s\n' "$out"; fi
+exit 0

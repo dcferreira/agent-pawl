@@ -1,6 +1,9 @@
 package journal
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // AttemptRef identifies one attempt budget: a step id plus the attempt key
 // its current failure streak is keyed on (design/format-spec.md §B.4). The
@@ -79,6 +82,21 @@ type RunState struct {
 	EndStatus string
 	EndReason string
 	EndNote   string
+
+	// Enforcement is RUN_START's hook_self_test: what pawl run decided
+	// about the enforcement hooks when this run started ("on (PreToolUse
+	// heartbeat)", "off (--no-enforcement)", "off (PAWL_ENFORCEMENT=off)",
+	// or "unknown"). An opt-out is bound for the run's lifetime: see
+	// EnforcementOff.
+	Enforcement string
+}
+
+// EnforcementOff reports whether this run was started with enforcement
+// explicitly opted out (--no-enforcement or PAWL_ENFORCEMENT=off). The hooks
+// leave such a run alone entirely — no driver stamping, no guards, no Stop
+// refusal — which is what the run's banner promised ("NOT enforced").
+func (rs *RunState) EnforcementOff() bool {
+	return strings.HasPrefix(rs.Enforcement, "off")
 }
 
 // Status reports "running" until the first RUN_END, and thereafter that
@@ -157,6 +175,7 @@ func Replay(events []Event) (*RunState, error) {
 
 		switch e.Kind {
 		case KindRunStart:
+			rs.Enforcement = e.HookSelfTest
 			for k, v := range e.Args {
 				rs.Args[k] = v
 			}
