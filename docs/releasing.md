@@ -114,8 +114,8 @@ Once, for this repo:
 1. Create a GitHub App (can be repo-scoped) with permissions **Contents: read & write** and **Pull
    requests: read & write**.
 2. Install it on this repository.
-3. Add its App ID and a generated private key as repo secrets `RELEASE_APP_ID` and
-   `RELEASE_APP_PRIVATE_KEY`.
+3. Add its Client ID (from the app's settings page, "About" section — not the numeric App ID) and
+   a generated private key as repo secrets `RELEASE_APP_CLIENT_ID` and `RELEASE_APP_PRIVATE_KEY`.
 
 ## Recovery
 

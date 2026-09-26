@@ -38,13 +38,13 @@ jobs:
       # the release PR. A GitHub App installation token doesn't have that
       # restriction, so PRs it opens run CI normally. See docs/releasing.md
       # for the one-time App setup (Contents: read&write, Pull requests:
-      # read&write) and the RELEASE_APP_ID / RELEASE_APP_PRIVATE_KEY
+      # read&write) and the RELEASE_APP_CLIENT_ID / RELEASE_APP_PRIVATE_KEY
       # secrets it needs.
       - name: Generate a GitHub App token
         id: app-token
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ secrets.RELEASE_APP_ID }}
+          client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
       - uses: actions/checkout@v7
