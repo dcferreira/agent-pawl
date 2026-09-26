@@ -1,0 +1,112 @@
+name: Release PR
+
+# Manually triggered from Actions -> Release PR -> Run workflow. Batches
+# .changes/unreleased/ fragments into a new version, regenerates
+# CHANGELOG.md, bumps .claude-plugin/plugin.json's version (via changie's
+# replacements:), and opens a release/vX.Y.Z PR for the owner to review and
+# merge. See docs/releasing.md.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: >-
+          Version to release (e.g. "v1.2.3" or "minor"/"major"/"patch"). Leave
+          empty to let changie pick automatically from the fragments' kinds
+          ("auto"). A leading-digit form like "1.2.3" is accepted too — it's
+          normalized to "v1.2.3" before being passed to changie.
+        required: false
+        default: ""
+
+permissions:
+  # The GitHub App token below does the actual writes (opening the PR);
+  # the workflow's own GITHUB_TOKEN only needs to read the repo to check it
+  # out.
+  contents: read
+
+jobs:
+  release-pr:
+    name: Open release PR
+    runs-on: ubuntu-latest
+    # workflow_dispatch can be run from any branch in the Actions UI —
+    # without this guard, dispatching from a feature branch would batch
+    # fragments and open a release PR based on that branch's tip instead of
+    # main. See docs/releasing.md.
+    if: github.ref == 'refs/heads/main'
+    steps:
+      # A PR opened with the default GITHUB_TOKEN triggers no workflows
+      # (GitHub's anti-recursion rule), which would mean CI never runs on
+      # the release PR. A GitHub App installation token doesn't have that
+      # restriction, so PRs it opens run CI normally. See docs/releasing.md
+      # for the one-time App setup (Contents: read&write, Pull requests:
+      # read&write) and the RELEASE_APP_ID / RELEASE_APP_PRIVATE_KEY
+      # secrets it needs.
+      - name: Generate a GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v7
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Install Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Install changie
+        run: go install github.com/miniscruff/changie@v1.26.0
+
+      - name: Fail clearly if there's nothing to release
+        run: |
+          set -euo pipefail
+          if [ -z "$(ls -A .changes/unreleased/*.yaml 2>/dev/null)" ]; then
+            echo "::error::.changes/unreleased/ has no fragments — nothing to release. Every PR since the last release should have added one (see docs/releasing.md)." >&2
+            exit 1
+          fi
+
+      - name: Batch and merge
+        env:
+          RELEASE_VERSION_INPUT: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_VERSION_INPUT:-auto}"
+          # changie preserves the version string as given: an explicit
+          # "1.2.3" (no leading v) would write .changes/1.2.3.md, which
+          # check-version-consistency.sh (only globs .changes/v*.md) and the
+          # release/v* branch-name exemption both miss. Normalize a
+          # leading-digit input to the v-prefixed form; "auto"/"major"/
+          # "minor"/"patch" and an already-prefixed "v1.2.3" pass through.
+          case "$version" in
+            [0-9]*) version="v$version" ;;
+          esac
+          changie batch "$version"
+          changie merge
+          echo "RELEASE_VERSION=$(changie latest)" >>"$GITHUB_ENV"
+
+      - name: Sanity-check versions now agree
+        run: bash scripts/release/check-version-consistency.sh
+
+      - name: Write the PR body from the new version's release notes
+        run: |
+          set -euo pipefail
+          # Drop the version-file's own header line ("## vX.Y.Z - date") —
+          # the PR title already says the version, and create-pull-request
+          # writes the whole rest as the PR body.
+          tail -n +2 ".changes/${RELEASE_VERSION}.md" >"$RUNNER_TEMP/release-notes.md"
+
+      - name: Open the release PR
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          branch: release/${{ env.RELEASE_VERSION }}
+          delete-branch: true
+          title: "chore(release): ${{ env.RELEASE_VERSION }}"
+          commit-message: "chore(release): ${{ env.RELEASE_VERSION }}"
+          add-paths: |
+            .changes/
+            CHANGELOG.md
+            .claude-plugin/plugin.json
+          body-path: ${{ runner.temp }}/release-notes.md

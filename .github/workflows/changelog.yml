@@ -1,0 +1,38 @@
+name: Changelog
+
+# Separate from ci.yml deliberately: labeling a PR (to attach/remove "skip
+# changelog") shouldn't rerun the whole build/test suite, just this cheap
+# check.
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled, unlabeled]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changelog:
+    name: Fragment + no hand-bumped version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Both checks diff base...head, so they need the PR's full
+          # history, not just the merge commit.
+          fetch-depth: 0
+
+      # PR-controlled strings (branch name, labels) go through env:, never
+      # interpolated into run: directly — see AGENTS.md's ${key} shell-quoting
+      # trap and docs/releasing.md for why this matters here too: a label or
+      # branch name is attacker-controlled input to this script.
+      - name: Check for a changelog fragment
+        env:
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          PR_HEAD_REF: ${{ github.head_ref }}
+        run: bash scripts/release/check-fragment.sh "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
+
+      - name: Check no version was hand-bumped
+        env:
+          PR_HEAD_REF: ${{ github.head_ref }}
+        run: bash scripts/release/check-no-version-bump.sh "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"

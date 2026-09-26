@@ -1,4 +1,4 @@
-.PHONY: build test test-race install fmt fmt-check vet staticcheck test-install check
+.PHONY: build test test-race install fmt fmt-check vet staticcheck test-install test-release-checks check
 
 # Output goes to dist/, not bin/: bin/ is a committed plugin directory
 # (bin/pawl is the plugin's wrapper script), so a compiled binary must not
@@ -37,4 +37,10 @@ staticcheck:
 test-install:
 	bash scripts/test-install.sh
 
-check: fmt vet test test-install
+# Unit-tests the release-management check scripts (scripts/release/) against
+# throwaway git fixture repos — no network, no GitHub API. See
+# docs/releasing.md.
+test-release-checks:
+	bash scripts/release/test-checks.sh
+
+check: fmt vet test test-install test-release-checks

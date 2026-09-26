@@ -50,6 +50,10 @@ describe:
   [docs/install.md](docs/install.md). There is also a Claude Code plugin (see Installation below)
   that ships the `/agent-pawl:pawl` skill, but a plugin cannot ship a compiled Go binary, so it
   still depends on installing the binary separately (`install.sh` or a source build).
+- Releases are cut through a bot-opened **Release PR**: per-PR fragments under `.changes/` are
+  batched into `CHANGELOG.md` and a `.claude-plugin/plugin.json` version bump, then a merge to
+  `main` tags and publishes via goreleaser in the same run — see
+  [docs/releasing.md](docs/releasing.md).
 - `pawl poll --run … --step …` drives a `wait` step; `pawl hook pre|stop` is the `PreToolUse`/`Stop`
   hook entry point (see above).
 

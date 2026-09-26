@@ -54,6 +54,14 @@ jobs:
       - name: Validate plugin manifest
         run: claude plugin validate . --strict
 
+      # Catches drift between .claude-plugin/plugin.json's version and the
+      # latest release recorded under .changes/ — the two are only ever
+      # meant to move together, via release-pr.yml's changie replacements:.
+      # Runs on PRs and on main so a bad merge is caught immediately, not
+      # only at the next release. See docs/releasing.md.
+      - name: Version consistency (plugin.json vs .changes/)
+        run: bash scripts/release/check-version-consistency.sh
+
   test:
     name: Test (unit + e2e)
     runs-on: ubuntu-latest
@@ -102,3 +110,9 @@ jobs:
       # network access — see scripts/test-install.sh.
       - name: Test install.sh
         run: make test-install
+
+      # scripts/release/*.sh's pure logic (fragment/version-bump checks) is
+      # unit-tested against throwaway git fixture repos, no network — see
+      # scripts/release/test-checks.sh.
+      - name: Test release check scripts
+        run: make test-release-checks

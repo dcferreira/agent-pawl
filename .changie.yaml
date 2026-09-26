@@ -1,0 +1,59 @@
+# changie config — see docs/releasing.md for the contributor-facing flow.
+#
+# Every normal PR adds one fragment under .changes/unreleased/ via
+# `changie new` (or gets the `skip changelog` label). Versions are never
+# bumped by hand: .github/workflows/release-pr.yml runs `changie batch` +
+# `changie merge` to cut a release PR, which is the only place `changie
+# batch`/`changie merge` run for real.
+changesDir: .changes
+unreleasedDir: unreleased
+headerPath: header.tpl.md
+changelogPath: CHANGELOG.md
+versionExt: md
+versionFormat: '## {{.Version}} - {{.Time.Format "2006-01-02"}}'
+kindFormat: '### {{.Kind}}'
+# Custom.PR is optional (see the `custom:` block below) so a fragment can be
+# written before the PR number exists (e.g. drafted locally before `gh pr
+# create`); when it's absent the link is simply omitted, not left as a
+# broken "(#)" — verified against changie v1.26.0.
+changeFormat: '* {{.Body}}{{if .Custom.PR}} ([#{{.Custom.PR}}](https://github.com/dcferreira/agent-pawl/pull/{{.Custom.PR}})){{end}}'
+custom:
+  - key: PR
+    type: int
+    minInt: 1
+    optional: true
+kinds:
+  # Pre-1.0.0: a breaking change only bumps minor (semver's major==0 escape
+  # hatch), same as every other kind that isn't a plain fix. Switch this to
+  # `auto: major` at/after 1.0.0.
+  - label: Breaking
+    key: breaking
+    auto: minor
+  - label: Added
+    key: added
+    auto: minor
+  - label: Changed
+    key: changed
+    auto: minor
+  - label: Deprecated
+    key: deprecated
+    auto: minor
+  - label: Removed
+    key: removed
+    auto: minor
+  - label: Fixed
+    key: fixed
+    auto: patch
+  - label: Security
+    key: security
+    auto: patch
+newlines:
+  afterChangelogHeader: 1
+  afterKind: 1
+  afterChangelogVersion: 1
+  beforeKind: 1
+  endOfVersion: 1
+replacements:
+  - path: .claude-plugin/plugin.json
+    find: '  "version": ".*",'
+    replace: '  "version": "{{.VersionNoPrefix}}",'
