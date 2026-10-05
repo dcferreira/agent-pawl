@@ -2187,3 +2187,50 @@ func TestFormatAsk_SubmitHintMatchesMulti(t *testing.T) {
 		})
 	}
 }
+
+// TestValidate_PathLikeNameGetsPathHint checks that a path-looking
+// positional argument to pawl validate (a "/" or a .yaml/.yml suffix) keeps
+// the ordinary not-found error but gains a one-line hint naming --path;
+// a plain name must not (issue #26).
+func TestValidate_PathLikeNameGetsPathHint(t *testing.T) {
+	setupWorkingCopy(t)
+	for _, arg := range []string{"docs/examples/x/workflow.yaml", "wf.yaml", "wf.yml", "sub/wf"} {
+		_, stderr, code := runCLI(t, []string{"pawl", "validate", arg})
+		if code != 1 {
+			t.Fatalf("%q: exit = %d, want 1; stderr = %q", arg, code, stderr)
+		}
+		if !strings.Contains(stderr, "no workflow named") {
+			t.Errorf("%q: original error lost: %q", arg, stderr)
+		}
+		want := "did you mean: pawl validate --path " + arg + "?"
+		if !strings.Contains(stderr, want) {
+			t.Errorf("%q: stderr missing hint %q: %q", arg, want, stderr)
+		}
+		if strings.Count(strings.TrimRight(stderr, "\n"), "\n") != 0 {
+			t.Errorf("%q: error should stay one line: %q", arg, stderr)
+		}
+	}
+}
+
+func TestValidate_PlainNameGetsNoPathHint(t *testing.T) {
+	setupWorkingCopy(t)
+	_, stderr, code := runCLI(t, []string{"pawl", "validate", "nosuch"})
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1; stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stderr, "no workflow named") || strings.Contains(stderr, "--path") {
+		t.Errorf("plain name should get the bare error, no hint: %q", stderr)
+	}
+}
+
+// pawl run has no --path flag, so it must never suggest one.
+func TestRun_PathLikeNameNeverSuggestsPath(t *testing.T) {
+	setupWorkingCopy(t)
+	_, stderr, code := runCLI(t, []string{"pawl", "run", "docs/examples/x/workflow.yaml"})
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1; stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stderr, "no workflow named") || strings.Contains(stderr, "--path") {
+		t.Errorf("pawl run must not suggest --path: %q", stderr)
+	}
+}

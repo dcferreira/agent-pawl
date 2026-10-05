@@ -108,7 +108,14 @@ func cmdValidate(args []string, cwd string, stdout, stderr io.Writer) int {
 		var err error
 		rw, err = resolveWorkflowFile(cwd, name)
 		if err != nil {
-			printLine(stderr, err.Error())
+			msg := err.Error()
+			// pawl validate (unlike pawl run) takes --path, so a
+			// path-looking name is almost certainly a file the author
+			// meant to pass that way (issue #26).
+			if looksLikePath(name) && strings.Contains(msg, "no workflow named") {
+				msg += "; did you mean: pawl validate --path " + name + "?"
+			}
+			printLine(stderr, msg)
 			return 1
 		}
 	}

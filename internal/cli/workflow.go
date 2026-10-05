@@ -64,6 +64,14 @@ func resolveWorkflowFile(cwd, name string) (*resolvedWorkflow, error) {
 	return nil, fmt.Errorf("pawl: no workflow named %q found under .claude/workflows/ (searched %s up to working-copy root %s) or ~/.claude/workflows/", name, abs, root)
 }
 
+// looksLikePath reports whether a workflow-name argument looks like a file
+// path instead: it contains a path separator or ends in .yaml/.yml.
+func looksLikePath(name string) bool {
+	return strings.ContainsRune(name, '/') ||
+		strings.ContainsRune(name, os.PathSeparator) ||
+		strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml")
+}
+
 func fileExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
