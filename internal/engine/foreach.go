@@ -132,6 +132,9 @@ func (e *Engine) dispatchForeach(dir string, log *journal.Log, runID string, ste
 		if err := e.journalFailureDiagnostic(log, runID, step.ID, attempt, text); err != nil {
 			return nil, err
 		}
+		if err := e.clearForeachCollect(log, runID, step, attempt); err != nil {
+			return nil, err
+		}
 		return e.routeForeachReserved(dir, log, runID, step, "failure", attempt, true)
 	case len(items) > f.MaxItemsOrDefault():
 		if _, err := log.Append(enter); err != nil {
@@ -139,6 +142,9 @@ func (e *Engine) dispatchForeach(dir string, log *journal.Log, runID string, ste
 		}
 		text := fmt.Sprintf("step %q: foreach.over %q holds %d items, over the max_items cap of %d", step.ID, f.Over, len(items), f.MaxItemsOrDefault())
 		if err := e.journalFailureDiagnostic(log, runID, step.ID, attempt, text); err != nil {
+			return nil, err
+		}
+		if err := e.clearForeachCollect(log, runID, step, attempt); err != nil {
 			return nil, err
 		}
 		return e.routeForeachReserved(dir, log, runID, step, "exhausted", attempt, true)
@@ -153,6 +159,18 @@ func (e *Engine) dispatchForeach(dir string, log *journal.Log, runID string, ste
 		return nil, err
 	}
 	return e.runForeachItems(dir, log, runID, step, attempt, items, nil)
+}
+
+// clearForeachCollect journals an empty collect: for a foreach step that
+// resolves at entry without running any item (a non-array over:, or a list
+// over max_items), so a re-entered step never leaves the previous visit's
+// per-item results in the collect key for its route to render.
+func (e *Engine) clearForeachCollect(log *journal.Log, runID string, step *spec.Step, attempt int) error {
+	_, err := log.Append(journal.Event{
+		Kind: journal.KindWrites, RunID: runID, Step: step.ID, Attempt: attempt,
+		Writes: map[string]any{step.Foreach.Collect: []any{}},
+	})
+	return err
 }
 
 // routeForeachReserved resolves step with a reserved outcome and continues

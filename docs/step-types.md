@@ -106,7 +106,8 @@ static list yields the reserved outcome `chosen`, which must be routed too if re
 
 Fan two or more independent `deterministic`/`agentic` steps out together and join them
 all-or-nothing. Use it when the branches genuinely don't affect each other and you want them
-running concurrently, not to express a partial-success race.
+running concurrently, not to express a partial-success race (a `foreach:` parallel step does
+resolve `partial`; see steps/parallel.md).
 
 ```yaml
 - id: fanout
@@ -116,7 +117,8 @@ running concurrently, not to express a partial-success race.
 ```
 
 **Checks:** the group's outcome is `success` iff every branch's own outcome was `success`,
-otherwise `failure` — no partial-success outcome, no author-named token of its own.
+otherwise `failure` — for a `branches:` group, no partial-success outcome, no author-named token of
+its own. A `foreach:` parallel step resolves `success`/`partial`/`failure`; see steps/parallel.md.
 
 **Use it for:** summarizing two unrelated files at once, running two independent scripts before a
 join step, anything genuinely parallelizable with no data dependency between the branches.

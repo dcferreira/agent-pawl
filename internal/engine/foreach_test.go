@@ -505,6 +505,51 @@ terminal:
 	}
 }
 
+func TestForeach_ReentryResolvedAtEntryClearsCollect(t *testing.T) {
+	// fan's first visit is partial (item "b" fails) and routes back to
+	// produce, whose second list either is not an array or is over
+	// max_items. Either way fan resolves at entry, without running an item,
+	// and must not leave the first visit's per-item results in collect.
+	for _, tc := range []struct{ name, second, maxItems string }{
+		{"not an array", `"nope"`, ""},
+		{"over max_items", `["a","a","a"]`, ", max_items: 2"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			yaml := `
+workflow: fe-loop-clear
+start: produce
+state:
+  xs: {type: json}
+  out: {type: json, default: []}
+  res: {type: string, default: ""}
+steps:
+  - id: produce
+    kind: deterministic
+    run: |-
+      if [ -e second ]; then echo '{"xs":` + tc.second + `}'; else touch second; echo '{"xs":["a","b"]}'; fi
+    writes: [xs]
+    max_visits: 3
+    next: fan
+  - id: fan
+    kind: parallel
+    foreach: {over: xs, body: one, collect: out` + tc.maxItems + `}
+    max_visits: 3
+    outcomes: {success: ok, partial: produce, failure: bad}
+  - id: one
+    kind: deterministic
+` + failOnB + `
+terminal:
+  ok: {status: ok}
+  bad: {status: ok}
+`
+			_, _, dir := feRun(t, yaml)
+			if got := collectOf(t, dir); len(got) != 0 {
+				t.Errorf("collect = %v, want [] (no stale results from the first visit)", got)
+			}
+		})
+	}
+}
+
 func TestForeach_MaxVisitsCapsStep(t *testing.T) {
 	yaml := `
 workflow: fe-cap

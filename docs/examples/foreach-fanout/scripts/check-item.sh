@@ -6,6 +6,7 @@ case "$1" in
   */* | .* | "") echo "refusing unsafe item name: $1" >&2; exit 2 ;;
 esac
 file="$(cd "$(dirname "$0")/.." && pwd)/inputs/$1"
+[ -r "$file" ] || { echo "cannot read $file" >&2; exit 2; }
 if grep -q -- "$2" "$file"; then
   echo "$1 contains forbidden marker $2" >&2
   exit 1

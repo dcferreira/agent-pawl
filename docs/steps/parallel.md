@@ -7,7 +7,8 @@ the five kinds compare.
 
 ## Fields
 
-- **`branches:`** — required, at least 2 entries. Each names an already-declared `deterministic` or
+- **`branches:`** — required unless the step declares `foreach:` instead (exactly one of the two);
+  at least 2 entries. Each names an already-declared `deterministic` or
   `agentic` step (no nesting: a branch cannot itself be `wait`, `human` or `parallel`). A branch may
   not be the workflow's `start:` step, may not appear twice in the same `branches:`, and may be
   claimed by only one `parallel` step in the whole file.

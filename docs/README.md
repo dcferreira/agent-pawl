@@ -75,7 +75,8 @@ These are planned but not available:
   at.
 - `foreach:` over an `agentic` body (and concurrent item execution). `kind: parallel` with a declared
   branch group (all-or-nothing) and `foreach:` over a *deterministic* body (per-item postconditions,
-  a `success`/`partial`/`failure` join) already ship; see [steps/parallel.md](steps/parallel.md).
+  a `success`/`partial`/`failure` join) already ship; see
+  [format-spec §B.15](../design/format-spec.md) and [examples/foreach-fanout](examples/foreach-fanout/).
 - Workflows shipped inside a plugin. Today a workflow comes from your repo or your home directory.
 
 ---
