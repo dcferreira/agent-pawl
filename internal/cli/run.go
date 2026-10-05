@@ -123,8 +123,8 @@ func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 			// dropping a key=value passed alongside a resume is exactly
 			// the "hide a typo" failure Global Constraint 5 forbids —
 			// bogus=1 on a resume must be refused, not swallowed.
-			// formatArgsKV's join has no format validator behind it any
-			// more than a state key name does (fix round 5's finding:
+			// formatArgsKV's join carries arg *values*, which no validator
+			// can constrain (they come from the command line; fix round 5's finding:
 			// this used to reach stderr via a bare Fprintf, and a raw CR
 			// in a bound arg's value re-homed the cursor to column 0).
 			printLine(stderr, fmt.Sprintf("pawl run: args are bound at run start; run %s was started with %s — use --fresh to rebind", ref.RunID, formatArgsKV(ref.State.Args)))

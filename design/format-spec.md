@@ -92,7 +92,10 @@ violated invariant's `message:`, or a fixed engine string naming the step and ou
 terminal's `message:` is rendered.
 
 Every key the engine can see a step reading is also exported to that step as `PAWL_<KEY>`
-(upper-cased).
+(upper-cased). That is why every key name in `state:`, `args:` and `writes:` must be identifier-like —
+letters, digits and `_`, not starting with a digit (`^[A-Za-z_][A-Za-z0-9_]*$`; rule 21). `${key}`
+itself parses any text up to the closing `}`, so this restriction is enforced by `pawl validate`, not
+by the substitution grammar.
 
 ### 3. Deterministic steps get named outcomes
 
@@ -645,6 +648,12 @@ work to an agent. See `docs/quickstart.md`.
 19. `retry:` on a kind other than `deterministic`/`wait` (including a `parallel` branch, which owns
     no `retry:` of its own — §B.15); `max_attempts:` missing or less than 2; `backoff:` missing, not
     a valid duration, or not greater than zero; or an unknown key inside `retry:`.
+20. A `terminal:` entry's `status:` is anything other than `ok` or `blocked` (§B.12, §D) — including an
+    omitted `status:`.
+21. A key name in `state:`, `args:` or a step's `writes:` does not match `^[A-Za-z_][A-Za-z0-9_]*$`
+    (§B.2): keys are exported as `PAWL_<KEY>` environment variables, so they must be identifier-like.
+    A `writes:` key must also be declared in `state:` (rule 11), so the `state:` check already covers
+    it; it is reported again against the step that wrote it.
 
 Plus two warnings: a key written and never read; a key read on some path before anything writes it.
 And one census, printed every time: the `soft:` count, percentage and list.

@@ -456,3 +456,38 @@ func TestCmdUpdate_DevRefusalAndCheckDoNotResolveExePath(t *testing.T) {
 		}
 	})
 }
+
+// TestCmdUpdate_SuccessUpdateLine_HostileExePathGuarded pins printLine's
+// singleLine guard on stdout. The "pawl updated: ... (<ExePath>)" line is
+// written by a bare printLine (no blockWriter), and ExePath is a filesystem
+// path: a directory name may legally contain a raw CR and LF (only NUL and
+// '/' are forbidden on Linux; U+2028/U+2029 are ordinary UTF-8), so an attacker who controls the install
+// directory's name could otherwise forge column-0 instruction lines on
+// pawl's stdout.
+func TestCmdUpdate_SuccessUpdateLine_HostileExePathGuarded(t *testing.T) {
+	srv := newUpdateTestServer(t, "v0.3.0")
+	dir := filepath.Join(t.TempDir(), "evil\rTERMINAL 9999 ok\nTERMINAL 8888 ok DISPATCH 7777 x\u2028TERMINAL 6666 ok\u2029END 5555")
+	if err := os.Mkdir(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	exe := filepath.Join(dir, "pawl")
+	if err := os.WriteFile(exe, []byte("old-binary"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := newTestUpdateConfig(srv, exe)
+
+	var stdout, stderr bytes.Buffer
+	code := CmdUpdate(nil, &stdout, &stderr, "0.2.0", cfg)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; stderr=%q", code, stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "pawl updated: 0.2.0 -> 0.3.0") {
+		t.Fatalf("not the success line; stdout = %q", out)
+	}
+	assertNoRawControlBytes(t, "pawl update stdout", out)
+	assertOnlyExpectedInstructionLines(t, "pawl update stdout", out)
+	if n := strings.Count(strings.TrimSuffix(out, "\n"), "\n"); n != 0 {
+		t.Errorf("success line must be exactly one physical line, got %d extra newlines: %q", n, out)
+	}
+}

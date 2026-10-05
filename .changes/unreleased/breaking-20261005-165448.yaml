@@ -1,0 +1,3 @@
+kind: breaking
+body: 'pawl validate now rejects a terminal status other than ok or blocked, as design/format-spec.md already documented.'
+time: 2026-10-05T16:54:48.989851950+02:00

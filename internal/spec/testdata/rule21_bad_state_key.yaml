@@ -1,0 +1,10 @@
+workflow: rule21state
+start: a
+state:
+  bad-key: {type: string, default: ""}
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    next: done
+terminal: {done: {status: ok}}

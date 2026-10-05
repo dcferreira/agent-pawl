@@ -94,6 +94,8 @@ func Validate(w *Workflow) (*Report, error) {
 	checkRule12(w, &errs)
 	checkRule13(w, &errs)
 	checkRule14(w, &errs)
+	checkRule20(w, &errs)
+	checkRule21(w, &errs)
 	checkRule18(w, &errs)
 
 	report := &Report{TotalSteps: len(w.Steps)}
@@ -1330,6 +1332,67 @@ func checkRule18(w *Workflow, errs *[]string) {
 				*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
 					"rule 18: context[%d]: tagged %s %q, which is not a recognised command form; only the YAML tag !cmd runs a command — use !cmd %q instead",
 					i, c.Tag, c.Value, suggested)))
+			}
+		}
+	}
+}
+
+// checkRule20 implements §H rule 20: a terminal's status: is the closed set
+// ok|blocked (§B.12, §D). The engine records this string verbatim as the
+// run's final status and prints it on the TERMINAL line, so anything else
+// (including an omitted status: that decodes to "") would put an arbitrary
+// author string where the session expects one of two words.
+func checkRule20(w *Workflow, errs *[]string) {
+	ids := make([]string, 0, len(w.Terminal))
+	for id := range w.Terminal {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		if st := w.Terminal[id].Status; st != "ok" && st != "blocked" {
+			*errs = append(*errs, terminalErr(w, id, fmt.Sprintf(
+				"rule 20: status: %q is not ok or blocked; use status: ok or status: blocked", st)))
+		}
+	}
+}
+
+// keyNamePattern is the shape of a state:/args:/writes: key name (§H rule
+// 21). Keys are exported to a step's environment as PAWL_<UPPERCASED KEY>
+// (render.EnvFor), so a key must be a valid environment-variable name tail:
+// letters, digits and underscore, not starting with a digit. render itself
+// accepts any text between "${" and "}", so this is strictly narrower than
+// what substitution parses — the validator is the only gate.
+var keyNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+const keyNameFix = `is not a valid name; use only letters, digits and "_", starting with a letter or "_" (keys are exported as PAWL_<KEY> environment variables)`
+
+// checkRule21 implements §H rule 21: every key in state:, args: and a step's
+// writes: must match keyNamePattern. A writes: key must also be declared in
+// state: (rule 11), so the state: check covers it transitively; it is still
+// checked here so the error points at the step that wrote it.
+func checkRule21(w *Workflow, errs *[]string) {
+	check := func(section string, m []string) {
+		sort.Strings(m)
+		for _, k := range m {
+			if !keyNamePattern.MatchString(k) {
+				*errs = append(*errs, fileErr(w, fmt.Sprintf("rule 21: %s: key %q %s", section, k, keyNameFix)))
+			}
+		}
+	}
+	stateKeys := make([]string, 0, len(w.State))
+	for k := range w.State {
+		stateKeys = append(stateKeys, k)
+	}
+	check("state", stateKeys)
+	argKeys := make([]string, 0, len(w.Args))
+	for k := range w.Args {
+		argKeys = append(argKeys, k)
+	}
+	check("args", argKeys)
+	for _, s := range w.Steps {
+		for _, k := range s.Writes.Keys {
+			if !keyNamePattern.MatchString(k) {
+				*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf("rule 21: writes: key %q %s", k, keyNameFix)))
 			}
 		}
 	}
