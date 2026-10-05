@@ -1,0 +1,9 @@
+workflow: rule20
+start: a
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    next: done
+terminal:
+  done: {status: green, message: finished}

@@ -112,6 +112,14 @@ starts with `!` is not a case this rule can special-case away (there is no way t
 really means a file" from "this author typo'd a command" from the YAML alone) — reference it as
 `./!name` instead, which does not start with `!` and so is unambiguously a file path.
 
+**20 — bad terminal status.** A `terminal:` entry's `status:` must be exactly `ok` or `blocked`.
+Anything else — a typo like `done`, or an omitted `status:` — is rejected.
+
+**21 — key name is not an identifier.** Every key in `state:`, `args:` and a step's `writes:` must
+match `^[A-Za-z_][A-Za-z0-9_]*$` (letters, digits and `_`, not starting with a digit), because keys
+are exported to steps as `PAWL_<KEY>` environment variables. A `writes:` key is also checked
+against `state:` by rule 11; rule 21 reports it again against the step that wrote it.
+
 ## Warnings
 
 Two, printed as `warning:` and exit 0. `--strict` (turning these into errors, for CI) is

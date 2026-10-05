@@ -531,6 +531,42 @@ func TestValidate_GoldenMessages(t *testing.T) {
 			},
 		},
 		{
+			name: "rule20: terminal status is not ok or blocked",
+			file: "rule20_bad_terminal_status.yaml",
+			want: []string{
+				`testdata/rule20_bad_terminal_status.yaml: terminal "done": rule 20: status: "green" is not ok or blocked; use status: ok or status: blocked`,
+			},
+		},
+		{
+			name: "rule20: terminal status omitted",
+			file: "rule20_empty_terminal_status.yaml",
+			want: []string{
+				`testdata/rule20_empty_terminal_status.yaml: terminal "done": rule 20: status: "" is not ok or blocked; use status: ok or status: blocked`,
+			},
+		},
+		{
+			name: "rule21: state key is not an identifier",
+			file: "rule21_bad_state_key.yaml",
+			want: []string{
+				`testdata/rule21_bad_state_key.yaml: rule 21: state: key "bad-key" is not a valid name; use only letters, digits and "_", starting with a letter or "_" (keys are exported as PAWL_<KEY> environment variables)`,
+			},
+		},
+		{
+			name: "rule21: args key is not an identifier",
+			file: "rule21_bad_arg_key.yaml",
+			want: []string{
+				`testdata/rule21_bad_arg_key.yaml: rule 21: args: key "1st" is not a valid name; use only letters, digits and "_", starting with a letter or "_" (keys are exported as PAWL_<KEY> environment variables)`,
+			},
+		},
+		{
+			name: "rule21: writes key is not an identifier",
+			file: "rule21_bad_writes_key.yaml",
+			want: []string{
+				`testdata/rule21_bad_writes_key.yaml: step "a": rule 11: writes: "has space", which is not declared in state:; add state: {has space: {type: ...}} or fix the typo`,
+				`testdata/rule21_bad_writes_key.yaml: step "a": rule 21: writes: key "has space" is not a valid name; use only letters, digits and "_", starting with a letter or "_" (keys are exported as PAWL_<KEY> environment variables)`,
+			},
+		},
+		{
 			name: "F5b: next: and outcomes: both present",
 			file: "f5b_next_and_outcomes.yaml",
 			want: []string{
@@ -644,7 +680,7 @@ func TestValidate_GoldenMessages(t *testing.T) {
 }
 
 func TestValidate_ValidWorkflowsHaveZeroErrors(t *testing.T) {
-	for _, file := range []string{"tidy.yaml", "valid.yaml", "parallel_ok.yaml", "human_next_valid.yaml", "human_valid_static.yaml", "human_valid_options_from.yaml", "rule15_guards_accepted.yaml", "rule15_guard_only_in_parallel_branch.yaml", "rule19_retry_valid.yaml", "rule19_retry_valid_wait.yaml", "invariants_accepted.yaml"} {
+	for _, file := range []string{"tidy.yaml", "valid.yaml", "parallel_ok.yaml", "human_next_valid.yaml", "human_valid_static.yaml", "human_valid_options_from.yaml", "rule15_guards_accepted.yaml", "rule15_guard_only_in_parallel_branch.yaml", "rule19_retry_valid.yaml", "rule19_retry_valid_wait.yaml", "invariants_accepted.yaml", "rule21_valid_keys.yaml"} {
 		t.Run(file, func(t *testing.T) {
 			w, err := Load(filepath.Join("testdata", file))
 			if err != nil {

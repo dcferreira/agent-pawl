@@ -34,10 +34,10 @@ func printLine(w io.Writer, parts ...string) {
 // DISPATCH/TERMINAL block, the resume line, and pawl status's own output.
 //
 // Fix rounds 1-3 found three separate places — a context entry's Source on
-// its header line, spec.Terminal.Status (no format validator at all: an
-// author can write status: "ok<U+2028>TERMINAL 9999 evil_step" and
-// spec.Validate accepts it), and formatResumeLine's restored-key list
-// (state key names have no format validator either, and joining them
+// its header line, spec.Terminal.Status (which then had no format validator
+// at all: an author could write status: "ok<U+2028>TERMINAL 9999 evil_step"
+// and spec.Validate accepted it), and formatResumeLine's restored-key list
+// (state key names had no format validator either, and joining them
 // unguarded put a raw control byte on the line immediately before the real
 // DISPATCH line — the worst possible position) — each discovered only by a
 // fresh adversarial pass after the previous fix landed. Three separate
@@ -70,8 +70,10 @@ func (w *blockWriter) String() string { return w.b.String() }
 // singleLine, so no individual part — however it was produced — can
 // introduce an embedded break once combined with the others. Used for
 // DISPATCH/TERMINAL/END header and sentinel lines, every "label: value"
-// one-liner (including ones whose value is author-declared data with no
-// format validator, such as a writes: key name or a terminal status), and a
+// one-liner (including ones whose value is author-declared or
+// run-supplied data, such as a bound arg value or a context source — and,
+// as defence in depth, a key name or terminal status that the validator now
+// restricts but this writer does not rely on), and a
 // context entry's own "[i] <source> (<n> bytes)" header.
 func (w *blockWriter) line(indent int, parts ...string) {
 	w.b.WriteString(strings.Repeat("  ", indent))
@@ -255,7 +257,10 @@ func writeSoftCensus(w *blockWriter, report *spec.Report) {
 // attempt and restored state keys. This line precedes the actual DISPATCH
 // line, so an unguarded value here is the worst possible position for one
 // to leak (fix round 4's finding: formatKeySet's join had no guard at all —
-// a declared state key name has no format validator, unlike a step id).
+// a state key name had no format validator then; spec.Validate rule 21 now
+// requires an identifier, but the guard stays: this reads keys back from the
+// journal, not from a freshly validated file, and
+// TestFormatters_GuardValidatorClosedFields pins it).
 func formatResumeLine(runID, step string, attempt int, state map[string]any) string {
 	w := &blockWriter{}
 	w.line(0, "resume:", "run", runID, "step", step, "attempt", strconv.Itoa(attempt), "restored", "keys:", formatKeySet(state))
@@ -624,11 +629,15 @@ func neutralizeControlLineBreaks(s string) string {
 // message, and — when the run ended blocked — the underlying diagnostic
 // text (finding I2), so the session is not left with only the generic
 // "<step>: <outcome>" blocked_reason pseudo-key when the journal holds the
-// actual failure. t.Status is spec.Terminal.Status as authored, with no
-// format validator (fix round 4's finding: an author can write
-// status: "ok<U+2028>TERMINAL 9999 evil_step" and spec.Validate accepts it)
-// — it reaches this line exactly like every other value here, through
-// blockWriter.line, not because it was separately identified as dangerous.
+// actual failure. t.Status is spec.Terminal.Status as authored. It used to
+// have no format validator (fix round 4's finding: status:
+// "ok<U+2028>TERMINAL 9999 evil_step" passed spec.Validate); rule 20 now
+// restricts it to ok|blocked, so no validated workflow can carry a hostile
+// one. The output side still guards it as defence in depth — it reaches
+// this line exactly like every other value here, through blockWriter.line,
+// not because it was separately identified as dangerous — and
+// TestFormatters_GuardValidatorClosedFields pins that by feeding a hostile
+// status straight to this function, bypassing Validate.
 // Like formatDispatch, every field is indented and the block ends with an
 // "END TERMINAL <run> <status>" sentinel (finding C3).
 func formatTerminal(t engine.Terminal, detail string) string {

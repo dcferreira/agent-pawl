@@ -1,0 +1,9 @@
+workflow: rule20empty
+start: a
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    next: done
+terminal:
+  done: {message: finished}

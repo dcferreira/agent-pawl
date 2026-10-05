@@ -1,0 +1,10 @@
+workflow: rule21arg
+start: a
+args:
+  1st: {type: string, required: true}
+steps:
+  - id: a
+    kind: deterministic
+    run: echo hi
+    next: done
+terminal: {done: {status: ok}}
