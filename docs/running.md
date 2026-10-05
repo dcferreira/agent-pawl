@@ -18,7 +18,7 @@ prints the first `DISPATCH`/`ASK`/`WAIT` line and exits (inspect only). Either w
 
 Arguments are `key=value`, declared in `args:`; a missing required one refuses to start and prints
 the usage. Line 1: run id, workflow, resolved file. Line 2: the enforcement banner — `pawl` refuses
-to start a new run unless a fresh `PreToolUse` heartbeat exists for this working copy (a resume
+to start a new run unless a fresh `PreToolUse` heartbeat exists for this session or, failing that, this working copy (a resume
 doesn't need one — see below); `Stop` is assumed
 installed from the same `hooks.json`, not independently checked (see
 [troubleshooting](troubleshooting.md#hooks-not-live)); [guards are advisory, invariants

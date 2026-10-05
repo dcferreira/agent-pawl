@@ -16,7 +16,7 @@ It only ever hands control back to you at an `agentic` step (`DISPATCH`), a grou
 `human` step (`ASK`), or when the run ends (`TERMINAL`).
 
 **The enforcement hooks are live.** `pawl run` will refuse to start at all (exit 4) unless its
-`PreToolUse` hook has fired for this working copy recently — if you see
+`PreToolUse` hook has fired for this session (or, failing that, this working copy) recently — if you see
 `pawl: refusing to start: pawl's PreToolUse hook has not fired for this working copy in the last 5
 minutes.`, tell the user the enforcement hooks aren't installed and point them at
 `docs/install.md#hooks`. **`--no-enforcement` is not yours to reach for to get past this refusal** —

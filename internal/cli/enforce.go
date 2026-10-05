@@ -11,6 +11,9 @@ import (
 
 const envEnforcement = "PAWL_ENFORCEMENT"
 
+// envSessionID is exported by Claude Code into Bash-tool children.
+const envSessionID = "CLAUDE_CODE_SESSION_ID"
+
 // enforcementMode is what pawl run found about the enforcement hooks.
 type enforcementMode struct {
 	On        bool
@@ -27,6 +30,28 @@ type enforcementMode struct {
 var errNoHeartbeat = errors.New("pawl: refusing to start: pawl's PreToolUse hook has not fired for this working copy in the last 5 minutes.\n" +
 	"Install the agent-pawl Claude Code plugin (docs/install.md#hooks), or pass --no-enforcement.")
 
+// freshHeartbeat finds the PreToolUse heartbeat vouching for this
+// invocation. The hook payload's cwd is always the Claude Code session's
+// start directory, whatever the Bash command cd'd to, so the per-root
+// heartbeat can belong to a different working copy than root. Claude Code
+// exports the session id (the payload's session_id) into Bash children as
+// CLAUDE_CODE_SESSION_ID: when that session's heartbeat is fresh it is used;
+// otherwise (no env var, a plain terminal, a stale or missing session
+// heartbeat) this falls back to root's own heartbeat.
+func freshHeartbeat(root string) (journal.Heartbeat, bool) {
+	now := nowFunc()
+	if id := os.Getenv(envSessionID); id != "" {
+		if hb, ok, err := journal.ReadSessionHeartbeat(id); err == nil && ok && hb.Fresh(now) {
+			return hb, true
+		}
+	}
+	hb, ok, err := journal.ReadHeartbeat(root)
+	if err != nil || !ok || !hb.Fresh(now) {
+		return journal.Heartbeat{}, false
+	}
+	return hb, true
+}
+
 // checkEnforcement decides whether pawl run may start: an explicit opt-out,
 // or a PreToolUse heartbeat for root no older than journal.HeartbeatTTL.
 func checkEnforcement(root string, flagOff bool) (enforcementMode, error) {
@@ -36,8 +61,8 @@ func checkEnforcement(root string, flagOff bool) (enforcementMode, error) {
 	if os.Getenv(envEnforcement) == "off" {
 		return enforcementMode{OffReason: envEnforcement + "=off"}, nil
 	}
-	hb, ok, err := journal.ReadHeartbeat(root)
-	if err != nil || !ok || !hb.Fresh(nowFunc()) {
+	hb, ok := freshHeartbeat(root)
+	if !ok {
 		return enforcementMode{}, errNoHeartbeat
 	}
 	return enforcementMode{On: true, SessionID: hb.SessionID}, nil
@@ -70,8 +95,8 @@ func resumeEnforcement(root string, ref *journal.RunRef, flagOff bool) (enforcem
 		}
 		return enforcementMode{}, fmt.Errorf("pawl run: run %s was started with enforcement on, and enforcement is bound at run start — %s cannot turn it off. To continue the run, resume without it (no hook heartbeat is needed to resume); it stays enforced", ref.RunID, how)
 	}
-	hb, ok, err := journal.ReadHeartbeat(root)
-	if err != nil || !ok || !hb.Fresh(nowFunc()) {
+	hb, ok := freshHeartbeat(root)
+	if !ok {
 		return enforcementMode{On: true, BoundNoHeartbeat: true}, nil
 	}
 	return enforcementMode{On: true, SessionID: hb.SessionID}, nil
@@ -92,8 +117,8 @@ func enforcementLabel(mode enforcementMode) string {
 // picks the run up becomes its driver. Best-effort: a missing or stale
 // heartbeat leaves driver.json as it was.
 func stampDriver(root, workflowID, runID string) {
-	hb, ok, err := journal.ReadHeartbeat(root)
-	if err != nil || !ok || !hb.Fresh(nowFunc()) {
+	hb, ok := freshHeartbeat(root)
+	if !ok {
 		return
 	}
 	stampDriverAs(root, workflowID, runID, hb.SessionID)

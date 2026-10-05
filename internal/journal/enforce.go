@@ -55,6 +55,51 @@ func ReadHeartbeat(root string) (Heartbeat, bool, error) {
 	return h, ok, err
 }
 
+// sessionHeartbeatPath is where the heartbeat for a Claude Code session
+// lives, or ok=false for an id that is not a safe file name: only
+// [A-Za-z0-9._-] (at most 128 bytes, and not "." or "..") is accepted, so an
+// id can never name a path outside heartbeat/session/. A bad id simply has
+// no session heartbeat.
+func sessionHeartbeatPath(sessionID string) (string, bool) {
+	if sessionID == "" || len(sessionID) > 128 || sessionID == "." || sessionID == ".." {
+		return "", false
+	}
+	for _, c := range sessionID {
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '.', c == '_', c == '-':
+		default:
+			return "", false
+		}
+	}
+	return filepath.Join(PawlHome(), "heartbeat", "session", sessionID+".json"), true
+}
+
+// WriteSessionHeartbeat records that pawl's PreToolUse hook saw a pawl
+// command from sessionID, whichever working copy that session's cwd was in.
+// Claude Code's hook payload cwd is always the session's start directory,
+// while pawl run/submit/poll run in whatever directory the Bash command
+// cd'd to — so the per-working-copy heartbeat alone misses a session that
+// works in another working copy (issue #18). A session id that is not a
+// safe file name writes nothing and is not an error.
+func WriteSessionHeartbeat(sessionID string, now time.Time) error {
+	path, ok := sessionHeartbeatPath(sessionID)
+	if !ok {
+		return nil
+	}
+	return writeJSONAtomic(path, Heartbeat{SessionID: sessionID, Time: now})
+}
+
+// ReadSessionHeartbeat reads sessionID's heartbeat; a bad id reads as absent.
+func ReadSessionHeartbeat(sessionID string) (Heartbeat, bool, error) {
+	var h Heartbeat
+	path, ok := sessionHeartbeatPath(sessionID)
+	if !ok {
+		return h, false, nil
+	}
+	ok, err := readJSON(path, &h)
+	return h, ok, err
+}
+
 // Driver names the Claude Code session currently driving a run; the Stop
 // hook only refuses that session.
 type Driver struct {
@@ -137,6 +182,23 @@ func SyncLiveIndex(root string) error {
 // whose components spell the entry's own name, with at least one recorded
 // event, and not terminal. Anything else is skipped, not an error.
 func LiveIndexed() ([]RunRef, error) {
+	return liveIndexed(nil)
+}
+
+// LiveIndexedDrivenBy is LiveIndexed restricted to runs whose driver.json
+// names sessionID. driver.json is read before the journal, so runs driven by
+// other sessions are never replayed — the hot PreToolUse path pays a replay
+// only for the calling session's own runs.
+func LiveIndexedDrivenBy(sessionID string) ([]RunRef, error) {
+	return liveIndexed(func(runDir string) bool {
+		d, ok, err := ReadDriver(runDir)
+		return err == nil && ok && d.SessionID == sessionID
+	})
+}
+
+// liveIndexed implements both; a non-nil match is consulted on each verified
+// run directory before its journal is read.
+func liveIndexed(match func(runDir string) bool) ([]RunRef, error) {
 	dir := LiveIndexDir()
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
@@ -162,6 +224,9 @@ func LiveIndexed() ([]RunRef, error) {
 			continue
 		}
 		runDir := filepath.Join(base, parts[0], parts[1], parts[2])
+		if match != nil && !match(runDir) {
+			continue
+		}
 		events, err := ReadEvents(runDir)
 		if err != nil || len(events) == 0 {
 			continue

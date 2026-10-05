@@ -59,6 +59,11 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 		if err := journal.WriteHeartbeat(root, p.SessionID, nowFunc()); err != nil {
 			printLine(stderr, "pawl hook pre: writing heartbeat:", err.Error())
 		}
+		// Also keyed by session: pawl run/submit/poll may run in a working
+		// copy other than this payload's cwd (issue #18).
+		if err := journal.WriteSessionHeartbeat(p.SessionID, nowFunc()); err != nil {
+			printLine(stderr, "pawl hook pre: writing session heartbeat:", err.Error())
+		}
 	}
 	live, err := journal.Live(root)
 	if err != nil {
@@ -74,14 +79,14 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 	// this binary is reached, including with zero live runs. Best-effort: a
 	// sync failure must not change this call's own allow/deny decision.
 	_ = journal.SyncLiveIndex(root)
-	if event == "stop" {
-		// Stop finds the run this session drives by driver.json's session
-		// id, across every working copy: the Bash tool's cwd persists
-		// between calls, so a driving session that has cd'd out of its
-		// working copy would otherwise resolve to a slug with no runs and
-		// walk away mid-dispatch. PreToolUse stays cwd-scoped.
-		live = appendDrivenRuns(live, p.SessionID)
-	}
+	// Both events find the runs this session drives by driver.json's
+	// session id, across every working copy. Stop: the Bash tool's cwd
+	// persists between calls, so a driving session that has cd'd out of its
+	// working copy would otherwise resolve to a slug with no runs and walk
+	// away mid-dispatch. PreToolUse: the payload cwd is always the session's
+	// start directory, so a run in a working copy the session cd'd into
+	// would otherwise never be enforced (issue #18).
+	live = appendDrivenRuns(live, p.SessionID)
 	runs := buildLiveRuns(live)
 	var d hook.Decision
 	if event == "pre" {
@@ -120,14 +125,14 @@ func writeHookDecision(w io.Writer, event, reason string) error {
 }
 
 // appendDrivenRuns adds to live every run in the live/ index (verified
-// through the journal by journal.LiveIndexed) whose driver.json names
+// through the journal by journal.LiveIndexedDrivenBy) whose driver.json names
 // sessionID, skipping any already in live. An index read error adds nothing:
-// Stop never fails closed.
+// the hooks never fail closed on it.
 func appendDrivenRuns(live []journal.RunRef, sessionID string) []journal.RunRef {
 	if sessionID == "" {
 		return live
 	}
-	indexed, err := journal.LiveIndexed()
+	indexed, err := journal.LiveIndexedDrivenBy(sessionID)
 	if err != nil {
 		return live
 	}
@@ -139,10 +144,8 @@ func appendDrivenRuns(live []journal.RunRef, sessionID string) []journal.RunRef 
 		if seen[r.Dir] {
 			continue
 		}
-		if d, ok, err := journal.ReadDriver(r.Dir); err == nil && ok && d.SessionID == sessionID {
-			seen[r.Dir] = true
-			live = append(live, r)
-		}
+		seen[r.Dir] = true
+		live = append(live, r)
 	}
 	return live
 }

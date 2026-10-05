@@ -150,8 +150,9 @@ consequence. Invariants run after every step: keep them to a handful, and fast.
 - **Nothing is rolled back.** An invariant tells you the MR was un-drafted; it cannot re-draft it.
 - **Two live runs in one working copy share one guard table, permissively** — `PreToolUse` lets a
   guard's deny stand only if *no* live run's active step permits a guard with the same `match:`.
-- **Guards are scoped to the working copy of the Bash call's cwd** — a command run after `cd`-ing
-  elsewhere, or aimed elsewhere (`git -C /repo push`), isn't checked against this working copy's runs.
+- **Guards apply to runs in the Bash call's cwd working copy plus every run the calling session
+  drives (per `driver.json`) in any working copy** — a command aimed at another repo
+  (`git -C /repo push`) is checked against those runs' guards by its text only.
 - **Guards only see Bash** — an Edit-tool write fires no `match:`, and `subagent_args.tools` is
   guidance to the subagent, not an enforced allowlist ([agentic steps](steps/agentic.md)). The one
   subagent rule the `PreToolUse` hook actually keeps is denying VCS-mutating `Bash` from a subagent

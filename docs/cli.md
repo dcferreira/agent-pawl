@@ -58,7 +58,8 @@ Resuming at an arbitrary step (`--from <step>`) isn't yet available — see
 [README.md#not-yet](README.md#not-yet).
 
 **Enforcement check.** Unless `--no-enforcement` or `PAWL_ENFORCEMENT=off` is set, `pawl run` refuses
-to start (exit 4) unless `pawl hook pre` has written a heartbeat for this working copy no more than 5 minutes
+to start (exit 4) unless `pawl hook pre` has written a heartbeat (keyed by the Claude Code session, found through
+`CLAUDE_CODE_SESSION_ID`, else by this working copy) no more than 5 minutes
 ago — its way of confirming the `PreToolUse` hook is actually wired up:
 
 ```
@@ -329,7 +330,7 @@ pawl hook stop
 
 Bound once at install, called by Claude Code with a JSON payload on stdin. `pre` writes the session's
 heartbeat whenever any simple command in it invokes `pawl`, applies the guard table (union across the
-cwd working copy's live runs, per guard pattern) on `PreToolUse` for Bash, and denies VCS-mutating Bash from a subagent while any run is live —
+cwd working copy's live runs plus any live run, in any working copy, whose `driver.json` names the calling session, per guard pattern) on `PreToolUse` for Bash, and denies VCS-mutating Bash from a subagent while any run is live —
 its one subagent rule; `subagent_args:` is not enforced. A command made only of `pawl`/`cd` segments
 is never denied by a guard (its arguments may mention a guarded pattern, but `pawl` never runs it
 directly). Runs started with enforcement opted out are ignored entirely. `stop` blocks only for the

@@ -225,7 +225,7 @@ resolves for this working copy; `--run <id>` is only needed to disambiguate seve
      `blocked` outcome (the invariant-violating step, or the step whose route sent it there), with
      that step's attempt counter reset to 1, after appending a `RESUME` event with
      `intervention: true`.
-5. Re-check the `PreToolUse` heartbeat for this working copy (the same `checkEnforcement` a fresh
+5. Re-check the `PreToolUse` heartbeat for this session (else this working copy) (the same `checkEnforcement` a fresh
    start runs) and print the enforcement banner.
 6. Print the resume line: run id, step, attempt, restored keys.
 7. Re-run the (interrupted, or newly-reset) attempt on the tree as it stands, telling the model that a
@@ -263,8 +263,13 @@ fast path, since `pawl-hook` isn't on their `PATH`) — see `docs/install.md#hoo
 run` to ask Claude Code "is a `PreToolUse` hook wired up" directly, so it infers one the same way any
 liveness check does: `pawl hook pre` writes `heartbeat/<slug>.json` (`{"session_id", "time"}`)
 whenever any simple command in the Bash call invokes `pawl` — which every `pawl run`/`submit`/`poll`
-call does, including one chained after a `cd`.
-A fresh `pawl run` refuses to start unless a heartbeat for this working copy exists and is
+call does, including one chained after a `cd`. It also writes a second, session-keyed heartbeat,
+`heartbeat/session/<session_id>.json` (same JSON; ids outside `[A-Za-z0-9._-]` are skipped), because
+the payload's `cwd` is always the Claude Code session's start directory while `pawl run`/`submit`/
+`poll` may run in another working copy (issue #18). Claude Code exports the session id into Bash
+children as `CLAUDE_CODE_SESSION_ID`; `pawl run`/`submit`/`poll` look for a fresh session heartbeat
+first and fall back to the per-working-copy one (no env var: a plain terminal, or an older Claude Code).
+A fresh `pawl run` refuses to start unless a heartbeat (by session, else for this working copy) exists and is
 no older than **5 minutes** (`journal.HeartbeatTTL`), unless `--no-enforcement` or `PAWL_ENFORCEMENT=off`
 is passed (deviation 5) — an explicit, visible opt-out, not a silent one, recorded in `RUN_START`'s
 `hook_self_test` and bound for the run's lifetime: the hooks leave an opted-out run out of every
@@ -305,7 +310,7 @@ entry (falling back to cwd itself if none is found), never by asking a VCS binar
 string-manipulating cwd, and writes the run directory under the slug derived from it. `pawl hook
 pre|stop` reads its own stdin payload for the tool name, input and cwd, derives that call's root by
 the same algorithm (`journal.ResolveRoot`), loads the live runs under that slug (`journal.Live`) —
-`Stop` additionally loads, across every working copy, each run in `live/` whose `driver.json` names
+`PreToolUse` and `Stop` additionally load, across every working copy, each run in `live/` whose `driver.json` names
 the payload's session (verified against its run directory, below) — and
 reads each match's `plan.json` (guards, step kinds — not a separate `guards.json`; deviation 3) and
 `driver.json` off disk. `live/<slug>__<workflow_id>__<run_id>` (a symlink to the run directory,
@@ -404,8 +409,8 @@ submit`. A violation journals the reason into `RUN_END` and sets the run `BLOCKE
 | End the driving session's turn mid-dispatch | `Stop` blocks, names `pawl abandon` | — | a harness that drops the hook, or a session that isn't the recorded driver; also, a session that owes a `pawl submit` but has *any* unrelated `background_tasks`/`session_crons` entry in the Stop payload — the exemption doesn't check that the in-flight work is the dispatched step's, so it can be used to end the turn while genuinely walking away |
 | Half-edit the tree, then die | — | — | fix-forward: the next attempt is told and inspects |
 | Two live runs in one working copy edit the same files | — | — | not prevented; the author's own idempotency only |
-| Guarded or VCS-mutating command run from outside the working copy (`cd /elsewhere`, `git -C /repo push`) | — | invariant, if it changed observable state | guards and the subagent VCS rule are scoped to the payload cwd's working copy; only `Stop` looks across working copies |
-| Two sessions launching `pawl` in one checkout within 5 minutes | — | — | heartbeat is per working copy; the driver can be misattributed |
+| Guarded or VCS-mutating command run from outside the working copy (`cd /elsewhere`, `git -C /repo push`) | — | invariant, if it changed observable state | guards and the subagent VCS rule apply to the payload cwd's working copy plus every run (in any working copy) whose `driver.json` names the calling session; a command aimed elsewhere (`git -C /repo push`) is checked against those runs' guards by its text only |
+| Two sessions launching `pawl` in one checkout within 5 minutes | — | — | the per-working-copy heartbeat (the fallback when `CLAUDE_CODE_SESSION_ID` is not set) is shared; the driver can be misattributed |
 | `--no-enforcement`/`PAWL_ENFORCEMENT=off` | — | — | an explicit, visible opt-out — nothing is checked at all for that run |
 
 A step's postcondition is never evaluated by the actor that did the work: the engine evaluates it
