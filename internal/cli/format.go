@@ -536,7 +536,20 @@ func formatAsk(a engine.Ask) string {
 
 	w.line(0, "multi:", strconv.FormatBool(a.Multi))
 
-	w.line(0, "submit with:", fmt.Sprintf(`pawl submit --run %s --step %s --json '{"selected": ["<option label>"], "other": "<free text, if any>"}'`, a.RunID, a.Step))
+	// The hint mirrors engine.resolveHumanAnswer: only multi: true accepts
+	// selected and other together; a single-select step takes exactly one of
+	// them (both hard-fails and blocks the run), and with no options there is
+	// nothing to select, so only other applies.
+	submit := fmt.Sprintf("pawl submit --run %s --step %s --json ", a.RunID, a.Step)
+	switch {
+	case a.Multi:
+		w.line(0, "submit with:", submit+`'{"selected": ["<option label>"], "other": "<free text, if any>"}'`)
+	case len(a.Options) == 0:
+		w.line(0, "submit with:", submit+`'{"other": "<free text>"}'`)
+	default:
+		w.line(0, "submit with:", submit+`'{"selected": ["<option label>"]}'`)
+		w.line(0, "or:", submit+`'{"other": "<free text>"}'`)
+	}
 	w.line(0, "END", "ASK", a.RunID, a.Step)
 	return w.String()
 }

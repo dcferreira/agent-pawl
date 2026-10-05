@@ -187,7 +187,8 @@ options:
   [1] approve
   [2] revise
 multi: false
-submit with: pawl submit --run 9074 --step ask_approval --json '{"selected": ["<option label>"], "other": "<free text, if any>"}'
+submit with: pawl submit --run 9074 --step ask_approval --json '{"selected": ["<option label>"]}'
+or: pawl submit --run 9074 --step ask_approval --json '{"other": "<free text>"}'
 END ASK 9074 ask_approval
 ```
 
@@ -204,6 +205,9 @@ free text. Submit their answer as JSON with the exact command shown on `submit w
 
 - Picking a listed option: `{"selected": ["approve"]}`.
 - Typing free text instead ("Other"): `{"other": "their exact words"}`.
+- On a single-select step (`multi: false`) submit exactly one of `selected` (one entry) or
+  `other`, never both — both fails the step and blocks the run. The `submit with:` hint shows the
+  two alternatives; `multi: true` shows the combined shape.
 - Multi-select: `{"selected": ["approve", "flag-for-legal"]}`, optionally with `"other": "..."`
   mixed in too.
 
