@@ -30,6 +30,9 @@ const joinedTarget = "(joined)"
 // deterministic steps without stopping; otherwise it returns DispatchParallel
 // for the caller to fan the agentic branches out.
 func (e *Engine) dispatchParallel(dir string, log *journal.Log, runID string, step *spec.Step, cur journal.Cursor, interrupted bool) (Instruction, error) {
+	if step.Foreach != nil {
+		return e.dispatchForeach(dir, log, runID, step, cur)
+	}
 	rs, err := replayDir(dir)
 	if err != nil {
 		return nil, err

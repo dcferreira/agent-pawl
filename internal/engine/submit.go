@@ -58,6 +58,12 @@ func (e *Engine) Submit(runID, stepID string, attempt int, result json.RawMessag
 		return nil, fmt.Errorf("%w: step %q is not an agentic step awaiting submission", ErrRefused, stepID)
 	}
 
+	for i := range e.Workflow.Steps {
+		if f := e.Workflow.Steps[i].Foreach; f != nil && f.Body == stepID {
+			return nil, fmt.Errorf("%w: step %q is the deterministic body of foreach step %q: the engine runs it per item itself and nothing is ever awaiting a submit for it", ErrRefused, stepID, e.Workflow.Steps[i].ID)
+		}
+	}
+
 	// branchOf is set when stepID names a still-outstanding branch of the
 	// kind: parallel step the run's cursor is actually parked on — the
 	// second acceptance path Submit understands, alongside the ordinary
