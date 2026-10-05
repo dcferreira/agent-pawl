@@ -1,0 +1,38 @@
+workflow: foreach-fanout
+description: >
+  kind: parallel + foreach: example: a discover step finds the work list at
+  runtime (every inputs/*.txt next to this file), a foreach step runs one
+  deterministic body per item, and the join routes success / partial /
+  failure. One bundled input contains the forbidden marker, so the default
+  run ends on the partial route. See NOTES.md.
+start: discover
+args:
+  forbidden: {type: string, default: BROKEN}
+state:
+  items:   {type: json, default: []}
+  results: {type: json, default: []}
+  verdict: {type: string, default: ""}
+steps:
+  - id: discover
+    kind: deterministic
+    run: scripts/discover.sh
+    emits: json
+    writes: [items]
+    next: check_all
+
+  - id: check_all
+    kind: parallel
+    foreach: {over: items, body: check_one, collect: results, max_items: 20}
+    outcomes: {success: all_clean, partial: some_dirty, failure: all_dirty}
+
+  - id: check_one
+    kind: deterministic
+    run: scripts/check-item.sh ${item} ${forbidden}   # one quoted token each, never sh -c
+    emits: json
+    writes: [verdict]                   # captured per item into results
+    postcondition: {all_set: [verdict]}
+
+terminal:
+  all_clean: {status: ok, message: "Every item is clean: ${results}"}
+  some_dirty: {status: ok, message: "Some items failed: ${results}"}
+  all_dirty: {status: blocked, message: "No item passed: ${results}"}

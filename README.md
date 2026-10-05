@@ -18,7 +18,10 @@ describe:
 
 - All five step kinds are implemented: `deterministic`, `agentic`, `wait`, `human`, and `parallel`
   (single-group, all-or-nothing `branches:` join — [design/format-spec.md](design/format-spec.md)
-  §B.15). `foreach:` fan-out with a *partial*-success join remains a later milestone.
+  §B.15), plus `foreach:` fan-out over a runtime-discovered json list with per-item postconditions
+  and a `success`/`partial`/`failure` join — **deterministic bodies only**; `foreach:` over an
+  `agentic` body (and any concurrent execution of items) remains a later slice. The example is
+  `docs/examples/foreach-fanout`.
 - Top-level `guards:` is now parsed and validated (id required+unique, `match:` required, must
   compile as a Go RE2 regexp, and must not be able to match zero characters; `only_in:` required —
   rule 15 checks every entry names a declared step; `only_in: []` denies everywhere — see
@@ -57,8 +60,8 @@ describe:
 - `pawl poll --run … --step …` drives a `wait` step; `pawl hook pre|stop` is the `PreToolUse`/`Stop`
   hook entry point (see above).
 
-The workflows under `docs/examples/` beyond `green-tests` remain authoring exercises rather than
-verified-runnable artefacts.
+The workflows under `docs/examples/` beyond `green-tests` and `foreach-fanout` (both covered by
+`e2e/`) remain authoring exercises rather than verified-runnable artefacts.
 
 ## Installation
 

@@ -365,7 +365,7 @@ what a branch wrote, route from a following `deterministic` step that reads the 
 This is the full extent of `kind: parallel`'s `branches:` form as shipped: one branch group, one
 join, all-or-nothing.
 
-**`foreach:` — the alternative to `branches:` (validated, not yet executed in this build).** A
+**`foreach:` — the alternative to `branches:` (deterministic bodies run in this build).** A
 `parallel` step declares exactly one of `branches:` / `foreach:`:
 
 ```yaml
@@ -391,8 +391,10 @@ The engine pseudo-keys `${item}` and `${item_index}` exist only in the body's ow
 not be declared as `state:`/`args:` keys. The body's `writes:` keys are captured per item, so no
 other step may read or write them. `${item}` comes from workflow state: `sh -c ${item}` is rejected
 (the §B.2 injection trap). The journal side (per-item `item`/`items` event fields and their replay)
-is in place; the engine's execution of a `foreach:` step is not — `pawl validate` accepts one,
-`pawl run` does not yet run it.
+and the engine execution are both in place: items run sequentially, in-process, against a list
+frozen on the step's `STEP_ENTER`; the join writes `collect:` (a json array of `{index, item,
+outcome, writes, error}` in list order) before invariants are evaluated. `docs/examples/foreach-fanout`
+is a runnable example, covered by `e2e/`.
 
 **Invariants and the join.** `invariants:` (§10) are evaluated once per parallel step, at the join —
 after every branch has transitioned and the group's own `success`/`failure` outcome is resolved —
@@ -476,7 +478,7 @@ journalled deadline.
 | `agentic` | a subagent dispatch with `description:`, `context:`, `subagent_args:`, and `writes:` as its output schema | `success` / `failure` only |
 | `wait` | a `poll:` command re-run every `every:` until a routed token or `timeout:` | named outcomes, or `timeout` |
 | `human` | a question mapped onto `AskUserQuestion` — options and/or a runtime list, optional multi-select, always free-text "Other" | the chosen option (static single-select), or the reserved `chosen`, or `timeout` |
-| `parallel` | `branches:` naming ≥ 2 declared `deterministic`/`agentic` steps, dispatched together and joined all-or-nothing (§B.15); or `foreach:` running one `deterministic` body per item of a json list (§B.15, validated only in this build) | `branches:`: `success` (every branch succeeded) / `failure` (any branch failed) only; `foreach:`: `success` / `partial` / `failure` |
+| `parallel` | `branches:` naming ≥ 2 declared `deterministic`/`agentic` steps, dispatched together and joined all-or-nothing (§B.15); or `foreach:` running one `deterministic` body per item of a json list (§B.15) | `branches:`: `success` (every branch succeeded) / `failure` (any branch failed) only; `foreach:`: `success` / `partial` / `failure` |
 
 Reserved outcome tokens, usable anywhere: `success`, `failure`, `timeout`, `exhausted`, `chosen`.
 
@@ -745,8 +747,13 @@ the step sequence a given outcome assignment produces without executing anything
 `pawl run <name> --from <step>`; plugin-shipped workflows, "if free".
 
 **Milestone 3.** `foreach:` fan-out over a runtime-discovered list, with per-item postconditions and a
-**partial**-success join (`kind: parallel` itself, single-group and all-or-nothing, already shipped in
-Milestone 1 — §B.15); an `outcome:` member of the agentic return schema, constrained to a declared
+**partial**-success join. *Shipped for `deterministic` bodies* (sequential in-process execution,
+`docs/examples/foreach-fanout`; `kind: parallel` itself, single-group and all-or-nothing, shipped in
+Milestone 1 — §B.15); *outstanding:* `agentic` bodies and concurrent item execution. *Possible PR2
+option:* per-item retry for agentic bodies — an item-level attempts budget keyed per item index that
+re-dispatches only the failed item before the join, since a `partial` route back to the list producer
+otherwise costs a full round-trip and re-runs the whole list unless the producer filters out
+already-succeeded items. Also outstanding: an `outcome:` member of the agentic return schema, constrained to a declared
 enum; a `when:` predicate.
 
 Installation and distribution are in DESIGN.md §9.
@@ -768,4 +775,4 @@ Installation and distribution are in DESIGN.md §9.
 - **Working-tree snapshot and restore**: doubles the durable state the engine must keep correct, for a guarantee a fresh attempt does not need (§B.8).
 - **Dynamically installed hooks**, rewritten per run: Claude Code hooks are static, so the hooks ship once and discover the live run on disk.
 - **`pawl count` / `pawl reset` as `PATH` shims**: they make a step script a writer of engine state.
-- **Fields**: `on_timeout:`/`on_reject:` (reserved tokens), `exit_map:`/`outcomes_from: {exit:}` (§B.1), `reads:` (§A), `loops:` (§B.4), `deny_always:` (`only_in: []`), `writes_format:` (`emits:`), `emits: value`/`none` (§B.1), `snapshot:` (§B.8), `when:`/`warn:` (§B.14), `soft_writes:` (a second census dilutes the first), `timeout:` on `deterministic` (one engine-wide ceiling), `env:`/`defaults:`/`foreach:` (Milestone 3).
+- **Fields**: `on_timeout:`/`on_reject:` (reserved tokens), `exit_map:`/`outcomes_from: {exit:}` (§B.1), `reads:` (§A), `loops:` (§B.4), `deny_always:` (`only_in: []`), `writes_format:` (`emits:`), `emits: value`/`none` (§B.1), `snapshot:` (§B.8), `when:`/`warn:` (§B.14), `soft_writes:` (a second census dilutes the first), `timeout:` on `deterministic` (one engine-wide ceiling), `env:`/`defaults:` (Milestone 3).

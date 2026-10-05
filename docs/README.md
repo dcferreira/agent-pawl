@@ -73,9 +73,9 @@ These are planned but not available:
 - `pawl status --history` — the full journal, not just the current position.
 - `pawl run <name> --from <step>` — resume a run at an arbitrary step rather than the one it blocked
   at.
-- `foreach:` fan-out over a runtime-discovered list, with a partial-success join. `kind: parallel`
-  itself — one declared branch group, joined all-or-nothing — already ships; see
-  [steps/parallel.md](steps/parallel.md).
+- `foreach:` over an `agentic` body (and concurrent item execution). `kind: parallel` with a declared
+  branch group (all-or-nothing) and `foreach:` over a *deterministic* body (per-item postconditions,
+  a `success`/`partial`/`failure` join) already ship; see [steps/parallel.md](steps/parallel.md).
 - Workflows shipped inside a plugin. Today a workflow comes from your repo or your home directory.
 
 ---

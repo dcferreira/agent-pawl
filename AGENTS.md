@@ -55,8 +55,13 @@ describes the target system (full distribution, `foreach:` fan-out), not this bu
 - `install.sh` and goreleaser-built release binaries exist (tagged releases are published on
   GitHub); release builds are version-stamped via `-ldflags -X main.Version`, but a source build
   (`go build`/`go install`/`make install`) still prints `pawl dev`.
-- Only `docs/examples/green-tests` is a verified-runnable artefact (covered by `e2e/`); the other
-  `docs/examples/` are authoring exercises, not proven to run.
+- `kind: parallel` also accepts `foreach:`: fan one **deterministic** body out over a runtime-
+  discovered json list (frozen as `Items` on the step's `STEP_ENTER`), items run sequentially
+  in-process, per-item events carry `Item`, and the join resolves `success`/`partial`/`failure`,
+  writing the `collect:` key (before invariants run). `foreach:` over an `agentic` body and concurrent
+  item execution are not built (`design/format-spec.md` §B.15, §I).
+- `docs/examples/green-tests` and `docs/examples/foreach-fanout` are the verified-runnable artefacts
+  (both covered by `e2e/`); the other `docs/examples/` are authoring exercises, not proven to run.
 
 If you're implementing something that DESIGN.md describes but the README's Status section doesn't
 list as built, that's a real gap to either build properly (with tests) or flag — don't paper over
@@ -76,9 +81,10 @@ it by writing the design doc's version of reality into code comments or docs.
   pre|stop`: no filesystem I/O, just `[]LiveRun` + a parsed payload in, a `Decision` out.
 - `internal/cli` — the `pawl` subcommands, including `hook.go` (`pawl hook pre|stop`) and
   `enforce.go` (`pawl run`'s heartbeat check and refusal).
-- `e2e/` — end-to-end test(s) that actually run `docs/examples/green-tests`.
+- `e2e/` — end-to-end tests that actually run `docs/examples/green-tests` and
+  `docs/examples/foreach-fanout`.
 - `docs/examples/` — workflow YAML + scripts; each has a `NOTES.md` with the author's design rulings.
-  Only `green-tests` is proven-runnable.
+  Only `green-tests` and `foreach-fanout` are proven-runnable.
 - `testdata/fixture/` — a tiny Go module (a two-line `Add` that subtracts) used by
   `docs/examples/green-tests` and `e2e/`.
 - `design/format-spec.md` — **normative** for what a workflow author writes.

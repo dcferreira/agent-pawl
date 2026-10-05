@@ -158,9 +158,19 @@ answers). The group's outcome resolves only once every branch has transitioned �
 agentic branch always leaves the run parked, never abandoned — and is `success` iff every branch's
 own outcome was `success`, otherwise `failure`; that all-or-nothing group outcome then goes through
 the same `resolveTarget`/`afterTransition` machinery, journalled and routed, as any other step's
-outcome. There is no partial-success join and no per-branch route in this build — see
-`design/format-spec.md` §I for `foreach:` fan-out with a partial-success join, still a later
-milestone.
+outcome. A `branches:` group has no partial-success join and no per-branch route.
+
+**`parallel` with `foreach:`.** The alternative form runs one **deterministic** body once per item of
+a json list (`internal/engine/foreach.go`). Entry journals the step's own ungrouped `STEP_ENTER`
+carrying `Items`, a frozen snapshot of the list, so a resumed run iterates what the first entry saw;
+items then run in order, in-process (concurrent item execution and `agentic` bodies are not built).
+Each item's events carry the step as `Group` and the index as `Item`, and a body's `writes:` are
+per-item, never global. The join resolves `success` (every item succeeded, vacuously for an empty
+list), `failure` (none did) or `partial`, writes the `collect:` key — a json array of
+`{index, item, outcome, writes, error}` in list order — and only then evaluates invariants, so an
+invariant can see the collected results; routing then goes through the usual
+`resolveTarget`/`afterTransition`. A non-array `over:` is `failure`, a list over `max_items:` is
+`exhausted`.
 
 ## 4. State, the journal, and resume
 
@@ -231,6 +241,12 @@ resolves for this working copy; `--run <id>` is only needed to disambiguate seve
 7. Re-run the (interrupted, or newly-reset) attempt on the tree as it stands, telling the model that a
    previous attempt was interrupted or that a person intervened after a block, and that current state
    should be inspected first.
+
+A `foreach:` step resumes at item granularity: replay folds each item's `Group`/`Item`-stamped events
+into per-item state, the cursor stays on the step, and only items with no journaled `TRANSITION` are
+re-run, against the `Items` snapshot — a completed item is never repeated. An item that was entered
+but not transitioned starts clean (its earlier per-item writes are discarded), and a re-entry of the
+whole step (a route back to it) takes a fresh `Items` snapshot and fresh item state.
 
 Steps before the cursor are not re-executed, because the cursor has moved past them. The interrupted
 step itself *is* re-executed, and the engine cannot know whether its side effect landed before the
@@ -456,6 +472,10 @@ assigned reviewer with no human intervention other than the `human` gate.
 - What is the right granularity for `writes:` on a structured key like `findings`?
 - Is `emits: pairs` a permanent affordance, or a migration ramp that should warn after the first run?
 - Can a real non-author author a real workflow? Goal 2 stands or falls on it.
+- Possible PR2 option: per-item retry for `agentic` `foreach:` bodies — an item-level `attempts:`
+  budget keyed per item index that re-dispatches only the failed item before the join. Without it, a
+  `partial` route back to the list producer costs a full round-trip and re-runs the whole list unless
+  the producer filters out already-succeeded items.
 
 ## 9. Implementation and distribution
 
