@@ -324,6 +324,13 @@ func Replay(events []Event) (*RunState, error) {
 				rs.State[k] = v
 			}
 		case KindPostcondition:
+			if e.Group != "" && e.Item != nil {
+				// A foreach item's diagnostic is per item (it reaches the
+				// join through collect:'s error field) and never becomes
+				// the global ${last_error}, so it cannot leak into a later
+				// item's body or a step after the join.
+				break
+			}
 			lastPostconditionOKByStep[e.Step] = e.OK
 			if e.OK {
 				rs.LastError = ""

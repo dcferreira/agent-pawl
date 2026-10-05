@@ -133,6 +133,30 @@ func TestForeach_MixedIsPartial(t *testing.T) {
 	}
 }
 
+// An item's failure never becomes a later item's ${last_error}, nor the
+// ${last_error} left after the join (it is reported in collect: instead).
+func TestForeach_ItemFailureDoesNotLeakLastError(t *testing.T) {
+	body := `    run: |-
+      test ${item} != b || { echo boom >&2; exit 1; }
+      if [ -z ${last_error} ]; then v=empty; else v=set; fi
+      printf '{"res":"%s"}' "$v"
+    writes: [res]
+    postcondition: {all_set: [res]}`
+	_, instr, dir := feRun(t, feWorkflow(`["a","b","c"]`, body, "", ""))
+	wantTerminal(t, instr, "part")
+	got := collectOf(t, dir)
+	if len(got) != 3 {
+		t.Fatalf("collect has %d entries, want 3", len(got))
+	}
+	c, _ := got[2].(map[string]any)
+	if w, _ := c["writes"].(map[string]any); w["res"] != "empty" {
+		t.Errorf("item c saw ${last_error} %v, want empty (item b's error leaked)", w["res"])
+	}
+	if rs := mustReplay(t, dir); rs.LastError != "" {
+		t.Errorf("LastError after join = %q, want \"\"", rs.LastError)
+	}
+}
+
 func TestForeach_AllFailIsFailure(t *testing.T) {
 	body := `    run: "exit 1"`
 	_, instr, dir := feRun(t, feWorkflow(`["a","b"]`, body, "", ""))
