@@ -54,6 +54,11 @@ type Dispatch struct {
 	// crash or a blocked-run intervention: the caller should be told to
 	// inspect current state before acting (design/format-spec.md §B.8).
 	Interrupted bool
+
+	// Item is non-nil only for one item of an agentic foreach: body: Step is
+	// then the BODY step's id and *Item the item's zero-based index into the
+	// frozen list; the caller submits with that index (pawl submit --item).
+	Item *int
 }
 
 func (Dispatch) isInstruction() {}
@@ -87,6 +92,17 @@ type BranchRecorded struct {
 }
 
 func (BranchRecorded) isInstruction() {}
+
+// ItemRecorded is returned by Submit for an agentic foreach item's report
+// that leaves other items still outstanding: BranchRecorded's counterpart
+// for foreach (every item was already dispatched up front).
+type ItemRecorded struct {
+	RunID, ForeachStep, BodyStep string
+	Item                         int
+	Remaining                    []int // other item indices still pending, ascending
+}
+
+func (ItemRecorded) isInstruction() {}
 
 // Wait instructs the caller that the run has parked at a kind: wait step
 // (DESIGN.md §2's WAIT line, §3's wait paragraph). The engine deliberately

@@ -312,6 +312,8 @@ func formatInstruction(instr engine.Instruction, w *spec.Workflow, root string) 
 		return formatDispatchParallel(v, maxAttempts)
 	case engine.BranchRecorded:
 		return formatBranchRecorded(v)
+	case engine.ItemRecorded:
+		return formatItemRecorded(v)
 	case engine.Wait:
 		return formatWait(v)
 	case engine.Ask:
@@ -420,10 +422,17 @@ func formatDispatchParallel(d engine.DispatchParallel, maxAttempts map[string]in
 		w.field(0, "interrupted", "a previous attempt on this step did not finish (a crash, or a person intervened after a block); inspect current state before acting.")
 	}
 	for _, branch := range d.Agentic {
-		w.line(1, "DISPATCH", branch.RunID, branch.Step)
+		// A foreach item's block is named <body>[N] and its submit line
+		// carries --item N; a branch's block is unchanged.
+		label, itemFlag := branch.Step, ""
+		if branch.Item != nil {
+			label = fmt.Sprintf("%s[%d]", branch.Step, *branch.Item)
+			itemFlag = fmt.Sprintf(" --item %d", *branch.Item)
+		}
+		w.line(1, "DISPATCH", branch.RunID, label)
 		writeDispatchBody(w, 1, branch, maxAttempts[branch.Step])
-		w.line(1, "submit with:", fmt.Sprintf("pawl submit --run %s --step %s --json '<the object above>'", branch.RunID, branch.Step))
-		w.line(1, "END", "DISPATCH", branch.RunID, branch.Step)
+		w.line(1, "submit with:", fmt.Sprintf("pawl submit --run %s --step %s%s --json '<the object above>'", branch.RunID, branch.Step, itemFlag))
+		w.line(1, "END", "DISPATCH", branch.RunID, label)
 	}
 	w.line(0, "END", "DISPATCH_PARALLEL", d.RunID, d.Step)
 	return w.String()
@@ -447,6 +456,23 @@ func formatBranchRecorded(b engine.BranchRecorded) string {
 		remaining = strings.Join(b.Remaining, ", ")
 	}
 	w.line(0, fmt.Sprintf("~ branch %s recorded (parallel %s: waiting on: %s)", b.BranchStep, b.ParallelStep, remaining))
+	return w.String()
+}
+
+// formatItemRecorded renders formatBranchRecorded's counterpart for an
+// agentic foreach item: one "~"-prefixed interstitial line, never an
+// instruction.
+func formatItemRecorded(b engine.ItemRecorded) string {
+	w := &blockWriter{}
+	remaining := "(none)"
+	if len(b.Remaining) > 0 {
+		parts := make([]string, len(b.Remaining))
+		for i, n := range b.Remaining {
+			parts[i] = fmt.Sprintf("%s[%d]", b.BodyStep, n)
+		}
+		remaining = strings.Join(parts, ", ")
+	}
+	w.line(0, fmt.Sprintf("~ item %s[%d] recorded (foreach %s: waiting on: %s)", b.BodyStep, b.Item, b.ForeachStep, remaining))
 	return w.String()
 }
 

@@ -37,7 +37,7 @@ Commands:
         abandon a run; always available, always terminal
   pawl list
         list resolvable workflows and their source
-  pawl submit --run <id> --step <id> --json '<result>'
+  pawl submit --run <id> --step <id> [--item <n>] --json '<result>'
         internal: submit an agentic step's result (the /pawl skill calls this;
         an author never writes it)
   pawl poll --run <id> --step <name>

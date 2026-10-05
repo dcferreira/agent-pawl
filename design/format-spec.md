@@ -365,7 +365,7 @@ what a branch wrote, route from a following `deterministic` step that reads the 
 This is the full extent of `kind: parallel`'s `branches:` form as shipped: one branch group, one
 join, all-or-nothing.
 
-**`foreach:` — the alternative to `branches:` (deterministic bodies run in this build).** A
+**`foreach:` — the alternative to `branches:` (deterministic and agentic bodies run in this build).** A
 `parallel` step declares exactly one of `branches:` / `foreach:`:
 
 ```yaml
@@ -382,7 +382,7 @@ join, all-or-nothing.
 
 `over:` and `collect:` each name a declared `json` `state:` key (distinct, and nothing else writes
 `collect:`); `max_items:` (default 20, ≥ 1) caps the list length. `body:` is one declared,
-**`deterministic`** step (an `agentic` body is a later milestone; no nesting) run once per item,
+**`deterministic` or `agentic`** step (no nesting) run once per item,
 owned by exactly one `parallel` step (as a branch or a body), not `start:`, declaring none of
 `next:`/`outcomes:`/`catch:`/`attempts:`/`attempt_key:`/`max_visits:` — but it MAY declare `retry:`
 and `postcondition:`. The step resolves to `success`, `partial` or `failure` (plus the reserved
@@ -390,9 +390,24 @@ and `postcondition:`. The step resolves to `success`, `partial` or `failure` (pl
 The engine pseudo-keys `${item}` and `${item_index}` exist only in the body's own fields and may
 not be declared as `state:`/`args:` keys. The body's `writes:` keys are captured per item, so no
 other step may read or write them. `${item}` comes from workflow state: `sh -c ${item}` is rejected
-(the §B.2 injection trap). The journal side (per-item `item`/`items` event fields and their replay)
-and the engine execution are both in place: items run sequentially, in-process, against a list
-frozen on the step's `STEP_ENTER`; the join writes `collect:` (a json array of `{index, item,
+(the §B.2 injection trap); the same lint covers an agentic body's `!cmd` `context:` entries.
+`${item}`/`${item_index}` are valid in an agentic body's `description:`, `context:` entries and
+`postcondition`, and the body's `writes:` is its return schema (item-scoped like any body's).
+An **agentic** body is dispatched, not run: on entry every item is entered and rendered (with
+`${item}`/`${item_index}` bound) into one `DISPATCH_PARALLEL` block whose nested blocks are headed
+`DISPATCH <run> <body>[N]` and closed by `END DISPATCH <run> <body>[N]`; each is answered with
+`pawl submit --run <run> --step <body> --item N --json '<object>'`. `--item` is required for a
+foreach body and refused anywhere else; an index that does not exist, or whose item already
+resolved (a late or duplicate submit), is refused (exit 4). The result is validated against the
+body's `writes:` schema, journalled as item-scoped `WRITES`, the `postcondition` evaluated with
+the item's own writes, and the item resolves `success` or `failure` (an invalid return or a failed
+postcondition is a failed item — a body owns no `attempts:`). While other items are pending the
+submit answers `~ item <body>[N] recorded (foreach <step>: waiting on: <body>[i], ...)`; the last
+one runs the join. An item whose `context:` cannot be gathered fails alone and is not dispatched.
+After a crash only the items with no resolution are re-dispatched, as an interrupted
+`DISPATCH_PARALLEL`. The journal side (per-item `item`/`items` event fields and their replay)
+and the engine execution are both in place: deterministic items run sequentially, in-process,
+against a list frozen on the step's `STEP_ENTER`; the join writes `collect:` (a json array of `{index, item,
 outcome, writes, error}` in list order) before invariants are evaluated. `docs/examples/foreach-fanout`
 is a runnable example, covered by `e2e/`.
 
@@ -478,7 +493,7 @@ journalled deadline.
 | `agentic` | a subagent dispatch with `description:`, `context:`, `subagent_args:`, and `writes:` as its output schema | `success` / `failure` only |
 | `wait` | a `poll:` command re-run every `every:` until a routed token or `timeout:` | named outcomes, or `timeout` |
 | `human` | a question mapped onto `AskUserQuestion` — options and/or a runtime list, optional multi-select, always free-text "Other" | the chosen option (static single-select), or the reserved `chosen`, or `timeout` |
-| `parallel` | `branches:` naming ≥ 2 declared `deterministic`/`agentic` steps, dispatched together and joined all-or-nothing (§B.15); or `foreach:` running one `deterministic` body per item of a json list (§B.15) | `branches:`: `success` (every branch succeeded) / `failure` (any branch failed) only; `foreach:`: `success` / `partial` / `failure` |
+| `parallel` | `branches:` naming ≥ 2 declared `deterministic`/`agentic` steps, dispatched together and joined all-or-nothing (§B.15); or `foreach:` running one `deterministic` or `agentic` body per item of a json list (§B.15) | `branches:`: `success` (every branch succeeded) / `failure` (any branch failed) only; `foreach:`: `success` / `partial` / `failure` |
 
 Reserved outcome tokens, usable anywhere: `success`, `failure`, `timeout`, `exhausted`, `chosen`.
 
@@ -512,7 +527,7 @@ Reserved outcome tokens, usable anywhere: `success`, `failure`, `timeout`, `exha
 | `options_from` | one of `options`/`options_from` | human | state key | A `json` state key holding a list of strings, resolved at ask time. Outcome is always `chosen` (§B.5). | — |
 | `multi` | no | human | boolean | Multi-select. `true` forces the outcome to `chosen`. | `false` |
 | `branches` | one of `branches`/`foreach` | parallel | list | ≥ 2 declared `deterministic`/`agentic` step ids, dispatched and joined together (§B.15); a listed step may declare no `next:`/`outcomes:`/`catch:`/`attempts:`/`attempt_key:`/`max_visits:` of its own. | — |
-| `foreach` | one of `branches`/`foreach` | parallel | map | `{over, body, collect, max_items}` — fan one `deterministic` body out over a json list (§B.15). `over`/`collect`: declared `json` `state:` keys; `max_items`: ≥ 1, default `20`. | — |
+| `foreach` | one of `branches`/`foreach` | parallel | map | `{over, body, collect, max_items}` — fan one `deterministic` or `agentic` body out over a json list (§B.15). `over`/`collect`: declared `json` `state:` keys; `max_items`: ≥ 1, default `20`. | — |
 | `writes` | no | all | list/map | Keys produced. Typed map required on `agentic` — it is the output schema. On `human`, exactly one key, required whenever `options_from:`, `multi: true` or a `chosen:` route is used. | `[]` |
 | `postcondition` | **yes** on agentic | all | string/map | Shell string, `{command}`, `{all_set}`, or `{equals}`. Evaluated by the engine; optional on `deterministic` (exit 0 = success unless declared), `wait`, `human`. | — |
 | `soft` | no | all | boolean | Marks the check as judgement-bounded. Counted at validate *and* run time. | `false` |
@@ -694,8 +709,8 @@ work to an agent. See `docs/quickstart.md`.
 23. `foreach.over`/`foreach.collect` is not a declared `json` `state:` key (an `args:` key, an
     undeclared key and any other type are each rejected); `collect` equals `over`; or some step's
     `writes:` names the `collect:` key (the foreach step is its only writer).
-24. `foreach.body` does not name a declared step; is not `deterministic` (`agentic` is rejected as
-    not yet supported, any other kind as nesting); is the workflow's `start:` step; is also a
+24. `foreach.body` does not name a declared step; is not `deterministic` or `agentic` (any other
+    kind is nesting); is the workflow's `start:` step; is also a
     branch or another foreach's body; or declares `next:`/`outcomes:`/`catch:`/`attempts:`/
     `attempt_key:`/`max_visits:`. (`retry:` and `postcondition:` are allowed.)
 25. A `foreach:` body's `writes:` keys are per-item, never global: a step other than the body
@@ -705,7 +720,7 @@ work to an agent. See `docs/quickstart.md`.
     `branches:` `parallel` step routes `partial`.
 27. `${item}`/`${item_index}` used anywhere except the foreach body's own fields; or `item`/
     `item_index` declared as a `state:` or `args:` key.
-28. A foreach body's `run:` or `postcondition.command` contains `-c ${item}` / `-c ${item_index}`
+28. A foreach body's `run:`, `postcondition.command` or `!cmd` `context:` entry contains `-c ${item}` / `-c ${item_index}`
     (e.g. `sh -c ${item}`): the value comes from workflow state and must never be executed as a
     script (§B.2).
 

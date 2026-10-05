@@ -114,7 +114,7 @@ func (e *Engine) runOneBranch(dir string, log *journal.Log, runID, parallelID st
 		if err != nil {
 			return Dispatch{}, false, err
 		}
-		instr, derr := e.dispatchInstruction(dir, rs, branch, runID, 1, interrupted)
+		instr, derr := e.dispatchInstruction(dir, rs, branch, runID, 1, interrupted, nil)
 		if derr != nil {
 			if !errors.Is(derr, errContextUnavailable) {
 				return Dispatch{}, false, derr

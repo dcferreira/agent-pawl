@@ -504,8 +504,9 @@ func (e *Engine) renderBlockedMessage(rs *journal.RunState, runID, stepForVals, 
 // dir is the run directory, consulted only to find the previous attempt's
 // failure text scoped to this exact step (finding I5) — never for anything
 // that changes execution.
-func (e *Engine) dispatchInstruction(dir string, rs *journal.RunState, step *spec.Step, runID string, attempt int, interrupted bool) (Instruction, error) {
+func (e *Engine) dispatchInstruction(dir string, rs *journal.RunState, step *spec.Step, runID string, attempt int, interrupted bool, fe *foreachItem) (Instruction, error) {
 	vals := buildValues(e.Workflow, rs, runID, step.ID, attempt, rs.Visits[step.ID])
+	fe.addPseudoKeys(vals)
 	desc, err := render.RenderProse(step.Description, vals)
 	if err != nil {
 		desc = step.Description
@@ -522,7 +523,13 @@ func (e *Engine) dispatchInstruction(dir string, rs *journal.RunState, step *spe
 	if err != nil {
 		return nil, err
 	}
+	var itemIdx *int
+	if fe != nil {
+		i := fe.index
+		itemIdx = &i
+	}
 	return Dispatch{
+		Item:            itemIdx,
 		RunID:           runID,
 		Step:            step.ID,
 		Attempt:         attempt,

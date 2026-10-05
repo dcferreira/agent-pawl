@@ -41,12 +41,15 @@ Run `pawl run <name> [key=value …]`. It prints exactly one line telling you wh
                                         call the Agent tool honouring the `subagent_args:` settings your
                                         harness understands, and submit exactly what it returns:
                                           pawl submit --run <run> --step <step> --json '<result>'
-  DISPATCH_PARALLEL <run> <step>        a kind: parallel step's outstanding agentic branches, all
-                                        named in one block. Dispatch every nested DISPATCH inside
-                                        it as genuinely concurrent Agent tool calls, and submit
+  DISPATCH_PARALLEL <run> <step>        a kind: parallel step's outstanding agentic branches (or,
+                                        for foreach:, items), all named in one block.
+                                        Dispatch every nested DISPATCH inside it as genuinely concurrent Agent tool calls, and submit
                                         each branch's result the moment it returns, exactly as for
                                         a standalone DISPATCH — you never wait for every branch
-                                        before submitting the first.
+                                        before submitting the first. A foreach item's nested
+                                        block is headed `DISPATCH <run> <body>[N]` and is
+                                        submitted with `--item N`:
+                                          pawl submit --run <run> --step <body> --item N --json '<result>'
   ASK <run> <step>                      put the printed question and options to the user with
                                         AskUserQuestion, then submit their answer with the exact
                                         command the block prints:
@@ -160,10 +163,16 @@ own outcome was `success`, otherwise `failure`; that all-or-nothing group outcom
 the same `resolveTarget`/`afterTransition` machinery, journalled and routed, as any other step's
 outcome. A `branches:` group has no partial-success join and no per-branch route.
 
-**`parallel` with `foreach:`.** The alternative form runs one **deterministic** body once per item of
-a json list (`internal/engine/foreach.go`). Entry journals the step's own ungrouped `STEP_ENTER`
+**`parallel` with `foreach:`.** The alternative form runs one **deterministic or agentic** body once per
+item of a json list (`internal/engine/foreach.go`). Entry journals the step's own ungrouped `STEP_ENTER`
 carrying `Items`, a frozen snapshot of the list, so a resumed run iterates what the first entry saw;
-items then run in order, in-process (concurrent item execution and `agentic` bodies are not built).
+deterministic items then run in order, in-process. An `agentic` body is instead rendered per item
+(`${item}`/`${item_index}` bound) into one `DISPATCH_PARALLEL` — nested blocks `DISPATCH <run>
+<body>[N]` — and each item is answered with `pawl submit … --step <body> --item N`; `Submit`
+accepts it only while the cursor is at the owning foreach step and item N is still pending (else
+`ErrRefused`), journals the item-scoped `WRITES`/`POSTCONDITION`/`TRANSITION`, answers `ItemRecorded`
+while siblings are pending and runs the join when the last lands (concurrent execution of
+deterministic items is not built).
 Each item's events carry the step as `Group` and the index as `Item`, and a body's `writes:` are
 per-item, never global. The join resolves `success` (every item succeeded, vacuously for an empty
 list), `failure` (none did) or `partial`, writes the `collect:` key — a json array of
@@ -244,7 +253,8 @@ resolves for this working copy; `--run <id>` is only needed to disambiguate seve
 
 A `foreach:` step resumes at item granularity: replay folds each item's `Group`/`Item`-stamped events
 into per-item state, the cursor stays on the step, and only items with no journaled `TRANSITION` are
-re-run, against the `Items` snapshot — a completed item is never repeated. An item that was entered
+re-run (deterministic) or re-dispatched in an interrupted `DISPATCH_PARALLEL` (agentic), against
+the `Items` snapshot — a completed item is never repeated. An item that was entered
 but not transitioned starts clean (its earlier per-item writes are discarded), and a re-entry of the
 whole step (a route back to it) takes a fresh `Items` snapshot and fresh item state.
 
