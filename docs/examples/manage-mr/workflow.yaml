@@ -33,6 +33,7 @@ state:
   reviewers_approved:   {type: json, default: []}
   comment_count:   {type: integer, default: 0}
   changelog_updated: {type: boolean, default: false}
+  pipeline_failed: {type: boolean, default: false}   # ai_review writes it; ai_review_route reads it
   conflict_detail: {type: string, default: ""}    # resolve_conflict's own detail; `blocked_reason`
                                                    # itself is an engine pseudo-key, never declared
                                                    # or written here (see format-spec.md §B.2)
@@ -167,7 +168,7 @@ steps:
     writes:
       title: {type: string, max_length: 72}
       description_file: {type: string}
-    postcondition: "[ -n ${title} ] && [ ${#title} -le 72 ] && [ -s ${description_file} ]"
+    postcondition: '[ -n ${title} ] && [ "$(printf %s ${title} | wc -m)" -le 72 ] && [ -s ${description_file} ]'
     attempts: 3
     next: push_and_create
 
