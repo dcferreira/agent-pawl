@@ -1,3 +1,0 @@
-kind: breaking
-body: 'pawl validate now rejects state/args/writes key names that aren''t identifiers (`^[A-Za-z_][A-Za-z0-9_]*$`), since keys are exported as PAWL_<KEY> environment variables.'
-time: 2026-10-05T16:54:47.985749382+02:00
