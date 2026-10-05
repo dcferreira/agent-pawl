@@ -208,21 +208,22 @@ written a fresh heartbeat.
 
 ## Known residuals (documented, not fixed)
 
-- Heartbeat is per working copy: two sessions launching `pawl` commands in one checkout within
-  5 minutes can misattribute the driver.
+- The per-working-copy heartbeat (the fallback when `CLAUDE_CODE_SESSION_ID` is unset) is shared: two
+  sessions launching `pawl` commands in one checkout within 5 minutes can misattribute the driver.
 - A heartbeat up to 5 minutes old from another session in the same checkout can make a plain-terminal
   `pawl run` start enforced, with that other session recorded as the run's driver: the 5-minute TTL
   (widened from 10s so PreToolUse's heartbeat outlives Claude Code's own permission prompt) trades a
   false refusal for a broader, but strictly less harmful, misattribution window.
-- The heartbeat's working copy comes from the hook payload's `cwd` (the Bash tool's actual working
-  directory for that call), not the command's own effective directory: a Bash call that leads with
-  `cd /other/repo && pawl run x` from a session otherwise sitting elsewhere still stamps the
-  heartbeat for the shell's starting `cwd`, not `/other/repo`, so `pawl run` refuses. Run `pawl` from
-  inside the working copy directly (see [troubleshooting.md](../../troubleshooting.md)).
+- The per-working-copy heartbeat comes from the hook payload's `cwd`, which is the session's start
+  directory, not the command's effective directory. Fixed for Claude Code by issue #18: `pawl hook pre`
+  also writes `heartbeat/session/<session_id>.json`, and `pawl run`/`submit`/`poll` prefer it via
+  `CLAUDE_CODE_SESSION_ID`. Without that env var only the (start-directory) working-copy heartbeat is
+  seen (see [troubleshooting.md](../../troubleshooting.md)).
 - Stop's installation is inferred from PreToolUse's heartbeat (same `hooks.json`), not observed.
-- Guards and the subagent VCS rule are scoped to the payload cwd's working copy: a command run after
-  `cd`-ing out of it, or aimed at another repo (`git -C /repo push`), is not checked against its runs.
-  Only `pawl hook stop` looks across working copies (by `driver.json`'s session id, via `live/`).
+- Guards and the subagent VCS rule apply to the payload cwd's working copy's runs plus every run the
+  session drives in another working copy (by `driver.json`'s session id, via `live/`, for both
+  `pawl hook pre` and `stop`). Guard matching is textual, so a command aimed at another repo
+  (`git -C /repo push`) is checked against those runs' guards by its text only.
 - Guards and the VCS rule are string-matched: `$()`, variables, renamed binaries evade them
   (invariants are the backstop, per §5's table).
 - The `background_tasks`/`session_crons` Stop exemption (task 9) doesn't check that the reported

@@ -127,12 +127,14 @@ removing the stale entries directly under `~/.claude/pawl/live/`.
 
 ## `pawl run` refuses to start from a different directory than the session is "in"
 
-The heartbeat `pawl hook pre` writes comes from the hook payload's `cwd` — the working directory the
-Bash tool actually ran the command in — not from wherever the session's own state says it's sitting.
-A session that has `cd`'d elsewhere across several prior tool calls, then runs `pawl` with a leading
-`cd` back to the repo in the *same* Bash call, still has the heartbeat land on the wrong working copy:
-the hook payload's `cwd` is the shell's starting directory for that call, before the `cd` inside it
-takes effect. Run `pawl` from inside the repo directly, without a leading `cd`, when in doubt.
+The per-working-copy heartbeat `pawl hook pre` writes is keyed by the hook payload's `cwd`, which in
+Claude Code is always the directory the *session started in*, whatever a `cd` in the Bash command does.
+So `pawl hook pre` also writes a heartbeat keyed by session id, and `pawl run`/`submit`/`poll` find it
+through the `CLAUDE_CODE_SESSION_ID` environment variable that Claude Code exports into Bash-tool
+children: a session started in repo A can `cd /ws/B && pawl run …`, and the hooks guard that run too.
+You only still see this refusal when `CLAUDE_CODE_SESSION_ID` is not set (a plain terminal, or a
+Claude Code too old to export it) — then only the working-copy heartbeat is consulted, and it belongs
+to the session's start directory. Start the session in the working copy you run `pawl` in.
 
 ## Workflow not found, or run not visible, outside a VCS-tracked directory
 

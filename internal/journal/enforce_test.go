@@ -305,3 +305,50 @@ func TestPawlHome_TrailingSlashInStateDir(t *testing.T) {
 		t.Fatalf("PawlHome() = %q, want %q", got, want)
 	}
 }
+
+func TestSessionHeartbeat_RoundTrip(t *testing.T) {
+	t.Setenv(EnvStateDir, t.TempDir())
+	now := time.Now().UTC().Truncate(time.Second)
+	if _, ok, err := ReadSessionHeartbeat("sess-1"); ok || err != nil {
+		t.Fatalf("empty read: ok=%v err=%v", ok, err)
+	}
+	if err := WriteSessionHeartbeat("sess-1", now); err != nil {
+		t.Fatal(err)
+	}
+	hb, ok, err := ReadSessionHeartbeat("sess-1")
+	if err != nil || !ok || hb.SessionID != "sess-1" || !hb.Time.Equal(now) {
+		t.Fatalf("hb=%+v ok=%v err=%v", hb, ok, err)
+	}
+	want := filepath.Join(PawlHome(), "heartbeat", "session", "sess-1.json")
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("expected file at %s: %v", want, err)
+	}
+}
+
+func TestSessionHeartbeat_BadIDsNeverEscape(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv(EnvStateDir, filepath.Join(base, "state"))
+	for _, id := range []string{"", "..", ".", "../evil", "a/b", `a\b`, "a b", "x\x00y", "../../evil", "é"} {
+		if err := WriteSessionHeartbeat(id, time.Now()); err != nil {
+			t.Fatalf("id %q: a bad id is skipped, not an error: %v", id, err)
+		}
+		if _, ok, err := ReadSessionHeartbeat(id); ok || err != nil {
+			t.Fatalf("id %q: read ok=%v err=%v", id, ok, err)
+		}
+	}
+	sessDir := filepath.Join(PawlHome(), "heartbeat", "session")
+	entries, _ := os.ReadDir(sessDir)
+	if len(entries) != 0 {
+		t.Fatalf("bad ids wrote files: %v", entries)
+	}
+	var found []string
+	filepath.WalkDir(base, func(p string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			found = append(found, p)
+		}
+		return nil
+	})
+	if len(found) != 0 {
+		t.Fatalf("files written anywhere: %v", found)
+	}
+}

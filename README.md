@@ -32,7 +32,7 @@ describe:
   failure (see [design/format-spec.md](design/format-spec.md) §B.16).
 - **The enforcement layer is built.** `pawl hook pre|stop` (`internal/hook`, wired by the plugin's
   `hooks/hooks.json` → `bin/pawl-hook`) backs a `PreToolUse`/`Stop` pair. `pawl run` refuses to
-  start (exit 4) unless a fresh PreToolUse heartbeat (≤5 minutes old) exists for the working copy, unless
+  start (exit 4) unless a fresh PreToolUse heartbeat (≤5 minutes old) exists for the session (`CLAUDE_CODE_SESSION_ID`) or, failing that, the working copy, unless
   `--no-enforcement` or `PAWL_ENFORCEMENT=off` is passed; a resume needs no heartbeat and keeps the
   mode bound at run start. The `Stop` hook refuses to end the driving
   session's turn while its run's cursor is at an `agentic`/`parallel` step awaiting `pawl submit`

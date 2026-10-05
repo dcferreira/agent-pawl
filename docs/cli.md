@@ -58,7 +58,8 @@ Resuming at an arbitrary step (`--from <step>`) isn't yet available — see
 [README.md#not-yet](README.md#not-yet).
 
 **Enforcement check.** Unless `--no-enforcement` or `PAWL_ENFORCEMENT=off` is set, `pawl run` refuses
-to start (exit 4) unless `pawl hook pre` has written a heartbeat for this working copy no more than 5 minutes
+to start (exit 4) unless `pawl hook pre` has written a heartbeat (keyed by the Claude Code session, found through
+`CLAUDE_CODE_SESSION_ID`, else by this working copy) no more than 5 minutes
 ago — its way of confirming the `PreToolUse` hook is actually wired up:
 
 ```

@@ -122,6 +122,12 @@ Allowlisting `Bash(pawl:*)` in Claude Code's permissions avoids an approval prom
 call — worth doing on its own, and it also means the heartbeat gets written without you having to
 wait on a prompt first.
 
+The heartbeat is written twice: per working copy (the hook payload's `cwd`, which in Claude Code is
+always the session's start directory) and per session (`~/.claude/pawl/heartbeat/session/<id>.json`).
+`pawl run`/`submit`/`poll` use the session one when Claude Code's `CLAUDE_CODE_SESSION_ID` is exported
+to the Bash call — so a session may `cd` into another working copy and still start enforced runs there —
+and fall back to the working-copy one otherwise.
+
 **The Claude Code plugin wires the hooks automatically.** Once installed (see the README's
 Installation section), the plugin's `hooks/hooks.json` binds `PreToolUse` (matcher `Bash`) and `Stop`
 to `${CLAUDE_PLUGIN_ROOT}/bin/pawl-hook pre|stop` — a fast-path wrapper that hands the payload to

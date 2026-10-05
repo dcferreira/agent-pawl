@@ -27,6 +27,9 @@ func setupWorkingCopy(t *testing.T) string {
 	// The enforcement gate is exercised in enforce_test.go; every other
 	// test runs with it explicitly off.
 	t.Setenv("PAWL_ENFORCEMENT", "off")
+	// Claude Code exports the session id into Bash children; a test
+	// running inside such a session must not inherit it.
+	t.Setenv(envSessionID, "")
 	return root
 }
 

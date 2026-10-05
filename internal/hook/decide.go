@@ -8,8 +8,9 @@ import (
 	"github.com/dcferreira/agent-pawl/internal/spec"
 )
 
-// LiveRun is what the hook decisions need to know about one live run for
-// the working copy the hook fired in. It is built by the cli layer from
+// LiveRun is what the hook decisions need to know about one live run: one in
+// the working copy the hook fired in, or (PreToolUse and Stop) one the
+// payload's session drives in another working copy. It is built by the cli layer from
 // disk (live/, heartbeat/, driver.json, plan.json) — this package never
 // touches the filesystem.
 type LiveRun struct {

@@ -338,9 +338,13 @@ func TestHookStop_BlocksDriverWithCwdOutsideWorkingCopy(t *testing.T) {
 	if code, out, _ := hookCall(t, "stop", stopPayload(elsewhere, "s2", false)); code != 0 || out != "" {
 		t.Fatalf("another session must be allowed; code=%d out=%q", code, out)
 	}
-	// PreToolUse stays cwd-scoped: the guard does not apply elsewhere.
-	if code, out, _ := hookCall(t, "pre", prePayload(elsewhere, "s1", "git push", "")); code != 0 || out != "" {
-		t.Fatalf("pre must stay cwd-scoped; code=%d out=%q", code, out)
+	// PreToolUse covers the driving session's runs in every working copy
+	// too (issue #18): the guard applies to s1 from elsewhere, not to s2.
+	if code, out, _ := hookCall(t, "pre", prePayload(elsewhere, "s1", "git push", "")); !isPreDeny(t, code, out) {
+		t.Fatalf("pre must cover the driven run from another cwd; code=%d out=%q", code, out)
+	}
+	if code, out, _ := hookCall(t, "pre", prePayload(elsewhere, "s2", "git push", "")); code != 0 || out != "" {
+		t.Fatalf("another session's pre must stay unaffected; code=%d out=%q", code, out)
 	}
 }
 
