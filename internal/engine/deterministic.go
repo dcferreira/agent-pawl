@@ -63,20 +63,39 @@ type deterministicAttempt struct {
 // plain first-try path, or a kind: parallel branch, which owns no retry:
 // budget of its own) passes nil and gets the ordinary rs.LastError.
 func (e *Engine) runDeterministicAttempt(dir string, log *journal.Log, runID string, step *spec.Step, attempt int, rs *journal.RunState, lastErrorOverride *string) (deterministicAttempt, *journal.RunState, error) {
-	vals := buildValues(e.Workflow, rs, runID, step.ID, attempt, rs.Visits[step.ID])
-	if lastErrorOverride != nil {
-		vals["last_error"] = render.StringValue(*lastErrorOverride)
+	return e.runDeterministicAttemptItem(dir, log, runID, step, attempt, rs, lastErrorOverride, nil)
+}
+
+// runDeterministicAttemptItem is runDeterministicAttempt with an optional
+// foreach item context (foreach.go). With fe nil it is exactly the plain
+// attempt. With fe set, step is a foreach body running for one item: the
+// ${item}/${item_index} pseudo-keys are added to the render values, every
+// event it journals (the WRITES and any hard-failure diagnostic) carries
+// the owning foreach step as Group and the item index as Item — so Replay
+// folds them into per-item state, never global State — its stdout/stderr
+// logs get a per-item file name, and the postcondition is evaluated
+// against the run's state overlaid with this item's own writes (which are
+// deliberately not in rs.State).
+func (e *Engine) runDeterministicAttemptItem(dir string, log *journal.Log, runID string, step *spec.Step, attempt int, rs *journal.RunState, lastErrorOverride *string, fe *foreachItem) (deterministicAttempt, *journal.RunState, error) {
+	mkVals := func(rs *journal.RunState) render.Values {
+		vals := buildValues(e.Workflow, rs, runID, step.ID, attempt, rs.Visits[step.ID])
+		if lastErrorOverride != nil {
+			vals["last_error"] = render.StringValue(*lastErrorOverride)
+		}
+		fe.addPseudoKeys(vals)
+		return vals
 	}
+	vals := mkVals(rs)
 
 	result, timedOut, stdout, stderr, exitCode, execErr := e.execDeterministic(step, vals)
-	e.writeStepOutput(dir, step.ID, attempt, stdout, stderr)
+	e.writeStepOutput(dir, fe.logName(step.ID), attempt, stdout, stderr)
 
 	if execErr != nil {
 		if errors.Is(execErr, emit.ErrParse) {
 			// I3: unintelligible stdout is an authoring bug, not a Go error
 			// to throw out of the run loop — see the caller for why this is
 			// routed, not thrown.
-			if derr := e.journalFailureDiagnostic(log, runID, step.ID, attempt, execErr.Error()); derr != nil {
+			if derr := e.journalAttemptDiagnostic(log, runID, step.ID, attempt, execErr.Error(), fe); derr != nil {
 				return deterministicAttempt{}, rs, derr
 			}
 			return deterministicAttempt{hardFailed: true, retryable: true}, rs, nil
@@ -85,16 +104,18 @@ func (e *Engine) runDeterministicAttempt(dir string, log *journal.Log, runID str
 	}
 	if timedOut {
 		text := fmt.Sprintf("step %q exceeded the wall-clock ceiling of %s", step.ID, e.Timeout)
-		if derr := e.journalFailureDiagnostic(log, runID, step.ID, attempt, text); derr != nil {
+		if derr := e.journalAttemptDiagnostic(log, runID, step.ID, attempt, text, fe); derr != nil {
 			return deterministicAttempt{}, rs, derr
 		}
 		return deterministicAttempt{hardFailed: true, retryable: true}, rs, nil
 	}
 	if result.Writes != nil {
-		if _, err := log.Append(journal.Event{
+		ev := journal.Event{
 			Kind: journal.KindWrites, RunID: runID, Step: step.ID,
 			Attempt: attempt, Writes: result.Writes,
-		}); err != nil {
+		}
+		fe.stamp(&ev)
+		if _, err := log.Append(ev); err != nil {
 			return deterministicAttempt{}, rs, err
 		}
 		var err error
@@ -102,10 +123,7 @@ func (e *Engine) runDeterministicAttempt(dir string, log *journal.Log, runID str
 		if err != nil {
 			return deterministicAttempt{}, rs, err
 		}
-		vals = buildValues(e.Workflow, rs, runID, step.ID, attempt, rs.Visits[step.ID])
-		if lastErrorOverride != nil {
-			vals["last_error"] = render.StringValue(*lastErrorOverride)
-		}
+		vals = mkVals(rs)
 	}
 	if result.Outcome == "failure" {
 		// I1: a non-zero exit never runs a postcondition, so nothing would
@@ -119,13 +137,15 @@ func (e *Engine) runDeterministicAttempt(dir string, log *journal.Log, runID str
 		if text == "" {
 			text = strings.TrimSpace(stdout)
 		}
-		if derr := e.journalFailureDiagnostic(log, runID, step.ID, attempt, text); derr != nil {
+		if derr := e.journalAttemptDiagnostic(log, runID, step.ID, attempt, text, fe); derr != nil {
 			return deterministicAttempt{}, rs, derr
 		}
 		return deterministicAttempt{hardFailed: true, retryable: exitCode != 0}, rs, nil
 	}
 
-	cr, err := e.evaluatePostcondition(step, combinedRaw(e.Workflow, rs), vals)
+	raw := combinedRaw(e.Workflow, rs)
+	fe.overlayWrites(e.Workflow, rs, vals, raw)
+	cr, err := e.evaluatePostcondition(step, raw, vals)
 	if err != nil {
 		return deterministicAttempt{}, rs, err
 	}

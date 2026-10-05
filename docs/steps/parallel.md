@@ -7,7 +7,8 @@ the five kinds compare.
 
 ## Fields
 
-- **`branches:`** — required, at least 2 entries. Each names an already-declared `deterministic` or
+- **`branches:`** — required unless the step declares `foreach:` instead (exactly one of the two);
+  at least 2 entries. Each names an already-declared `deterministic` or
   `agentic` step (no nesting: a branch cannot itself be `wait`, `human` or `parallel`). A branch may
   not be the workflow's `start:` step, may not appear twice in the same `branches:`, and may be
   claimed by only one `parallel` step in the whole file.
@@ -63,7 +64,7 @@ The engine dispatches every deterministic branch in-process immediately, and ren
 branch into **one** `DISPATCH_PARALLEL` block — `branch_b` and `branch_c` together, not one after
 the other — so the driving session fires two genuinely concurrent subagent calls. The group's
 outcome resolves only once every branch has transitioned: `success` iff every branch's own outcome
-was `success`, otherwise `failure`. There is no partial-success outcome — a still-outstanding
+was `success`, otherwise `failure`. A `branches:` group has no partial-success outcome — a still-outstanding
 branch always leaves the run parked, never abandoned, and `join` is never entered until all three
 branches have landed.
 
@@ -81,9 +82,9 @@ needs what a branch wrote, route from a following `deterministic` step that read
   for the whole group.
 - Reaching for `parallel` when the branches aren't actually independent (one reads what another
   writes) — that's a race, not a fan-out; make it two sequential steps instead.
-- Expecting a partial-success join — there isn't one in this build. One branch failing fails the
-  whole group; `foreach:` with a partial-success join is a later milestone
-  ([design/format-spec.md](../../design/format-spec.md) §I).
+- Expecting a partial-success join from `branches:` — there isn't one. One branch failing fails the
+  whole group. `foreach:` over a deterministic body does have a `partial` outcome
+  ([design/format-spec.md](../../design/format-spec.md) §B.15; example: `docs/examples/foreach-fanout`).
 - Nesting a `wait` or `human` step as a branch — not supported; a branch must be `deterministic` or
   `agentic`.
 

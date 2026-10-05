@@ -41,7 +41,9 @@ func (r *Report) SoftPercent() float64 {
 // against state:/args: by checkRule4 exactly like a postcondition's
 // command, message: required; guards: and invariants: are both accepted
 // and validated now — see checkGuards's own doc comment for guards:), and
-// the kind: parallel branches: validation (checkParallelBranches, rule 17).
+// the kind: parallel branches: validation (checkParallelBranches, rule 17),
+// and the kind: parallel foreach: validation (checkForeach and friends in
+// validate_foreach.go, rules 22-28).
 // deterministic, agentic, wait, human and parallel are all supported
 // (Ruling R3); wait's own required fields (poll:) and duration parsing
 // (every:, timeout:) are checked alongside rule 7, human's own required
@@ -66,6 +68,9 @@ func Validate(w *Workflow) (*Report, error) {
 	checkRetry(w, &errs)
 	checkKindSupport(w, &errs)
 	checkParallelBranches(w, &errs)
+	checkForeachShape(w, &errs)
+	checkForeachOverCollect(w, &errs)
+	checkForeachBody(w, &errs)
 	checkDuplicateStepIDs(w, &errs)
 	checkStepIDFormat(w, &errs)
 	checkNextOutcomesExclusive(w, &errs)
@@ -97,6 +102,10 @@ func Validate(w *Workflow) (*Report, error) {
 	checkRule20(w, &errs)
 	checkRule21(w, &errs)
 	checkRule18(w, &errs)
+	checkForeachBodyWrites(w, &errs)
+	checkForeachRouting(w, &errs)
+	checkForeachItemKeys(w, &errs)
+	checkForeachInjection(w, &errs)
 
 	report := &Report{TotalSteps: len(w.Steps)}
 	for _, s := range w.Steps {
@@ -696,16 +705,20 @@ func edgesOf(s *Step) []string {
 	}
 	if s.Kind == "parallel" {
 		out = append(out, s.Branches...)
+		if s.Foreach != nil && s.Foreach.Body != "" {
+			out = append(out, s.Foreach.Body)
+		}
 	}
 	return out
 }
 
-// branchStepIDs maps every step id used as a parallel step's branch to the
-// id of the (first-declared, in w.Steps order) parallel step that claims it.
-// checkParallelBranches uses it to catch a step id claimed as a branch by
-// more than one parallel step, and checkRule3 uses it to identify branch
-// steps so that rule can skip them: a branch step is required (by
-// checkParallelBranches) to declare no next:/outcomes: of its own, since the
+// branchStepIDs maps every step id used as a parallel step's branch, or as a
+// foreach: step's body, to the id of the (first-declared, in w.Steps order)
+// parallel step that claims it. checkParallelBranches and checkForeachBody
+// use it to catch a step id claimed by more than one parallel step, and
+// checkRule3 uses it to identify owned steps so that rule can skip them: a
+// branch or foreach body is required (by checkParallelBranches /
+// checkForeachBody) to declare no next:/outcomes: of its own, since the
 // owning parallel step is the sole owner of routing for the whole group.
 func branchStepIDs(w *Workflow) map[string]string {
 	owner := map[string]string{}
@@ -718,9 +731,36 @@ func branchStepIDs(w *Workflow) map[string]string {
 				owner[b] = s.ID
 			}
 		}
+		if s.Foreach != nil && s.Foreach.Body != "" {
+			if _, claimed := owner[s.Foreach.Body]; !claimed {
+				owner[s.Foreach.Body] = s.ID
+			}
+		}
 	}
 	return owner
 }
+
+// ownedStepForbiddenFields lists the fields a step owned by a parallel step
+// (a branch or a foreach body) may not declare: the owning step controls
+// routing and the attempt/visit budgets for the whole group. retry: is
+// separate (ownedStepRetryField) because a foreach body may declare it and a
+// branch may not.
+var ownedStepForbiddenFields = []struct {
+	field string
+	has   func(Step) bool
+}{
+	{"next:", func(s Step) bool { return s.Next != "" }},
+	{"outcomes:", func(s Step) bool { return len(s.Outcomes) > 0 }},
+	{"catch:", func(s Step) bool { return len(s.Catch) > 0 }},
+	{"attempts:", func(s Step) bool { return s.AttemptsRaw != nil }},
+	{"attempt_key:", func(s Step) bool { return s.AttemptKey != "" }},
+	{"max_visits:", func(s Step) bool { return s.MaxVisitsRaw != nil }},
+}
+
+var ownedStepRetryField = struct {
+	field string
+	has   func(Step) bool
+}{"retry:", func(s Step) bool { return s.Retry != nil }}
 
 // checkParallelBranches implements the validation rules for kind: parallel's
 // branches: (design/format-spec.md §C, §D): branches: is required with at
@@ -733,21 +773,18 @@ func branchStepIDs(w *Workflow) map[string]string {
 func checkParallelBranches(w *Workflow, errs *[]string) {
 	owner := branchStepIDs(w)
 
-	forbidden := []struct {
+	forbidden := append(append([]struct {
 		field string
 		has   func(Step) bool
-	}{
-		{"next:", func(s Step) bool { return s.Next != "" }},
-		{"outcomes:", func(s Step) bool { return len(s.Outcomes) > 0 }},
-		{"catch:", func(s Step) bool { return len(s.Catch) > 0 }},
-		{"attempts:", func(s Step) bool { return s.AttemptsRaw != nil }},
-		{"attempt_key:", func(s Step) bool { return s.AttemptKey != "" }},
-		{"max_visits:", func(s Step) bool { return s.MaxVisitsRaw != nil }},
-		{"retry:", func(s Step) bool { return s.Retry != nil }},
-	}
+	}{}, ownedStepForbiddenFields...), ownedStepRetryField)
 
 	for _, s := range w.Steps {
 		if s.Kind != "parallel" {
+			continue
+		}
+		// A step using foreach: (or declaring neither form) is not a
+		// branches: group; checkForeachShape reports those shapes (rule 22).
+		if s.Foreach != nil || len(s.Branches) == 0 {
 			continue
 		}
 		if len(s.Branches) < 2 {
@@ -775,8 +812,13 @@ func checkParallelBranches(w *Workflow, errs *[]string) {
 			seen[b] = true
 
 			if first := owner[b]; first != "" && first != s.ID {
-				*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
-					"branches[%d]: step %q is already claimed as a branch by parallel step %q; a step may be a branch of only one parallel step", i, b, first)))
+				if w.StepByID(first).Foreach != nil && w.StepByID(first).Foreach.Body == b {
+					*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
+						"branches[%d]: step %q is already claimed as the foreach body of parallel step %q; a step may be owned by only one parallel step", i, b, first)))
+				} else {
+					*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
+						"branches[%d]: step %q is already claimed as a branch by parallel step %q; a step may be a branch of only one parallel step", i, b, first)))
+				}
 			}
 
 			if b == w.Start {
@@ -872,6 +914,40 @@ func checkRule3b(w *Workflow, errs *[]string) {
 	}
 }
 
+// stepTemplate is one ${key}-bearing field of a step: its error-message
+// location and its unrendered text.
+type stepTemplate struct{ loc, text string }
+
+// stepTemplates lists every field of s where ${key} substitution applies, in
+// a stable order: the fields rule 4 scans for undeclared keys, and the fields
+// rules 25 and 27 scan for reads of foreach-scoped keys.
+func stepTemplates(s Step) []stepTemplate {
+	out := []stepTemplate{
+		{"run", s.Run},
+		{"poll", s.Poll},
+		{"description", s.Description},
+		{"question", s.Question},
+		{"attempt_key", s.AttemptKey},
+	}
+	for i, c := range s.Context {
+		out = append(out, stepTemplate{fmt.Sprintf("context[%d]", i), c.Value})
+	}
+	if s.Postcondition != nil {
+		out = append(out, stepTemplate{"postcondition.command", s.Postcondition.Command})
+		equalsKeys := make([]string, 0, len(s.Postcondition.Equals))
+		for k := range s.Postcondition.Equals {
+			equalsKeys = append(equalsKeys, k)
+		}
+		sort.Strings(equalsKeys)
+		for _, k := range equalsKeys {
+			if sv, ok := s.Postcondition.Equals[k].(string); ok {
+				out = append(out, stepTemplate{fmt.Sprintf("postcondition.equals[%s]", k), sv})
+			}
+		}
+	}
+	return out
+}
+
 // checkRule4 implements §H rule 4.
 func checkRule4(w *Workflow, errs *[]string) {
 	declared := map[string]bool{}
@@ -882,11 +958,23 @@ func checkRule4(w *Workflow, errs *[]string) {
 		declared[k] = true
 	}
 
-	scanTemplate := func(loc, tmpl string, add func(string)) {
+	bodies := foreachBodyOwners(w)
+	// scanTemplate checks one renderable field of step stepID ("" for a
+	// terminal message or an invariant's check). The foreach pseudo-keys
+	// item/item_index are valid only in a foreach body's own fields; anywhere
+	// else they get rule 27's scoped error instead of the generic undeclared
+	// one.
+	scanTemplate := func(stepID, loc, tmpl string, add func(string)) {
 		if tmpl == "" {
 			return
 		}
 		for _, key := range render.Keys(tmpl) {
+			if isForeachItemKey(key) {
+				if _, isBody := bodies[stepID]; !isBody {
+					add(itemKeyScopeMsg(loc, key))
+				}
+				continue
+			}
 			if declared[key] || isPseudoKey(key) {
 				continue
 			}
@@ -919,26 +1007,8 @@ func checkRule4(w *Workflow, errs *[]string) {
 			noSubst("catch[].next", c.Next, add)
 		}
 
-		scanTemplate("run", s.Run, add)
-		scanTemplate("poll", s.Poll, add)
-		scanTemplate("description", s.Description, add)
-		scanTemplate("question", s.Question, add)
-		scanTemplate("attempt_key", s.AttemptKey, add)
-		for i, c := range s.Context {
-			scanTemplate(fmt.Sprintf("context[%d]", i), c.Value, add)
-		}
-		if s.Postcondition != nil {
-			scanTemplate("postcondition.command", s.Postcondition.Command, add)
-			equalsKeys := make([]string, 0, len(s.Postcondition.Equals))
-			for k := range s.Postcondition.Equals {
-				equalsKeys = append(equalsKeys, k)
-			}
-			sort.Strings(equalsKeys)
-			for _, k := range equalsKeys {
-				if sv, ok := s.Postcondition.Equals[k].(string); ok {
-					scanTemplate(fmt.Sprintf("postcondition.equals[%s]", k), sv, add)
-				}
-			}
+		for _, t := range stepTemplates(s) {
+			scanTemplate(s.ID, t.loc, t.text, add)
 		}
 	}
 
@@ -950,12 +1020,12 @@ func checkRule4(w *Workflow, errs *[]string) {
 	for _, id := range terminalIDs {
 		t := w.Terminal[id]
 		add := func(msg string) { *errs = append(*errs, terminalErr(w, id, msg)) }
-		scanTemplate("message", t.Message, add)
+		scanTemplate("", "message", t.Message, add)
 	}
 
 	for i, inv := range w.Invariants {
 		add := func(msg string) { *errs = append(*errs, fileErr(w, msg)) }
-		scanTemplate(fmt.Sprintf("%s: check", invariantRef(inv, i)), inv.Check, add)
+		scanTemplate("", fmt.Sprintf("%s: check", invariantRef(inv, i)), inv.Check, add)
 	}
 }
 

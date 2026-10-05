@@ -93,6 +93,29 @@ type RunState struct {
 	// grouped (Event.Group != "") events.
 	BranchOutcome map[string]string
 
+	// ForeachItems is, per kind: parallel foreach step id, the frozen list
+	// snapshot carried by that step's latest ungrouped STEP_ENTER that
+	// carried Event.Items. A fresh such entry replaces the previous snapshot
+	// and resets the group's PendingItems/ItemOutcome/ItemWrites, so a
+	// re-entered foreach step (a retry or a loop back to it) starts clean.
+	// This and the three maps below are nil until the first foreach event is
+	// replayed, so a journal without one replays to exactly the RunState it
+	// always did; reading a nil map is safe.
+	ForeachItems map[string][]any
+	// PendingItems is, per foreach step id, the set of item indices entered
+	// (grouped STEP_ENTER with Event.Item) and not yet transitioned (present
+	// with value true while outstanding; deleted once the item's TRANSITION
+	// is replayed).
+	PendingItems map[string]map[int]bool
+	// ItemOutcome is, per foreach step id, each item's Outcome from its
+	// resolving grouped TRANSITION, once replayed.
+	ItemOutcome map[string]map[int]string
+	// ItemWrites is, per foreach step id and item index, the merged WRITES
+	// of that item's body (WRITES carrying Group and Item). They are
+	// captured per item — design/format-spec.md's collect: key receives
+	// them — and are deliberately NOT folded into State.
+	ItemWrites map[string]map[int]map[string]any
+
 	// Ended is true once a RUN_END event has been replayed.
 	Ended bool
 	// EndStatus, EndReason and EndNote are the most recent RUN_END's
@@ -220,6 +243,27 @@ func Replay(events []Event) (*RunState, error) {
 				rs.EndStatus = ""
 			}
 		case KindStepEnter:
+			if e.Group != "" && e.Item != nil {
+				// A foreach item's body entering: tracked per item, never
+				// in PendingBranches, and (like a branch) never touching
+				// the cursor.
+				if rs.PendingItems == nil {
+					rs.PendingItems = map[string]map[int]bool{}
+				}
+				if rs.PendingItems[e.Group] == nil {
+					rs.PendingItems[e.Group] = map[int]bool{}
+				}
+				if e.HardRetry == 0 {
+					// A fresh entry (not a hard-retry of the same try) starts
+					// the item over: the latest entry of an item wins, so a
+					// crash-resume re-run never inherits the earlier try's
+					// writes or outcome.
+					delete(rs.ItemWrites[e.Group], *e.Item)
+					delete(rs.ItemOutcome[e.Group], *e.Item)
+				}
+				rs.PendingItems[e.Group][*e.Item] = true
+				break
+			}
 			if e.Group != "" {
 				// A grouped STEP_ENTER is a parallel step's branch entering:
 				// it must never touch lastEnter/haveEnter/transitionedSince
@@ -230,6 +274,17 @@ func Replay(events []Event) (*RunState, error) {
 				}
 				rs.PendingBranches[e.Group][e.Step] = true
 				break
+			}
+			if e.Items != nil {
+				// A foreach step's own entry freezes the list it fans out
+				// over and starts the group afresh.
+				if rs.ForeachItems == nil {
+					rs.ForeachItems = map[string][]any{}
+				}
+				rs.ForeachItems[e.Step] = e.Items
+				delete(rs.PendingItems, e.Step)
+				delete(rs.ItemOutcome, e.Step)
+				delete(rs.ItemWrites, e.Step)
 			}
 			lastEnter = Cursor{Step: e.Step, Attempt: e.Attempt, AttemptKey: e.AttemptKey, HardRetry: e.HardRetry}
 			haveEnter = true
@@ -247,10 +302,35 @@ func Replay(events []Event) (*RunState, error) {
 				rs.Visits[e.Step]++
 			}
 		case KindWrites:
+			if e.Group != "" && e.Item != nil {
+				// A foreach item's writes are captured per item (they feed
+				// the step's collect: key at the join) and never become
+				// global state.
+				if rs.ItemWrites == nil {
+					rs.ItemWrites = map[string]map[int]map[string]any{}
+				}
+				if rs.ItemWrites[e.Group] == nil {
+					rs.ItemWrites[e.Group] = map[int]map[string]any{}
+				}
+				if rs.ItemWrites[e.Group][*e.Item] == nil {
+					rs.ItemWrites[e.Group][*e.Item] = map[string]any{}
+				}
+				for k, v := range e.Writes {
+					rs.ItemWrites[e.Group][*e.Item][k] = v
+				}
+				break
+			}
 			for k, v := range e.Writes {
 				rs.State[k] = v
 			}
 		case KindPostcondition:
+			if e.Group != "" && e.Item != nil {
+				// A foreach item's diagnostic is per item (it reaches the
+				// join through collect:'s error field) and never becomes
+				// the global ${last_error}, so it cannot leak into a later
+				// item's body or a step after the join.
+				break
+			}
 			lastPostconditionOKByStep[e.Step] = e.OK
 			if e.OK {
 				rs.LastError = ""
@@ -258,6 +338,22 @@ func Replay(events []Event) (*RunState, error) {
 				rs.LastError = e.Text
 			}
 		case KindTransition:
+			if e.Group != "" && e.Item != nil {
+				// A grouped TRANSITION with an Item resolves one foreach
+				// item: record its outcome and clear it from the pending
+				// set, leaving the branch maps and the cursor alone.
+				if rs.PendingItems[e.Group] != nil {
+					delete(rs.PendingItems[e.Group], *e.Item)
+				}
+				if rs.ItemOutcome == nil {
+					rs.ItemOutcome = map[string]map[int]string{}
+				}
+				if rs.ItemOutcome[e.Group] == nil {
+					rs.ItemOutcome[e.Group] = map[int]string{}
+				}
+				rs.ItemOutcome[e.Group][*e.Item] = e.Outcome
+				break
+			}
 			if e.Group != "" {
 				// A grouped TRANSITION resolves one branch: record its
 				// outcome and clear it from the pending set, without

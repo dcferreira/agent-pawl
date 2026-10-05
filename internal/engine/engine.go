@@ -262,6 +262,9 @@ func (e *Engine) Resume(runID string, force bool) (Instruction, error) {
 			// the same state forever.
 			return e.dispatchParallel(dir, log, runID, step, rs.Cursor, true)
 		}
+		if step.Foreach != nil {
+			return e.resumeForeach(dir, log, runID, step, rs)
+		}
 		return e.resumeParallel(dir, log, runID, step, rs)
 	case "wait":
 		// An idempotent re-print: the run is parked, the engine did no work

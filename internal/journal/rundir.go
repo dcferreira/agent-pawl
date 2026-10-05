@@ -114,6 +114,10 @@ type digestStep struct {
 	Next          string
 	Outcomes      map[string]string
 	Branches      []string
+	// Foreach is omitempty so a workflow without foreach: digests exactly as
+	// it did before the field existed (a mid-flight run must not see its
+	// digest change under it).
+	Foreach       *spec.Foreach `json:",omitempty"`
 	UnknownFields []string
 }
 
@@ -155,6 +159,7 @@ func newDigestWorkflow(w *spec.Workflow) *digestWorkflow {
 			Next:          s.Next,
 			Outcomes:      s.Outcomes,
 			Branches:      s.Branches,
+			Foreach:       s.Foreach,
 			UnknownFields: s.UnknownFields,
 		})
 	}
