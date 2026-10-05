@@ -36,7 +36,7 @@ describes the target system (full distribution, `foreach:` fan-out), not this bu
 - **The enforcement layer is built.** `internal/hook` (pure decisions) plus `internal/cli/hook.go`
   (`pawl hook pre|stop`) back a `PreToolUse`/`Stop` pair the plugin wires via `hooks/hooks.json` →
   `bin/pawl-hook`. `pawl run` refuses to start (exit 4) unless a PreToolUse heartbeat for the
-  working copy is on disk and no older than 5 minutes, unless `--no-enforcement`/`PAWL_ENFORCEMENT=off` is
+  session (`CLAUDE_CODE_SESSION_ID`) or, failing that, the working copy is on disk and no older than 5 minutes, unless `--no-enforcement`/`PAWL_ENFORCEMENT=off` is
   passed. `Stop` refuses to end the driving session's turn while its run's cursor is at an
   `agentic`/`parallel` step awaiting `pawl submit` (`wait`/`human` cursors and `BLOCKED` runs are
   exempt, at most once per turn); a subagent (`agent_id` present) may not mutate VCS while any run

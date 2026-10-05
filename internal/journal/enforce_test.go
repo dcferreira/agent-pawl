@@ -279,6 +279,36 @@ func TestLiveIndexed_AcrossWorkingCopies(t *testing.T) {
 	}
 }
 
+// LiveIndexedDrivenBy returns only the runs whose driver.json names the
+// session: runs driven by another session, or with no driver.json, are
+// filtered out before their journals are read.
+func TestLiveIndexedDrivenBy_FiltersOnDriver(t *testing.T) {
+	withStateDir(t)
+	a, b, c := t.TempDir(), t.TempDir(), t.TempDir()
+	dirA := startRun(t, a, "wf", "aaaa")
+	dirB := startRun(t, b, "wf", "bbbb")
+	startRun(t, c, "wf", "cccc") // no driver.json
+	for _, r := range []string{a, b, c} {
+		if err := SyncLiveIndex(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now().UTC()
+	if err := WriteDriver(dirA, "s1", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteDriver(dirB, "s2", now); err != nil {
+		t.Fatal(err)
+	}
+	refs, err := LiveIndexedDrivenBy("s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refs) != 1 || refs[0].RunID != "aaaa" {
+		t.Fatalf("LiveIndexedDrivenBy(s1) = %+v, want only aaaa", refs)
+	}
+}
+
 func startRunAt(t *testing.T, dir, runID string) string {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {

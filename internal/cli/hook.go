@@ -125,14 +125,14 @@ func writeHookDecision(w io.Writer, event, reason string) error {
 }
 
 // appendDrivenRuns adds to live every run in the live/ index (verified
-// through the journal by journal.LiveIndexed) whose driver.json names
+// through the journal by journal.LiveIndexedDrivenBy) whose driver.json names
 // sessionID, skipping any already in live. An index read error adds nothing:
 // the hooks never fail closed on it.
 func appendDrivenRuns(live []journal.RunRef, sessionID string) []journal.RunRef {
 	if sessionID == "" {
 		return live
 	}
-	indexed, err := journal.LiveIndexed()
+	indexed, err := journal.LiveIndexedDrivenBy(sessionID)
 	if err != nil {
 		return live
 	}
@@ -144,10 +144,8 @@ func appendDrivenRuns(live []journal.RunRef, sessionID string) []journal.RunRef 
 		if seen[r.Dir] {
 			continue
 		}
-		if d, ok, err := journal.ReadDriver(r.Dir); err == nil && ok && d.SessionID == sessionID {
-			seen[r.Dir] = true
-			live = append(live, r)
-		}
+		seen[r.Dir] = true
+		live = append(live, r)
 	}
 	return live
 }

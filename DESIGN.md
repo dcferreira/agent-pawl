@@ -225,7 +225,7 @@ resolves for this working copy; `--run <id>` is only needed to disambiguate seve
      `blocked` outcome (the invariant-violating step, or the step whose route sent it there), with
      that step's attempt counter reset to 1, after appending a `RESUME` event with
      `intervention: true`.
-5. Re-check the `PreToolUse` heartbeat for this working copy (the same `checkEnforcement` a fresh
+5. Re-check the `PreToolUse` heartbeat for this session (else this working copy) (the same `checkEnforcement` a fresh
    start runs) and print the enforcement banner.
 6. Print the resume line: run id, step, attempt, restored keys.
 7. Re-run the (interrupted, or newly-reset) attempt on the tree as it stands, telling the model that a
@@ -310,7 +310,7 @@ entry (falling back to cwd itself if none is found), never by asking a VCS binar
 string-manipulating cwd, and writes the run directory under the slug derived from it. `pawl hook
 pre|stop` reads its own stdin payload for the tool name, input and cwd, derives that call's root by
 the same algorithm (`journal.ResolveRoot`), loads the live runs under that slug (`journal.Live`) —
-`Stop` additionally loads, across every working copy, each run in `live/` whose `driver.json` names
+`PreToolUse` and `Stop` additionally load, across every working copy, each run in `live/` whose `driver.json` names
 the payload's session (verified against its run directory, below) — and
 reads each match's `plan.json` (guards, step kinds — not a separate `guards.json`; deviation 3) and
 `driver.json` off disk. `live/<slug>__<workflow_id>__<run_id>` (a symlink to the run directory,

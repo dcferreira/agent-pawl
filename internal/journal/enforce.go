@@ -182,6 +182,23 @@ func SyncLiveIndex(root string) error {
 // whose components spell the entry's own name, with at least one recorded
 // event, and not terminal. Anything else is skipped, not an error.
 func LiveIndexed() ([]RunRef, error) {
+	return liveIndexed(nil)
+}
+
+// LiveIndexedDrivenBy is LiveIndexed restricted to runs whose driver.json
+// names sessionID. driver.json is read before the journal, so runs driven by
+// other sessions are never replayed — the hot PreToolUse path pays a replay
+// only for the calling session's own runs.
+func LiveIndexedDrivenBy(sessionID string) ([]RunRef, error) {
+	return liveIndexed(func(runDir string) bool {
+		d, ok, err := ReadDriver(runDir)
+		return err == nil && ok && d.SessionID == sessionID
+	})
+}
+
+// liveIndexed implements both; a non-nil match is consulted on each verified
+// run directory before its journal is read.
+func liveIndexed(match func(runDir string) bool) ([]RunRef, error) {
 	dir := LiveIndexDir()
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
@@ -207,6 +224,9 @@ func LiveIndexed() ([]RunRef, error) {
 			continue
 		}
 		runDir := filepath.Join(base, parts[0], parts[1], parts[2])
+		if match != nil && !match(runDir) {
+			continue
+		}
 		events, err := ReadEvents(runDir)
 		if err != nil || len(events) == 0 {
 			continue
