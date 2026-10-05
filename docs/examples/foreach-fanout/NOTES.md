@@ -44,6 +44,6 @@ with `scripts/` and `inputs/` beside it and runs it with `pawl run foreach-fanou
 It proves: runtime-discovered list, frozen as a snapshot on the step's `STEP_ENTER`;
 per-item deterministic execution with per-item postcondition and per-item writes; the
 three-way join; `collect:` written before the terminal renders it; `partial` routing. It
-does not prove: `agentic` bodies (not supported in this build), concurrent item execution
+does not prove: `agentic` bodies (supported in this build, but exercised by `docs/examples/foreach-agentic`, not this example), concurrent item execution
 (items run sequentially), or crash-resume mid-fan-out (covered by `internal/engine` unit
 tests, not by this example's e2e).

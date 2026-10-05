@@ -19,7 +19,7 @@ describe:
 - All five step kinds are implemented: `deterministic`, `agentic`, `wait`, `human`, and `parallel`
   (single-group, all-or-nothing `branches:` join — [design/format-spec.md](design/format-spec.md)
   §B.15), plus `foreach:` fan-out over a runtime-discovered json list with per-item postconditions
-  and a `success`/`partial`/`failure` join , over `deterministic` or `agentic` bodies. An agentic body's items are dispatched together in one
+  and a `success`/`partial`/`failure` join, over `deterministic` or `agentic` bodies. An agentic body's items are dispatched together in one
   `DISPATCH_PARALLEL` and answered with `pawl submit --item N`, with a per-item `attempts:` budget that
   re-dispatches only the failed item; concurrent *execution* of deterministic items
   (`concurrency:`) remains a later slice. The examples are `docs/examples/foreach-fanout`

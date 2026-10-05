@@ -126,6 +126,17 @@ func TestSubmit_ItemRefusals(t *testing.T) {
 	}
 }
 
+func TestSubmit_ItemRefusedOnHumanStep(t *testing.T) {
+	root := setupWorkingCopy(t)
+	writeWorkflow(t, root, "human-approval-cli", humanApprovalWorkflow)
+	stdout, _, _ := runCLI(t, []string{"pawl", "run", "human-approval-cli"})
+	runID := extractRunID(t, firstLineHavingPrefix(t, stdout, "ASK "))
+	_, stderr, code := runCLI(t, []string{"pawl", "submit", "--run", runID, "--step", "ask", "--item", "3", "--json", `{"selected": ["approve"]}`})
+	if code != 4 || !strings.Contains(stderr, "not the body of a foreach") {
+		t.Errorf("exit = %d, want 4 refusing --item; stderr %q", code, stderr)
+	}
+}
+
 func TestSubmit_ItemFlagParsing(t *testing.T) {
 	setupWorkingCopy(t)
 	for _, bad := range []string{"abc", "-1", "1.5", ""} {

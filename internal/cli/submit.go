@@ -121,13 +121,14 @@ func cmdSubmit(args []string, cwd string, stdout, stderr io.Writer) int {
 	// pawl run is — see the comment in cmdRun.
 	e.Stderr = stderr
 	var instr engine.Instruction
-	if step != nil && step.Kind == "human" {
-		instr, err = e.SubmitHuman(runID, stepID, ref.State.Cursor.Attempt, json.RawMessage(result))
-	} else if item != nil {
+	if item != nil {
 		// An item's attempt is its own (attempts: is per item), not the
 		// foreach step's cursor attempt. A step that is not a foreach body
-		// gets attempt 0 and the engine refuses it by name.
+		// (a human step included) gets attempt 0 and the engine refuses it
+		// by name.
 		instr, err = e.SubmitItem(runID, stepID, *item, itemAttempt(w, ref.State, stepID, *item), json.RawMessage(result))
+	} else if step != nil && step.Kind == "human" {
+		instr, err = e.SubmitHuman(runID, stepID, ref.State.Cursor.Attempt, json.RawMessage(result))
 	} else {
 		instr, err = e.Submit(runID, stepID, ref.State.Cursor.Attempt, json.RawMessage(result))
 	}
