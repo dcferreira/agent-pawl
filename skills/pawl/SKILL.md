@@ -201,13 +201,13 @@ END ASK 9074 ask_approval
 - `multi:` — whether more than one option may be picked.
 
 **What to do:** ask the person the question, using `options:` as the choices and always allowing
-free text. Submit their answer as JSON with the exact command shown on `submit with:`:
+free text. Submit their answer as JSON with the exact command shown on `submit with:` (or `or:`):
 
 - Picking a listed option: `{"selected": ["approve"]}`.
 - Typing free text instead ("Other"): `{"other": "their exact words"}`.
 - On a single-select step (`multi: false`) submit exactly one of `selected` (one entry) or
   `other`. On a static-`options:` step, sending both is rejected and routes to the step's
-  `failure` outcome. The `submit with:` hint shows the two alternatives; `multi: true` shows the combined shape.
+  `failure` outcome. The `submit with:` line shows the `selected` form and the `or:` line shows the `other` form; `multi: true` shows the combined shape on `submit with:`.
 - Multi-select: `{"selected": ["approve", "flag-for-legal"]}`, optionally with `"other": "..."`
   mixed in too.
 

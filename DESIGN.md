@@ -50,7 +50,8 @@ Run `pawl run <name> [key=value …]`. It prints exactly one line telling you wh
   ASK <run> <step>                      put the printed question and options to the user with
                                         AskUserQuestion, then submit their answer with the exact
                                         command the block prints:
-                                          pawl submit --run <run> --step <step> --json '{"selected": [...], "other": "..."}'
+                                          pawl submit --run <run> --step <step> --json '{"selected": ["<label>"]}'
+                                          (or --json '{"other": "<text>"}'; multi: true combines them)
   WAIT <run> <step>                     run `pawl poll --run <run> --step <step>` under Monitor.
                                         It submits its own result when it gets one; you never run
                                         `pawl submit` for a wait. When it exits it prints the next
