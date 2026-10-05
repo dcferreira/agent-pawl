@@ -2189,12 +2189,19 @@ func TestFormatAsk_SubmitHintMatchesMulti(t *testing.T) {
 }
 
 // TestValidate_PathLikeNameGetsPathHint checks that a path-looking
-// positional argument to pawl validate (a "/" or a .yaml/.yml suffix) keeps
-// the ordinary not-found error but gains a one-line hint naming --path;
-// a plain name must not (issue #26).
+// positional argument to pawl validate naming a file that exists keeps the
+// ordinary not-found error but gains a one-line hint naming --path (issue
+// #26). A path-looking argument naming no existing file gets no hint.
 func TestValidate_PathLikeNameGetsPathHint(t *testing.T) {
-	setupWorkingCopy(t)
-	for _, arg := range []string{"docs/examples/x/workflow.yaml", "wf.yaml", "wf.yml", "sub/wf"} {
+	root := setupWorkingCopy(t)
+	for _, arg := range []string{"docs/examples/x/workflow.yaml", "wf.yml", "sub/wf"} {
+		full := filepath.Join(root, arg)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 		_, stderr, code := runCLI(t, []string{"pawl", "validate", arg})
 		if code != 1 {
 			t.Fatalf("%q: exit = %d, want 1; stderr = %q", arg, code, stderr)
@@ -2202,12 +2209,33 @@ func TestValidate_PathLikeNameGetsPathHint(t *testing.T) {
 		if !strings.Contains(stderr, "no workflow named") {
 			t.Errorf("%q: original error lost: %q", arg, stderr)
 		}
-		want := "did you mean: pawl validate --path " + arg + "?"
+		want := "did you mean: `pawl validate --path '" + arg + "'`"
 		if !strings.Contains(stderr, want) {
 			t.Errorf("%q: stderr missing hint %q: %q", arg, want, stderr)
 		}
 		if strings.Count(strings.TrimRight(stderr, "\n"), "\n") != 0 {
 			t.Errorf("%q: error should stay one line: %q", arg, stderr)
+		}
+	}
+	_, stderr, code := runCLI(t, []string{"pawl", "validate", "missing/wf.yaml"})
+	if code != 1 || strings.Contains(stderr, "did you mean") {
+		t.Errorf("nonexistent file should get no hint: exit %d, stderr %q", code, stderr)
+	}
+}
+
+// A workflow's filename typed instead of its name should be pointed at the
+// name, not at --path.
+func TestValidate_FilenameSuggestsName(t *testing.T) {
+	root := setupWorkingCopy(t)
+	writeWorkflow(t, root, "review", "x")
+	for _, arg := range []string{"review.yaml", "review.yml"} {
+		_, stderr, code := runCLI(t, []string{"pawl", "validate", arg})
+		if code != 1 {
+			t.Fatalf("%q: exit = %d, want 1; stderr = %q", arg, code, stderr)
+		}
+		want := "did you mean: `pawl validate 'review'`"
+		if !strings.Contains(stderr, want) || strings.Contains(stderr, "--path") {
+			t.Errorf("%q: stderr missing hint %q: %q", arg, want, stderr)
 		}
 	}
 }
