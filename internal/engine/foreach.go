@@ -2,6 +2,7 @@ package engine
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -158,7 +159,89 @@ func (e *Engine) dispatchForeach(dir string, log *journal.Log, runID string, ste
 	if _, err := log.Append(enter); err != nil {
 		return nil, err
 	}
+	if body := e.Workflow.StepByID(f.Body); body != nil && body.Kind == "agentic" {
+		return e.dispatchAgenticItems(dir, log, runID, step, body, attempt, items, nil, false)
+	}
 	return e.runForeachItems(dir, log, runID, step, attempt, items, nil)
+}
+
+// dispatchAgenticItems enters every item of an agentic-bodied foreach step
+// that is not already in done (an item with a journaled outcome, which a
+// crash-resume never re-dispatches; nil at a fresh entry) and returns the
+// bodies rendered into ONE DispatchParallel, with ${item}/${item_index}
+// bound; each item's TRANSITION is left pending until SubmitItem reports it.
+// A fresh item gets a fresh grouped STEP_ENTER at attempt 1 (under its
+// attempt_key: when the body overrides it, else the bootstrap key ""); an
+// item a crash interrupted mid-budget (its journaled attempt is above 1) is
+// re-entered at that SAME attempt and key, as a Retry entry — a crash never
+// advances a counter (design/format-spec.md §B.4). An item whose context:
+// cannot be gathered resolves failure right here (runOneBranch's rule, per
+// item) and is not dispatched; if that leaves nothing to dispatch the step
+// joins now.
+func (e *Engine) dispatchAgenticItems(dir string, log *journal.Log, runID string, step, body *spec.Step, attempt int, items []any, done map[int]string, interrupted bool) (Instruction, error) {
+	var ds []Dispatch
+	for i, item := range items {
+		if _, ok := done[i]; ok {
+			continue
+		}
+		fe := &foreachItem{group: step.ID, index: i, item: item}
+		rs, err := replayDir(dir)
+		if err != nil {
+			return nil, err
+		}
+		itemAttempt, key, retry := 1, rs.ItemAttemptKey[step.ID][i], false
+		if cur := rs.ItemAttempt[step.ID][i]; cur > 1 {
+			itemAttempt, retry = cur, true
+		} else if body.AttemptKey != "" {
+			vals := buildValues(e.Workflow, rs, runID, body.ID, 1, rs.Visits[body.ID])
+			fe.addPseudoKeys(vals)
+			rendered, rerr := render.RenderProse(body.AttemptKey, vals)
+			if rerr != nil {
+				return nil, fmt.Errorf("engine: step %q: rendering attempt_key: %w", body.ID, rerr)
+			}
+			key = rendered
+		} else {
+			key = ""
+		}
+		ev := journal.Event{Kind: journal.KindStepEnter, RunID: runID, Step: body.ID, Attempt: itemAttempt, AttemptKey: key, Retry: retry}
+		fe.stamp(&ev)
+		if _, err := log.Append(ev); err != nil {
+			return nil, err
+		}
+		if rs, err = replayDir(dir); err != nil {
+			return nil, err
+		}
+		instr, derr := e.dispatchInstruction(dir, rs, body, runID, itemAttempt, interrupted, fe)
+		if derr != nil {
+			if !errors.Is(derr, errContextUnavailable) {
+				return nil, derr
+			}
+			if jerr := e.journalAttemptDiagnostic(log, runID, body.ID, itemAttempt, derr.Error(), fe); jerr != nil {
+				return nil, jerr
+			}
+			if jerr := journalItemTransition(log, runID, body.ID, itemAttempt, fe, "failure"); jerr != nil {
+				return nil, jerr
+			}
+			continue
+		}
+		ds = append(ds, instr.(Dispatch))
+	}
+	if len(ds) == 0 {
+		return e.joinForeach(dir, log, runID, step, attempt, items)
+	}
+	return DispatchParallel{RunID: runID, Step: step.ID, Attempt: attempt, Agentic: ds, Interrupted: interrupted}, nil
+}
+
+// journalItemTransition appends an item's own grouped TRANSITION (target
+// joinedTarget, outcome success or failure).
+func journalItemTransition(log *journal.Log, runID, bodyID string, attempt int, fe *foreachItem, outcome string) error {
+	ev := journal.Event{
+		Kind: journal.KindTransition, RunID: runID, Step: bodyID, Attempt: attempt,
+		Target: joinedTarget, Outcome: outcome,
+	}
+	fe.stamp(&ev)
+	_, err := log.Append(ev)
+	return err
 }
 
 // clearForeachCollect journals an empty collect: for a foreach step that
@@ -397,13 +480,13 @@ func (e *Engine) joinForeach(dir string, log *journal.Log, runID string, step *s
 
 // lastItemError returns the text of the latest failed POSTCONDITION
 // (a postcondition failure or a hard-failure diagnostic) journaled for item
-// index of foreach step group since that item's latest fresh entry, or nil
+// index of foreach step group since that item's latest fresh (non-Retry) entry, or nil
 // if there is none: an earlier, crashed try's diagnostic is never reported
 // for a re-run (mirrors journal.Replay's latest-entry-wins item reset).
 func lastItemError(events []journal.Event, group string, index int) any {
 	for i := len(events) - 1; i >= 0; i-- {
 		ev := events[i]
-		if ev.Kind == journal.KindStepEnter && ev.Group == group && ev.Item != nil && *ev.Item == index && ev.HardRetry == 0 {
+		if ev.Kind == journal.KindStepEnter && ev.Group == group && ev.Item != nil && *ev.Item == index && ev.HardRetry == 0 && !ev.Retry {
 			return nil
 		}
 		if ev.Kind == journal.KindPostcondition && !ev.OK && ev.Group == group && ev.Item != nil && *ev.Item == index {
@@ -438,6 +521,9 @@ func (e *Engine) resumeForeach(dir string, log *journal.Log, runID string, step 
 	}
 	if !hasSnapshot {
 		return e.dispatchForeach(dir, log, runID, step, rs.Cursor)
+	}
+	if body := e.Workflow.StepByID(step.Foreach.Body); body != nil && body.Kind == "agentic" {
+		return e.dispatchAgenticItems(dir, log, runID, step, body, rs.Cursor.Attempt, rs.ForeachItems[step.ID], rs.ItemOutcome[step.ID], true)
 	}
 	return e.runForeachItems(dir, log, runID, step, rs.Cursor.Attempt, rs.ForeachItems[step.ID], rs.ItemOutcome[step.ID])
 }

@@ -409,3 +409,30 @@ func TestHookPre_UncompilableGuardFailsClosed(t *testing.T) {
 		t.Fatalf("pawl abandon must stay allowed; code=%d out=%q err=%q", code, out, errs)
 	}
 }
+
+// A foreach step with outstanding agentic items is a kind: parallel cursor,
+// so Stop treats it like any other parallel step awaiting submits.
+func TestHookStop_BlocksDriverAtForeachWithPendingAgenticItems(t *testing.T) {
+	root := setupWorkingCopy(t)
+	t.Setenv("PAWL_ENFORCEMENT", "")
+	if err := journal.WriteHeartbeat(root, "s1", nowFunc()); err != nil {
+		t.Fatal(err)
+	}
+	writeWorkflow(t, root, "fe", cliForeachAgentic)
+	var out, errb bytes.Buffer
+	if code := Run([]string{"pawl", "run", "fe"}, &out, &errb); code != 0 {
+		t.Fatalf("run: %d %s", code, errb.String())
+	}
+	live, err := journal.Live(root)
+	if err != nil || len(live) != 1 {
+		t.Fatalf("live: %v %v", live, err)
+	}
+	runID := live[0].RunID
+	if err := journal.WriteDriver(journal.RunDir(root, "fe", runID), "s1", nowFunc()); err != nil {
+		t.Fatal(err)
+	}
+	code, o, errs := hookCall(t, "stop", stopPayload(root, "s1", false))
+	if reason, ok := stopBlockReason(t, code, o); !ok || errs != "" || !strings.Contains(reason, "pawl abandon --run "+runID) {
+		t.Fatalf("code=%d out=%q err=%q", code, o, errs)
+	}
+}

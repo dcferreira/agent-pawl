@@ -1,0 +1,41 @@
+workflow: foreach-agentic
+description: >
+  kind: parallel + foreach: with an AGENTIC body: a discover step finds the
+  work list at runtime (every inputs/*.txt next to this file), and the
+  foreach step dispatches one subagent per item to count its words. The
+  engine recounts with wc -w as each item's postcondition; a wrong count
+  re-dispatches only that item (attempts: 2) while siblings are still
+  outstanding. See NOTES.md.
+start: discover
+state:
+  items:      {type: json, default: []}
+  results:    {type: json, default: []}
+  word_count: {type: integer, default: 0}
+steps:
+  - id: discover
+    kind: deterministic
+    run: scripts/discover.sh
+    emits: json
+    writes: [items]
+    next: count_all
+
+  - id: count_all
+    kind: parallel
+    foreach: {over: items, body: count_words, collect: results, max_items: 20}
+    outcomes: {success: all_ok, partial: some_bad, failure: all_bad}
+
+  - id: count_words
+    kind: agentic
+    description: |
+      Read the file .claude/workflows/inputs/${item} (relative to the
+      repository root) and count its words. Return the count as `word_count`.
+    subagent_args: {"model": "haiku", "tools": ["Read"]}
+    writes: {word_count: {type: integer}}
+    attempts: 2
+    # one quoted token each, never sh -c; the item's own write is ${word_count}
+    postcondition: {command: "scripts/check-count.sh ${item} ${word_count}"}
+
+terminal:
+  all_ok:   {status: ok, message: "All counts verified: ${results}"}
+  some_bad: {status: ok, message: "Some counts failed verification: ${results}"}
+  all_bad:  {status: blocked, message: "No count verified: ${results}"}

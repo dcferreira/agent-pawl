@@ -119,7 +119,8 @@ to the next attempt's `DISPATCH` block (agentic) or environment (deterministic).
 
 **`attempt_key:` is automatic**: a hash of the postcondition's failure text, whitespace normalised, so
 the same failure continues a countdown and a different one starts a fresh budget. Where the failure
-text is noisy, `attempt_key: "${some_key}"` overrides it with a rendered template.
+text is noisy, `attempt_key: "${some_key}"` overrides it with a rendered template. An agentic `foreach:`
+body's budget is per item — keyed `(run_id, foreach step, item index, attempt_key)` (§B.15).
 
 **`max_visits:`** caps how many times a step may be *entered* in one run, counting every entry from
 any edge. Default **10**. It is the cap on a cycle, since every cycle re-enters through at least one
@@ -365,7 +366,7 @@ what a branch wrote, route from a following `deterministic` step that reads the 
 This is the full extent of `kind: parallel`'s `branches:` form as shipped: one branch group, one
 join, all-or-nothing.
 
-**`foreach:` — the alternative to `branches:` (deterministic bodies run in this build).** A
+**`foreach:` — the alternative to `branches:` (deterministic and agentic bodies run in this build).** A
 `parallel` step declares exactly one of `branches:` / `foreach:`:
 
 ```yaml
@@ -382,19 +383,47 @@ join, all-or-nothing.
 
 `over:` and `collect:` each name a declared `json` `state:` key (distinct, and nothing else writes
 `collect:`); `max_items:` (default 20, ≥ 1) caps the list length. `body:` is one declared,
-**`deterministic`** step (an `agentic` body is a later milestone; no nesting) run once per item,
+**`deterministic` or `agentic`** step (no nesting) run once per item,
 owned by exactly one `parallel` step (as a branch or a body), not `start:`, declaring none of
-`next:`/`outcomes:`/`catch:`/`attempts:`/`attempt_key:`/`max_visits:` — but it MAY declare `retry:`
-and `postcondition:`. The step resolves to `success`, `partial` or `failure` (plus the reserved
+`next:`/`outcomes:`/`catch:`/`max_visits:` — but it MAY declare `retry:` and `postcondition:`, and an
+**agentic** body MAY declare `attempts:` and `attempt_key:` (a deterministic body may not: its
+`retry:` is the answer to hard failures). The step resolves to `success`, `partial` or `failure` (plus the reserved
 `exhausted`); `partial` has no default route, so the step must route it in `outcomes:` or `catch:`.
 The engine pseudo-keys `${item}` and `${item_index}` exist only in the body's own fields and may
 not be declared as `state:`/`args:` keys. The body's `writes:` keys are captured per item, so no
 other step may read or write them. `${item}` comes from workflow state: `sh -c ${item}` is rejected
-(the §B.2 injection trap). The journal side (per-item `item`/`items` event fields and their replay)
-and the engine execution are both in place: items run sequentially, in-process, against a list
-frozen on the step's `STEP_ENTER`; the join writes `collect:` (a json array of `{index, item,
+(the §B.2 injection trap); the same lint covers an agentic body's `!cmd` `context:` entries.
+`${item}`/`${item_index}` are valid in an agentic body's `description:`, `context:` entries and
+`postcondition`, and the body's `writes:` is its return schema (item-scoped like any body's).
+An **agentic** body is dispatched, not run: on entry every item is entered and rendered (with
+`${item}`/`${item_index}` bound) into one `DISPATCH_PARALLEL` block whose nested blocks are headed
+`DISPATCH <run> <body>[N]` and closed by `END DISPATCH <run> <body>[N]`; each is answered with
+`pawl submit --run <run> --step <body> --item N --json '<object>'`. `--item` is required for a
+foreach body and refused anywhere else; an index that does not exist, or whose item already
+resolved (a late or duplicate submit), is refused (exit 4). The result is validated against the
+body's `writes:` schema, journalled as item-scoped `WRITES`, the `postcondition` evaluated with
+the item's own writes, and the item resolves `success` or `failure`. A failed postcondition or an
+invalid return spends one of the item's `attempts:` (default 1): with budget left the item is NOT
+resolved — the submit answers a `DISPATCH_PARALLEL` carrying only that item's block, headed
+`attempt: n of M` and the `previous attempt failed (attempt n-1 …)` text, whether or not siblings
+are still pending; spent, the item resolves `failure` and its `collect:` `error` says it exhausted
+its attempts, with the last failure text. The budget is per item, keyed `(run, foreach step, item
+index, attempt_key)`: `attempt_key:` is the hash of the item's failure text (§B.4) unless
+overridden, and `${item}`/`${item_index}` are valid in its template. Because a differing key could
+otherwise buy tries without end, an item's total tries are also capped at the foreach step's own
+`max_visits:` (default 10); hitting it fails the item as exhausted. Item retries are not visits of
+any step. A submit is accepted only for the item's current attempt (a stale one is refused naming
+it; the CLI fills the attempt in from the journal, so the command is unchanged). While other items are pending the
+submit answers `~ item <body>[N] recorded (foreach <step>: waiting on: <body>[i], ...)`; the last
+one runs the join. An item whose `context:` cannot be gathered fails alone and is not dispatched.
+After a crash only the items with no resolution are re-dispatched, as an interrupted
+`DISPATCH_PARALLEL`, each at its current attempt (a crash never advances a counter) with its
+previous failure text. The journal side (per-item `item`/`items` event fields and their replay)
+and the engine execution are both in place: deterministic items run sequentially, in-process,
+against a list frozen on the step's `STEP_ENTER`; the join writes `collect:` (a json array of `{index, item,
 outcome, writes, error}` in list order) before invariants are evaluated. `docs/examples/foreach-fanout`
-is a runnable example, covered by `e2e/`.
+(deterministic) and `docs/examples/foreach-agentic` (agentic, driven with canned submits) are runnable
+examples, covered by `e2e/`.
 
 **Invariants and the join.** `invariants:` (§10) are evaluated once per parallel step, at the join —
 after every branch has transitioned and the group's own `success`/`failure` outcome is resolved —
@@ -478,7 +507,7 @@ journalled deadline.
 | `agentic` | a subagent dispatch with `description:`, `context:`, `subagent_args:`, and `writes:` as its output schema | `success` / `failure` only |
 | `wait` | a `poll:` command re-run every `every:` until a routed token or `timeout:` | named outcomes, or `timeout` |
 | `human` | a question mapped onto `AskUserQuestion` — options and/or a runtime list, optional multi-select, always free-text "Other" | the chosen option (static single-select), or the reserved `chosen`, or `timeout` |
-| `parallel` | `branches:` naming ≥ 2 declared `deterministic`/`agentic` steps, dispatched together and joined all-or-nothing (§B.15); or `foreach:` running one `deterministic` body per item of a json list (§B.15) | `branches:`: `success` (every branch succeeded) / `failure` (any branch failed) only; `foreach:`: `success` / `partial` / `failure` |
+| `parallel` | `branches:` naming ≥ 2 declared `deterministic`/`agentic` steps, dispatched together and joined all-or-nothing (§B.15); or `foreach:` running one `deterministic` or `agentic` body per item of a json list (§B.15) | `branches:`: `success` (every branch succeeded) / `failure` (any branch failed) only; `foreach:`: `success` / `partial` / `failure` |
 
 Reserved outcome tokens, usable anywhere: `success`, `failure`, `timeout`, `exhausted`, `chosen`.
 
@@ -512,12 +541,12 @@ Reserved outcome tokens, usable anywhere: `success`, `failure`, `timeout`, `exha
 | `options_from` | one of `options`/`options_from` | human | state key | A `json` state key holding a list of strings, resolved at ask time. Outcome is always `chosen` (§B.5). | — |
 | `multi` | no | human | boolean | Multi-select. `true` forces the outcome to `chosen`. | `false` |
 | `branches` | one of `branches`/`foreach` | parallel | list | ≥ 2 declared `deterministic`/`agentic` step ids, dispatched and joined together (§B.15); a listed step may declare no `next:`/`outcomes:`/`catch:`/`attempts:`/`attempt_key:`/`max_visits:` of its own. | — |
-| `foreach` | one of `branches`/`foreach` | parallel | map | `{over, body, collect, max_items}` — fan one `deterministic` body out over a json list (§B.15). `over`/`collect`: declared `json` `state:` keys; `max_items`: ≥ 1, default `20`. | — |
+| `foreach` | one of `branches`/`foreach` | parallel | map | `{over, body, collect, max_items}` — fan one `deterministic` or `agentic` body out over a json list (§B.15). `over`/`collect`: declared `json` `state:` keys; `max_items`: ≥ 1, default `20`. | — |
 | `writes` | no | all | list/map | Keys produced. Typed map required on `agentic` — it is the output schema. On `human`, exactly one key, required whenever `options_from:`, `multi: true` or a `chosen:` route is used. | `[]` |
 | `postcondition` | **yes** on agentic | all | string/map | Shell string, `{command}`, `{all_set}`, or `{equals}`. Evaluated by the engine; optional on `deterministic` (exit 0 = success unless declared), `wait`, `human`. | — |
 | `soft` | no | all | boolean | Marks the check as judgement-bounded. Counted at validate *and* run time. | `false` |
 | `attempts` | no | deterministic, agentic | integer | Re-runs of this step on postcondition failure. ≥ 1. | `1` |
-| `attempt_key` | no | deterministic, agentic | string | `"${template}"` overriding the automatic failure-text key (§B.4). | automatic |
+| `attempt_key` | no | deterministic, agentic | string | `"${template}"` overriding the automatic failure-text key (§B.4); on a foreach body, per item (§B.15). | automatic |
 | `max_visits` | no | all | integer | Cap on entries to this step in one run; exceeding it → `exhausted`. | `10` |
 | `retry` | no | deterministic, wait | map | `{max_attempts, backoff}` — retries the *body* on a hard failure, before any outcome is resolved. `backoff` is one duration (e.g. `30s`); retry *n* waits `backoff` × *n*, linear, no jitter. | none |
 | `catch` | no | all | list | Ordered `{on: <outcome>, next: <step or terminal>}`; fires on exhaustion. | `failure → blocked` |
@@ -694,10 +723,12 @@ work to an agent. See `docs/quickstart.md`.
 23. `foreach.over`/`foreach.collect` is not a declared `json` `state:` key (an `args:` key, an
     undeclared key and any other type are each rejected); `collect` equals `over`; or some step's
     `writes:` names the `collect:` key (the foreach step is its only writer).
-24. `foreach.body` does not name a declared step; is not `deterministic` (`agentic` is rejected as
-    not yet supported, any other kind as nesting); is the workflow's `start:` step; is also a
-    branch or another foreach's body; or declares `next:`/`outcomes:`/`catch:`/`attempts:`/
-    `attempt_key:`/`max_visits:`. (`retry:` and `postcondition:` are allowed.)
+24. `foreach.body` does not name a declared step; is not `deterministic` or `agentic` (any other
+    kind is nesting); is the workflow's `start:` step; is also a
+    branch or another foreach's body; or declares `next:`/`outcomes:`/`catch:`/
+    `max_visits:`, or is deterministic and declares `attempts:`/`attempt_key:`. (`retry:` and
+    `postcondition:` are allowed; an agentic body may also declare `attempts:`/`attempt_key:`, a
+    per-item budget.)
 25. A `foreach:` body's `writes:` keys are per-item, never global: a step other than the body
     reads one (`${key}` in any step field, a terminal message, an invariant's `check:`, or a
     foreach's `over:`), or another step also writes it.
@@ -705,7 +736,7 @@ work to an agent. See `docs/quickstart.md`.
     `branches:` `parallel` step routes `partial`.
 27. `${item}`/`${item_index}` used anywhere except the foreach body's own fields; or `item`/
     `item_index` declared as a `state:` or `args:` key.
-28. A foreach body's `run:` or `postcondition.command` contains `-c ${item}` / `-c ${item_index}`
+28. A foreach body's `run:`, `postcondition.command` or `!cmd` `context:` entry contains `-c ${item}` / `-c ${item_index}`
     (e.g. `sh -c ${item}`): the value comes from workflow state and must never be executed as a
     script (§B.2).
 
@@ -749,11 +780,11 @@ the step sequence a given outcome assignment produces without executing anything
 **Milestone 3.** `foreach:` fan-out over a runtime-discovered list, with per-item postconditions and a
 **partial**-success join. *Shipped for `deterministic` bodies* (sequential in-process execution,
 `docs/examples/foreach-fanout`; `kind: parallel` itself, single-group and all-or-nothing, shipped in
-Milestone 1 — §B.15); *outstanding:* `agentic` bodies and concurrent item execution. *Possible PR2
-option:* per-item retry for agentic bodies — an item-level attempts budget keyed per item index that
-re-dispatches only the failed item before the join, since a `partial` route back to the list producer
-otherwise costs a full round-trip and re-runs the whole list unless the producer filters out
-already-succeeded items. Also outstanding: an `outcome:` member of the agentic return schema, constrained to a declared
+Milestone 1 — §B.15) *and for `agentic` bodies* (one `DISPATCH_PARALLEL` of per-item blocks answered
+with `pawl submit --item N`, `docs/examples/foreach-agentic`); *shipped:* per-item `attempts:` for
+agentic bodies, which re-dispatches only the failed item before the join (a `partial` route back to
+the list producer would otherwise cost a full round-trip and re-run the whole list); *outstanding:*
+concurrent item execution (`concurrency:`). Also outstanding: an `outcome:` member of the agentic return schema, constrained to a declared
 enum; a `when:` predicate.
 
 Installation and distribution are in DESIGN.md §9.

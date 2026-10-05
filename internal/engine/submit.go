@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -22,6 +23,21 @@ import (
 // postcondition failure does); and continues the run loop, returning the
 // next instruction.
 func (e *Engine) Submit(runID, stepID string, attempt int, result json.RawMessage) (Instruction, error) {
+	return e.submit(runID, stepID, attempt, nil, result)
+}
+
+// SubmitItem is Submit for one item of an agentic foreach: stepID is the
+// foreach BODY step and item the zero-based index the Dispatch carried
+// (pawl submit --item N). It is accepted only while the run's cursor is at
+// the foreach step that owns stepID and that item is still pending, and
+// attempt must be the item's CURRENT attempt (design/format-spec.md §B.4: an
+// agentic body's attempts: budget is per item); a submit for an earlier
+// attempt than the one most recently dispatched is refused.
+func (e *Engine) SubmitItem(runID, stepID string, item, attempt int, result json.RawMessage) (Instruction, error) {
+	return e.submit(runID, stepID, attempt, &item, result)
+}
+
+func (e *Engine) submit(runID, stepID string, attempt int, item *int, result json.RawMessage) (Instruction, error) {
 	dir := journal.RunDir(e.Root, e.Workflow.Workflow, runID)
 	lock, err := journal.AcquireLock(dir, false)
 	if err != nil {
@@ -58,10 +74,43 @@ func (e *Engine) Submit(runID, stepID string, attempt int, result json.RawMessag
 		return nil, fmt.Errorf("%w: step %q is not an agentic step awaiting submission", ErrRefused, stepID)
 	}
 
+	// A foreach body is submitted per item (--item N), never by step alone,
+	// and --item is meaningless for any other step.
+	var fe *foreachItem
+	var foreachOwner *spec.Step
 	for i := range e.Workflow.Steps {
 		if f := e.Workflow.Steps[i].Foreach; f != nil && f.Body == stepID {
-			return nil, fmt.Errorf("%w: step %q is the deterministic body of foreach step %q: the engine runs it per item itself and nothing is ever awaiting a submit for it", ErrRefused, stepID, e.Workflow.Steps[i].ID)
+			foreachOwner = &e.Workflow.Steps[i]
+			break
 		}
+	}
+	switch {
+	case foreachOwner == nil && item != nil:
+		return nil, fmt.Errorf("%w: --item %d given, but step %q is not the body of a foreach step; --item applies only to a foreach body", ErrRefused, *item, stepID)
+	case foreachOwner != nil:
+		if step.Kind != "agentic" {
+			return nil, fmt.Errorf("%w: step %q is the deterministic body of foreach step %q: the engine runs it per item itself and nothing is ever awaiting a submit for it", ErrRefused, stepID, foreachOwner.ID)
+		}
+		if item == nil {
+			return nil, fmt.Errorf("%w: step %q is the body of foreach step %q; submit it per item with --item N (the index its DISPATCH block names)", ErrRefused, stepID, foreachOwner.ID)
+		}
+		if rs.Cursor.Step != foreachOwner.ID {
+			return nil, fmt.Errorf("%w: submit for %s item %d, but the run is waiting on %s/attempt %d, not on foreach step %q",
+				ErrRefused, stepID, *item, rs.Cursor.Step, rs.Cursor.Attempt, foreachOwner.ID)
+		}
+		n := len(rs.ForeachItems[foreachOwner.ID])
+		if *item < 0 || *item >= n {
+			return nil, fmt.Errorf("%w: foreach step %q has %d items (0..%d); item %d does not exist", ErrRefused, foreachOwner.ID, n, n-1, *item)
+		}
+		if !rs.PendingItems[foreachOwner.ID][*item] {
+			return nil, fmt.Errorf("%w: item %d of foreach step %q is not awaiting a submit (already reported, or never dispatched); still pending: %s",
+				ErrRefused, *item, foreachOwner.ID, pendingItemList(foreachOwner.Foreach.Body, rs.PendingItems[foreachOwner.ID]))
+		}
+		if cur := rs.ItemAttempt[foreachOwner.ID][*item]; attempt != cur {
+			return nil, fmt.Errorf("%w: submit for %s item %d claims attempt %d, but that item is now on attempt %d (a later attempt was dispatched, or this one never was); submit for attempt %d",
+				ErrRefused, stepID, *item, attempt, cur, cur)
+		}
+		fe = &foreachItem{group: foreachOwner.ID, index: *item, item: rs.ForeachItems[foreachOwner.ID][*item]}
 	}
 
 	// branchOf is set when stepID names a still-outstanding branch of the
@@ -74,6 +123,8 @@ func (e *Engine) Submit(runID, stepID string, attempt int, result json.RawMessag
 	// rs.PendingBranches[rs.Cursor.Step], not by matching the cursor.
 	var branchOf string
 	switch {
+	case fe != nil:
+		// validated above
 	case rs.Cursor.Step == stepID && rs.Cursor.Attempt == attempt:
 		if step.Kind != "agentic" {
 			return nil, fmt.Errorf("%w: step %q is not an agentic step awaiting submission", ErrRefused, stepID)
@@ -103,10 +154,12 @@ func (e *Engine) Submit(runID, stepID string, attempt int, result json.RawMessag
 			cr = checkResult{OK: false, Text: schemaErr}
 		} else {
 			if len(writes) > 0 {
-				if _, err := log.Append(journal.Event{
+				wev := journal.Event{
 					Kind: journal.KindWrites, RunID: runID, Step: stepID,
 					Attempt: attempt, Writes: writes,
-				}); err != nil {
+				}
+				fe.stamp(&wev)
+				if _, err := log.Append(wev); err != nil {
 					return nil, err
 				}
 				rs, err = replayDir(dir)
@@ -115,13 +168,19 @@ func (e *Engine) Submit(runID, stepID string, attempt int, result json.RawMessag
 				}
 			}
 			vals := buildValues(e.Workflow, rs, runID, stepID, attempt, rs.Visits[stepID])
-			cr, err = e.evaluatePostcondition(step, combinedRaw(e.Workflow, rs), vals)
+			fe.addPseudoKeys(vals)
+			raw := combinedRaw(e.Workflow, rs)
+			fe.overlayWrites(e.Workflow, rs, vals, raw)
+			cr, err = e.evaluatePostcondition(step, raw, vals)
 			if err != nil {
 				return nil, err
 			}
 		}
 	}
 
+	if fe != nil {
+		return e.submitItem(dir, log, runID, foreachOwner, step, fe, attempt, cr)
+	}
 	if branchOf != "" {
 		return e.submitBranch(dir, log, runID, branchOf, step, attempt, cr)
 	}
@@ -177,7 +236,7 @@ func (e *Engine) Submit(runID, stepID string, attempt int, result json.RawMessag
 	if err != nil {
 		return nil, err
 	}
-	instr, derr := e.dispatchInstruction(dir, rs, step, runID, nextAttempt, false)
+	instr, derr := e.dispatchInstruction(dir, rs, step, runID, nextAttempt, false, nil)
 	if derr != nil {
 		if !errors.Is(derr, errContextUnavailable) {
 			return nil, derr
@@ -245,6 +304,142 @@ func (e *Engine) submitBranch(dir string, log *journal.Log, runID, parallelID st
 		return nil, fmt.Errorf("engine: internal error: parallel step %q not found", parallelID)
 	}
 	return e.routeParallel(dir, log, runID, parallelStep, rs.Cursor.Attempt)
+}
+
+// pendingItemList renders the pending item indices as "body[i], body[j]".
+func pendingItemList(body string, pending map[int]bool) string {
+	idx := make([]int, 0, len(pending))
+	for i := range pending {
+		idx = append(idx, i)
+	}
+	sort.Ints(idx)
+	parts := make([]string, len(idx))
+	for k, i := range idx {
+		parts[k] = fmt.Sprintf("%s[%d]", body, i)
+	}
+	if len(parts) == 0 {
+		return "none"
+	}
+	return strings.Join(parts, ", ")
+}
+
+// submitItem journals an agentic foreach item's resolving report, as
+// submitBranch does for a branch: its grouped POSTCONDITION (if the body
+// declares one, or on failure) and its grouped TRANSITION. The item's WRITES
+// were already journaled item-scoped by the caller.
+//
+// A failed postcondition or invalid return is retried when the body declares
+// attempts: and budget remains (retryItem); the item is then NOT transitioned
+// and the submit returns that item's re-dispatch alone. Otherwise the item
+// resolves failure. While other items are pending it returns ItemRecorded;
+// the last one to land runs joinForeach.
+func (e *Engine) submitItem(dir string, log *journal.Log, runID string, foreachStep, body *spec.Step, fe *foreachItem, attempt int, cr checkResult) (Instruction, error) {
+	outcome := "success"
+	var pc *journal.Event
+	switch {
+	case cr.OK && body.Postcondition != nil:
+		pc = &journal.Event{Kind: journal.KindPostcondition, RunID: runID, Step: body.ID, Attempt: attempt, OK: true, Soft: cr.Soft}
+	case !cr.OK:
+		outcome = "failure"
+		pc = &journal.Event{Kind: journal.KindPostcondition, RunID: runID, Step: body.ID, Attempt: attempt, OK: false, Text: cr.Text, Soft: cr.Soft}
+	}
+	if !cr.OK {
+		rs, err := replayDir(dir)
+		if err != nil {
+			return nil, err
+		}
+		// Same keying rule as the ordinary agentic path: an override keeps the
+		// key the entry rendered, otherwise the key is a hash of the failure.
+		nextKey := rs.ItemAttemptKey[foreachStep.ID][fe.index]
+		if body.AttemptKey == "" {
+			nextKey = hashFailureText(cr.Text)
+		}
+		pc.AttemptKey = nextKey
+		fe.stamp(pc)
+		if _, err := log.Append(*pc); err != nil {
+			return nil, err
+		}
+		if rs, err = replayDir(dir); err != nil {
+			return nil, err
+		}
+		nextAttempt := nextTryNumber(attempt, rs.ItemKeyAttempts[foreachStep.ID][fe.index][nextKey])
+		var why string
+		switch {
+		case body.Attempts > 1 && nextAttempt > foreachStep.MaxVisits:
+			why = fmt.Sprintf("item %d of foreach step %q is exhausted: it reached the foreach step's max_visits cap of %d tries", fe.index, foreachStep.ID, foreachStep.MaxVisits)
+		case body.Attempts > 1 && nextAttempt > body.Attempts:
+			why = fmt.Sprintf("item %d of foreach step %q is exhausted: it used all %d attempts", fe.index, foreachStep.ID, body.Attempts)
+		}
+		switch {
+		case why != "":
+			text := fmt.Sprintf("%s; last failure: %s", why, cr.Text)
+			if err := e.journalAttemptDiagnostic(log, runID, body.ID, attempt, text, fe); err != nil {
+				return nil, err
+			}
+		case nextAttempt <= body.Attempts:
+			return e.retryItem(dir, log, runID, foreachStep, body, fe, nextAttempt, nextKey)
+		}
+	} else if pc != nil {
+		fe.stamp(pc)
+		if _, err := log.Append(*pc); err != nil {
+			return nil, err
+		}
+	}
+	if err := journalItemTransition(log, runID, body.ID, attempt, fe, outcome); err != nil {
+		return nil, err
+	}
+	return e.afterItemResolved(dir, log, runID, foreachStep, body, fe)
+}
+
+// retryItem re-enters an item at nextAttempt under nextKey (a grouped Retry
+// STEP_ENTER: not a visit of anything) and returns a DispatchParallel
+// carrying only that item's Dispatch, whether or not siblings are pending. If
+// its context: cannot be gathered the item resolves failure instead.
+func (e *Engine) retryItem(dir string, log *journal.Log, runID string, foreachStep, body *spec.Step, fe *foreachItem, nextAttempt int, nextKey string) (Instruction, error) {
+	ev := journal.Event{
+		Kind: journal.KindStepEnter, RunID: runID, Step: body.ID,
+		Attempt: nextAttempt, AttemptKey: nextKey, Retry: true,
+	}
+	fe.stamp(&ev)
+	if _, err := log.Append(ev); err != nil {
+		return nil, err
+	}
+	rs, err := replayDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	instr, derr := e.dispatchInstruction(dir, rs, body, runID, nextAttempt, false, fe)
+	if derr != nil {
+		if !errors.Is(derr, errContextUnavailable) {
+			return nil, derr
+		}
+		if jerr := e.journalAttemptDiagnostic(log, runID, body.ID, nextAttempt, derr.Error(), fe); jerr != nil {
+			return nil, jerr
+		}
+		if jerr := journalItemTransition(log, runID, body.ID, nextAttempt, fe, "failure"); jerr != nil {
+			return nil, jerr
+		}
+		return e.afterItemResolved(dir, log, runID, foreachStep, body, fe)
+	}
+	return DispatchParallel{RunID: runID, Step: foreachStep.ID, Attempt: rs.Cursor.Attempt, Agentic: []Dispatch{instr.(Dispatch)}}, nil
+}
+
+// afterItemResolved runs once an item's TRANSITION is journaled: while other
+// items are pending it reports ItemRecorded, and the last one to land joins.
+func (e *Engine) afterItemResolved(dir string, log *journal.Log, runID string, foreachStep, body *spec.Step, fe *foreachItem) (Instruction, error) {
+	rs, err := replayDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	if pending := rs.PendingItems[foreachStep.ID]; len(pending) > 0 {
+		rem := make([]int, 0, len(pending))
+		for i := range pending {
+			rem = append(rem, i)
+		}
+		sort.Ints(rem)
+		return ItemRecorded{RunID: runID, ForeachStep: foreachStep.ID, BodyStep: body.ID, Item: fe.index, Remaining: rem}, nil
+	}
+	return e.joinForeach(dir, log, runID, foreachStep, rs.Cursor.Attempt, rs.ForeachItems[foreachStep.ID])
 }
 
 // validateAgenticWrites validates parsed against step's writes: schema

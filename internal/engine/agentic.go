@@ -42,7 +42,7 @@ func (e *Engine) dispatchAgentic(dir string, log *journal.Log, runID string, ste
 	if err != nil {
 		return nil, err
 	}
-	instr, derr := e.dispatchInstruction(dir, rs, step, runID, attempt, interrupted)
+	instr, derr := e.dispatchInstruction(dir, rs, step, runID, attempt, interrupted, nil)
 	if derr != nil {
 		if !errors.Is(derr, errContextUnavailable) {
 			return nil, derr

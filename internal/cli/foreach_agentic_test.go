@@ -1,0 +1,207 @@
+package cli
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/dcferreira/agent-pawl/internal/engine"
+)
+
+func itemPtr(i int) *int { return &i }
+
+func TestFormatDispatchParallel_ForeachItems(t *testing.T) {
+	d := engine.DispatchParallel{
+		RunID: "b758", Step: "fan", Attempt: 1,
+		Agentic: []engine.Dispatch{
+			{RunID: "b758", Step: "one", Attempt: 1, Item: itemPtr(0), Description: "do a",
+				WritesKeys: []string{"r"}, WritesTypes: map[string]string{"r": "string"}},
+			{RunID: "b758", Step: "one", Attempt: 1, Item: itemPtr(2), Description: "do c",
+				WritesKeys: []string{"r"}, WritesTypes: map[string]string{"r": "string"}},
+		},
+	}
+	got := formatDispatchParallel(d, map[string]int{"one": 1})
+	want := `DISPATCH_PARALLEL b758 fan
+  DISPATCH b758 one[0]
+  attempt: 1 of 1
+  description:
+    do a
+  context: (none)
+  return: a JSON object with exactly these keys (key order does not matter)
+    r: string
+  subagent_args: (none)
+  submit with: pawl submit --run b758 --step one --item 0 --json '<the object above>'
+  END DISPATCH b758 one[0]
+  DISPATCH b758 one[2]
+  attempt: 1 of 1
+  description:
+    do c
+  context: (none)
+  return: a JSON object with exactly these keys (key order does not matter)
+    r: string
+  subagent_args: (none)
+  submit with: pawl submit --run b758 --step one --item 2 --json '<the object above>'
+  END DISPATCH b758 one[2]
+END DISPATCH_PARALLEL b758 fan
+`
+	if got != want {
+		t.Errorf("mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestFormatItemRecorded(t *testing.T) {
+	got := formatItemRecorded(engine.ItemRecorded{RunID: "b758", ForeachStep: "fan", BodyStep: "one", Item: 2, Remaining: []int{0, 1}})
+	want := "~ item one[2] recorded (foreach fan: waiting on: one[0], one[1])\n"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+const cliForeachAgentic = `workflow: fe
+start: produce
+state:
+  xs: {type: json}
+  out: {type: json, default: []}
+  r: {type: string, default: ""}
+steps:
+  - id: produce
+    kind: deterministic
+    run: |-
+      echo '{"xs":["a","b"]}'
+    writes: [xs]
+    next: fan
+  - id: fan
+    kind: parallel
+    foreach: {over: xs, body: one, collect: out}
+    outcomes: {success: done, partial: done, failure: done}
+  - id: one
+    kind: agentic
+    description: "handle ${item}"
+    writes: {r: {type: string}}
+    postcondition: {all_set: [r]}
+terminal:
+  done: {status: ok}
+`
+
+func TestForeachAgentic_CLIRoundTrip(t *testing.T) {
+	root := setupWorkingCopy(t)
+	writeWorkflow(t, root, "fe", cliForeachAgentic)
+	stdout, stderr, code := runCLI(t, []string{"pawl", "run", "fe"})
+	if code != 0 {
+		t.Fatalf("run: exit %d stderr %q", code, stderr)
+	}
+	line := firstLineHavingPrefix(t, stdout, "DISPATCH_PARALLEL ")
+	runID := extractRunID(t, line)
+	for _, want := range []string{"  DISPATCH " + runID + " one[0]", "  DISPATCH " + runID + " one[1]",
+		"  END DISPATCH " + runID + " one[1]", "--step one --item 1 --json '<the object above>'", "handle a", "handle b"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("run output missing %q:\n%s", want, stdout)
+		}
+	}
+
+	out, stderr, code := runCLI(t, []string{"pawl", "submit", "--run", runID, "--step", "one", "--item", "1", "--json", `{"r":"x"}`})
+	if code != 0 || out != "~ item one[1] recorded (foreach fan: waiting on: one[0])\n" {
+		t.Fatalf("submit item 1: exit %d out %q stderr %q", code, out, stderr)
+	}
+	out, stderr, code = runCLI(t, []string{"pawl", "submit", "--run", runID, "--step", "one", "--item", "0", "--json", `{"r":"y"}`})
+	if code != 0 || !strings.HasPrefix(out, "TERMINAL") {
+		t.Fatalf("submit item 0: exit %d out %q stderr %q", code, out, stderr)
+	}
+}
+
+func TestSubmit_ItemRefusals(t *testing.T) {
+	root := setupWorkingCopy(t)
+	writeWorkflow(t, root, "fe", cliForeachAgentic)
+	stdout, _, _ := runCLI(t, []string{"pawl", "run", "fe"})
+	runID := extractRunID(t, firstLineHavingPrefix(t, stdout, "DISPATCH_PARALLEL "))
+
+	for name, args := range map[string][]string{
+		"missing --item": {"--step", "one", "--json", `{"r":"x"}`},
+		"out of range":   {"--step", "one", "--item", "9", "--json", `{"r":"x"}`},
+		"item on other":  {"--step", "fan", "--item", "0", "--json", `{}`},
+	} {
+		_, stderr, code := runCLI(t, append([]string{"pawl", "submit", "--run", runID}, args...))
+		if code != 4 {
+			t.Errorf("%s: exit = %d, want 4; stderr %q", name, code, stderr)
+		}
+	}
+}
+
+func TestSubmit_ItemRefusedOnHumanStep(t *testing.T) {
+	root := setupWorkingCopy(t)
+	writeWorkflow(t, root, "human-approval-cli", humanApprovalWorkflow)
+	stdout, _, _ := runCLI(t, []string{"pawl", "run", "human-approval-cli"})
+	runID := extractRunID(t, firstLineHavingPrefix(t, stdout, "ASK "))
+	_, stderr, code := runCLI(t, []string{"pawl", "submit", "--run", runID, "--step", "ask", "--item", "3", "--json", `{"selected": ["approve"]}`})
+	if code != 4 || !strings.Contains(stderr, "not the body of a foreach") {
+		t.Errorf("exit = %d, want 4 refusing --item; stderr %q", code, stderr)
+	}
+}
+
+func TestSubmit_ItemFlagParsing(t *testing.T) {
+	setupWorkingCopy(t)
+	for _, bad := range []string{"abc", "-1", "1.5", ""} {
+		_, stderr, code := runCLI(t, []string{"pawl", "submit", "--run", "r", "--step", "s", "--item", bad, "--json", "{}"})
+		if code != 2 || !strings.Contains(stderr, "--item") {
+			t.Errorf("--item %q: exit %d stderr %q, want usage exit 2 naming --item", bad, code, stderr)
+		}
+	}
+	_, stderr, code := runCLI(t, []string{"pawl", "submit", "--run", "r", "--step", "s", "--item"})
+	if code != 2 || !strings.Contains(stderr, "--item needs a value") {
+		t.Errorf("bare --item: exit %d stderr %q", code, stderr)
+	}
+}
+
+func TestFormatDispatchParallel_ForeachItemRetry(t *testing.T) {
+	d := engine.DispatchParallel{
+		RunID: "b758", Step: "fan", Attempt: 1,
+		Agentic: []engine.Dispatch{
+			{RunID: "b758", Step: "one", Attempt: 2, Item: itemPtr(1), Description: "do b", PreviousFailure: "res is unset"},
+		},
+	}
+	got := formatDispatchParallel(d, map[string]int{"one": 3})
+	for _, want := range []string{
+		"  DISPATCH b758 one[1]\n  attempt: 2 of 3\n",
+		"  previous attempt failed (attempt 1 of this step, postcondition output)",
+		"res is unset",
+		"  submit with: pawl submit --run b758 --step one --item 1 --json '<the object above>'\n  END DISPATCH b758 one[1]\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	if n := strings.Count(got, "  DISPATCH b758 "); n != 1 {
+		t.Errorf("%d item blocks, want only the retried item", n)
+	}
+}
+
+func TestForeachAgentic_CLIRetryRoundTrip(t *testing.T) {
+	root := setupWorkingCopy(t)
+	src := strings.Replace(cliForeachAgentic, "    description: \"handle ${item}\"\n", "    description: \"handle ${item}\"\n    attempts: 2\n", 1)
+	writeWorkflow(t, root, "fe", src)
+	stdout, stderr, code := runCLI(t, []string{"pawl", "run", "fe"})
+	if code != 0 {
+		t.Fatalf("run: exit %d stderr %q", code, stderr)
+	}
+	runID := extractRunID(t, firstLineHavingPrefix(t, stdout, "DISPATCH_PARALLEL "))
+	if !strings.Contains(stdout, "attempt: 1 of 2") {
+		t.Errorf("first dispatch lacks `attempt: 1 of 2`:\n%s", stdout)
+	}
+	// item 1 fails its postcondition: only its retry comes back, siblings still pending
+	out, stderr, code := runCLI(t, []string{"pawl", "submit", "--run", runID, "--step", "one", "--item", "1", "--json", `{}`})
+	if code != 0 {
+		t.Fatalf("submit: exit %d stderr %q", code, stderr)
+	}
+	for _, want := range []string{"DISPATCH_PARALLEL " + runID + " fan", "  DISPATCH " + runID + " one[1]", "attempt: 2 of 2", "previous attempt failed (attempt 1"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("retry output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "one[0]") {
+		t.Errorf("retry output re-dispatches the pending sibling:\n%s", out)
+	}
+	// the CLI submits at the item's own attempt (2), not the foreach cursor's (1)
+	out, stderr, code = runCLI(t, []string{"pawl", "submit", "--run", runID, "--step", "one", "--item", "1", "--json", `{"r":"x"}`})
+	if code != 0 || out != "~ item one[1] recorded (foreach fan: waiting on: one[0])\n" {
+		t.Fatalf("submit retry: exit %d out %q stderr %q", code, out, stderr)
+	}
+}

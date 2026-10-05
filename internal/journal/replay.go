@@ -115,6 +115,16 @@ type RunState struct {
 	// captured per item — design/format-spec.md's collect: key receives
 	// them — and are deliberately NOT folded into State.
 	ItemWrites map[string]map[int]map[string]any
+	// ItemAttempt and ItemAttemptKey are, per foreach step id and item
+	// index, the attempt number and attempt key of the item's latest grouped
+	// STEP_ENTER (a body's attempts: budget is per item, §B.4);
+	// ItemKeyAttempts is, per item and attempt key, the attempt number of
+	// the latest entry under that key (the per-item rs.Attempts). A fresh,
+	// non-Retry item entry (or a fresh entry of the foreach step) starts the
+	// item over, exactly as it resets ItemWrites/ItemOutcome.
+	ItemAttempt     map[string]map[int]int
+	ItemAttemptKey  map[string]map[int]string
+	ItemKeyAttempts map[string]map[int]map[string]int
 
 	// Ended is true once a RUN_END event has been replayed.
 	Ended bool
@@ -253,14 +263,34 @@ func Replay(events []Event) (*RunState, error) {
 				if rs.PendingItems[e.Group] == nil {
 					rs.PendingItems[e.Group] = map[int]bool{}
 				}
-				if e.HardRetry == 0 {
-					// A fresh entry (not a hard-retry of the same try) starts
-					// the item over: the latest entry of an item wins, so a
-					// crash-resume re-run never inherits the earlier try's
-					// writes or outcome.
+				if e.HardRetry == 0 && !e.Retry {
+					// A fresh entry (not a hard-retry of the same try, nor an
+					// attempts: retry of the same item) starts the item over:
+					// the latest entry of an item wins, so a crash-resume
+					// re-run never inherits the earlier try's writes,
+					// outcome or attempt budget.
 					delete(rs.ItemWrites[e.Group], *e.Item)
 					delete(rs.ItemOutcome[e.Group], *e.Item)
+					delete(rs.ItemAttempt[e.Group], *e.Item)
+					delete(rs.ItemAttemptKey[e.Group], *e.Item)
+					delete(rs.ItemKeyAttempts[e.Group], *e.Item)
 				}
+				if rs.ItemAttempt == nil {
+					rs.ItemAttempt = map[string]map[int]int{}
+					rs.ItemAttemptKey = map[string]map[int]string{}
+					rs.ItemKeyAttempts = map[string]map[int]map[string]int{}
+				}
+				if rs.ItemAttempt[e.Group] == nil {
+					rs.ItemAttempt[e.Group] = map[int]int{}
+					rs.ItemAttemptKey[e.Group] = map[int]string{}
+					rs.ItemKeyAttempts[e.Group] = map[int]map[string]int{}
+				}
+				rs.ItemAttempt[e.Group][*e.Item] = e.Attempt
+				rs.ItemAttemptKey[e.Group][*e.Item] = e.AttemptKey
+				if rs.ItemKeyAttempts[e.Group][*e.Item] == nil {
+					rs.ItemKeyAttempts[e.Group][*e.Item] = map[string]int{}
+				}
+				rs.ItemKeyAttempts[e.Group][*e.Item][e.AttemptKey] = e.Attempt
 				rs.PendingItems[e.Group][*e.Item] = true
 				break
 			}
@@ -285,6 +315,9 @@ func Replay(events []Event) (*RunState, error) {
 				delete(rs.PendingItems, e.Step)
 				delete(rs.ItemOutcome, e.Step)
 				delete(rs.ItemWrites, e.Step)
+				delete(rs.ItemAttempt, e.Step)
+				delete(rs.ItemAttemptKey, e.Step)
+				delete(rs.ItemKeyAttempts, e.Step)
 			}
 			lastEnter = Cursor{Step: e.Step, Attempt: e.Attempt, AttemptKey: e.AttemptKey, HardRetry: e.HardRetry}
 			haveEnter = true

@@ -210,10 +210,8 @@ func TestForeach_Rule24_Body(t *testing.T) {
 			`step "b": rule 2: is unreachable from start: "p"; add an edge to it or remove it`,
 			`step "b": rule 3: has no next: or outcomes:; add one naming its successor step or a terminal`,
 			`step "b": rule 27: run uses ${item}, which is only valid in a foreach body's own fields; remove it or move the work into the body`}},
-		{"agentic", strings.Replace(mutate(t, "    kind: deterministic\n    run: echo \"res=${item}\"\n    emits: pairs\n", "    kind: agentic\n    description: do ${item}\n"), "    writes: [res]\n", "    writes: {res: {type: string}}\n    postcondition: {all_set: [res]}\n", 1), []string{
-			`step "p": rule 24: foreach.body: step "b" is kind: agentic; agentic foreach bodies are not yet supported (a later milestone) — use a deterministic body`}},
 		{"nested", extraStep(mutate(t, "body: b", "body: w"), "  - id: w\n    kind: wait\n    poll: echo hi\n    timeout: 1m\n"), []string{
-			`step "p": rule 24: foreach.body: step "w" has kind "wait", but a foreach body must be deterministic (no nesting)`,
+			`step "p": rule 24: foreach.body: step "w" has kind "wait", but a foreach body must be deterministic or agentic (no nesting)`,
 			`step "b": rule 2: is unreachable from start: "p"; add an edge to it or remove it`,
 			`step "b": rule 3: has no next: or outcomes:; add one naming its successor step or a terminal`,
 			`step "b": rule 27: run uses ${item}, which is only valid in a foreach body's own fields; remove it or move the work into the body`}},
@@ -247,6 +245,11 @@ func TestForeach_Rule24_BodyForbiddenFields(t *testing.T) {
 	} {
 		t.Run(f.field, func(t *testing.T) {
 			src := strings.Replace(foreachBase, "    writes: [res]\n", "    writes: [res]\n"+f.line, 1)
+			if f.field == "attempts:" || f.field == "attempt_key:" {
+				wantErrs(t, validateYAML(t, src),
+					`step "b": rule 24: declares `+f.field+`, but it is a deterministic foreach body of parallel step "p"; a deterministic body has retry: for hard failures, and `+f.field+` applies only to an agentic body; remove `+f.field)
+				return
+			}
 			wantErrs(t, validateYAML(t, src),
 				`step "b": rule 24: declares `+f.field+`, but it is the foreach body of parallel step "p", which owns routing for every item; remove `+f.field)
 		})
@@ -360,4 +363,41 @@ func TestForeach_Rule28_InjectionLint(t *testing.T) {
 		src := strings.Replace(foreachBase, `run: echo "res=${item}"`, `run: ./process.sh ${item} --index ${item_index}`, 1)
 		wantErrs(t, validateYAML(t, src))
 	})
+}
+
+// foreachAgenticBase is foreachBase with an agentic body.
+func foreachAgenticBase(t *testing.T) string {
+	t.Helper()
+	return strings.Replace(mutate(t, "    kind: deterministic\n    run: echo \"res=${item}\"\n    emits: pairs\n", "    kind: agentic\n    description: do ${item} (#${item_index})\n"), "    writes: [res]\n", "    writes: {res: {type: string}}\n    postcondition: {all_set: [res]}\n", 1)
+}
+
+func TestForeach_AgenticBodyAccepted(t *testing.T) {
+	wantErrs(t, validateYAML(t, foreachAgenticBase(t)))
+}
+
+func TestForeach_AgenticBodyItemKeysInContextAndPostcondition(t *testing.T) {
+	src := strings.Replace(foreachAgenticBase(t), "    writes: {res", "    context: [\"docs/${item}.md\", !cmd \"cat ${item}\"]\n    writes: {res", 1)
+	src = strings.Replace(src, "postcondition: {all_set: [res]}", "postcondition: {command: \"test -n ${item}\"}", 1)
+	wantErrs(t, validateYAML(t, src))
+}
+
+func TestForeach_AgenticBodyAttemptsAccepted(t *testing.T) {
+	src := strings.Replace(foreachAgenticBase(t), "    writes: {res", "    attempts: 3\n    attempt_key: \"${item}-${item_index}\"\n    writes: {res", 1)
+	wantErrs(t, validateYAML(t, src))
+}
+
+func TestForeach_AgenticBodyStillRejectsOtherOwnedFields(t *testing.T) {
+	src := strings.Replace(foreachAgenticBase(t), "    writes: {res", "    max_visits: 2\n    writes: {res", 1)
+	wantErrs(t, validateYAML(t, src),
+		`step "b": rule 24: declares max_visits:, but it is the foreach body of parallel step "p", which owns routing for every item; remove max_visits:`)
+}
+
+func TestForeach_Rule28_AgenticContextCmd(t *testing.T) {
+	for _, cmd := range []string{`!cmd "sh -c ${item}"`, `!cmd "bash -ec '${item_index}'"`} {
+		src := strings.Replace(foreachAgenticBase(t), "    writes: {res", "    context: ["+cmd+"]\n    writes: {res", 1)
+		got := validateYAML(t, src)
+		if len(got) != 1 || !strings.HasPrefix(got[0], `step "b": rule 28: context[0] runs ${`) {
+			t.Fatalf("%s: Errors = %v", cmd, got)
+		}
+	}
 }

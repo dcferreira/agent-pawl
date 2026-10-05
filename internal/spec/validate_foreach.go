@@ -144,12 +144,13 @@ func checkForeachOverCollect(w *Workflow, errs *[]string) {
 	}
 }
 
-// checkForeachBody implements §H rule 24: foreach.body names a declared,
-// deterministic step (an agentic body is not yet supported in this build;
-// any other kind is "no nesting"), that is not start:, is owned by no other
-// parallel step (as a branch or another foreach's body), and declares none
-// of next:/outcomes:/catch:/attempts:/attempt_key:/max_visits:. Unlike a
-// branch, a body MAY declare retry: and postcondition:.
+// checkForeachBody implements §H rule 24: foreach.body names a declared
+// deterministic or agentic step (any other kind is "no nesting"), that is not
+// start:, is owned by no other parallel step (as a branch or another
+// foreach's body), and declares none of next:/outcomes:/catch:/max_visits:
+// (nor, for a deterministic body, attempts:/attempt_key:). Unlike a branch, a
+// body MAY declare retry: and postcondition:, and an agentic body MAY declare
+// attempts:/attempt_key: (a per-item budget).
 func checkForeachBody(w *Workflow, errs *[]string) {
 	owner := branchStepIDs(w)
 	for _, s := range foreachSteps(w) {
@@ -163,12 +164,9 @@ func checkForeachBody(w *Workflow, errs *[]string) {
 			*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
 				"rule 24: foreach.body: %q does not name a declared step; declare step %q or fix the typo", id, id)))
 			continue
-		case body.Kind == "agentic":
+		case body.Kind != "deterministic" && body.Kind != "agentic":
 			*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
-				"rule 24: foreach.body: step %q is kind: agentic; agentic foreach bodies are not yet supported (a later milestone) — use a deterministic body", id)))
-		case body.Kind != "deterministic":
-			*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
-				"rule 24: foreach.body: step %q has kind %q, but a foreach body must be deterministic (no nesting)", id, body.Kind)))
+				"rule 24: foreach.body: step %q has kind %q, but a foreach body must be deterministic or agentic (no nesting)", id, body.Kind)))
 		}
 
 		if id == w.Start {
@@ -181,6 +179,15 @@ func checkForeachBody(w *Workflow, errs *[]string) {
 		}
 		for _, f := range ownedStepForbiddenFields {
 			if f.has(*body) {
+				if f.field == "attempts:" || f.field == "attempt_key:" {
+					// An agentic body owns a per-item attempt budget.
+					if body.Kind == "agentic" {
+						continue
+					}
+					*errs = append(*errs, stepErr(w, id, fmt.Sprintf(
+						"rule 24: declares %s, but it is a deterministic foreach body of parallel step %q; a deterministic body has retry: for hard failures, and %s applies only to an agentic body; remove %s", f.field, s.ID, f.field, f.field)))
+					continue
+				}
 				*errs = append(*errs, stepErr(w, id, fmt.Sprintf(
 					"rule 24: declares %s, but it is the foreach body of parallel step %q, which owns routing for every item; remove %s", f.field, s.ID, f.field)))
 			}
@@ -361,7 +368,7 @@ func checkForeachItemKeys(w *Workflow, errs *[]string) {
 var itemShellExec = regexp.MustCompile(`(?:^|\s)-[A-Za-z]*c\s+["']?\$\{(item|item_index)\}`)
 
 // checkForeachInjection implements §H rule 28: in a foreach body's shell
-// contexts (run:, postcondition.command), `-c ${item}` / `-c ${item_index}`
+// contexts (run:, postcondition.command, and an agentic body's !cmd context: entries), `-c ${item}` / `-c ${item_index}`
 // is an error. ${item} comes from workflow state; the `sh -c ${key}` idiom
 // is legitimate only for an args: value (AGENTS.md, "${key} shell-quotes as
 // a single token"), because piping state through `sh -c` turns whatever
@@ -373,6 +380,11 @@ func checkForeachInjection(w *Workflow, errs *[]string) {
 			continue
 		}
 		fields := []stepTemplate{{"run", s.Run}}
+		for i, c := range s.Context {
+			if c.IsCmd {
+				fields = append(fields, stepTemplate{fmt.Sprintf("context[%d]", i), c.Value})
+			}
+		}
 		if s.Postcondition != nil {
 			fields = append(fields, stepTemplate{"postcondition.command", s.Postcondition.Command})
 		}
