@@ -10,9 +10,12 @@ import (
 // pollWorkflow drives pawl poll end to end at the CLI boundary: a wait step
 // whose poll: reads a status file in the working copy, routing PASSED to an
 // agentic step (so the poller must print a DISPATCH, not run it) and timeout
-// to blocked. every:/timeout: are sub-second so the real clock costs the test
-// nothing — cli has no clock to fake, deliberately: the injection point is
-// engine.Engine's Now/Sleep, exercised in internal/engine's own poll tests.
+// to blocked. every:/timeout: are sub-second defaults so the real clock costs
+// the tests nothing (tests that need other timing derive a variant via
+// pollVariant). Note timeout: runs from step entry, so tests that must not
+// see it expire override it with a generous value. cli has no clock to fake,
+// deliberately: the injection point is engine.Engine's Now/Sleep, exercised in
+// internal/engine's own poll tests.
 const pollWorkflow = `workflow: polly
 start: kick_off
 state:
@@ -94,11 +97,76 @@ func TestPoll_RoutedTokenPrintsNextInstruction(t *testing.T) {
 	}
 }
 
-// TestPoll_UnroutedThenTimeout: a status file that never reports keeps the
-// loop going (several visible iterations) and then routes timeout to blocked.
-func TestPoll_UnroutedThenTimeout(t *testing.T) {
+// pollVariant returns pollWorkflow with the wait step's poll:, every: and
+// timeout: replaced, so a test can pick the timing it needs without forking
+// the whole workflow. It fails the test if any needle is not present exactly
+// once in pollWorkflow, so a drifted pollWorkflow cannot silently leave the
+// original timing in place.
+func pollVariant(t *testing.T, pollCmd, every, timeout string) string {
+	t.Helper()
+	pairs := [][2]string{
+		{"poll: cat status", "poll: " + pollCmd},
+		{"every: 100ms", "every: " + every},
+		{"timeout: 400ms", "timeout: " + timeout},
+	}
+	var args []string
+	for _, p := range pairs {
+		if n := strings.Count(pollWorkflow, p[0]); n != 1 {
+			t.Fatalf("pollVariant: %q appears %d times in pollWorkflow, want exactly 1 (pollWorkflow changed?)", p[0], n)
+		}
+		args = append(args, p[0], p[1])
+	}
+	return strings.NewReplacer(args...).Replace(pollWorkflow)
+}
+
+// TestPoll_UnroutedKeepsPolling: a poll: that reports an unrouted token keeps
+// the loop going (several visible iterations) until a routed token arrives.
+// The script is a counter, not a clock: it prints PENDING (no route) on its
+// first two invocations and PASSED on the third, so the outcome depends on
+// invocation count alone. timeout: is generous because it is measured from
+// step entry, not from when pawl poll starts — a short one could expire before
+// the third poll on a slow runner and make this test flaky.
+func TestPoll_UnroutedKeepsPolling(t *testing.T) {
 	root := setupWorkingCopy(t)
-	writeWorkflow(t, root, "polly", pollWorkflow)
+	script := `n=$(cat count 2>/dev/null || echo 0)
+n=$((n + 1))
+echo "$n" > count
+if [ "$n" -lt 3 ]; then echo PENDING; else echo "PASSED build_status=PASSED"; fi
+`
+	if err := os.WriteFile(filepath.Join(root, "poll.sh"), []byte(script), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeWorkflow(t, root, "polly", pollVariant(t, "sh poll.sh", "10ms", "1m"))
+
+	stdout, stderr, code := runCLI(t, []string{"pawl", "run", "polly"})
+	if code != 0 {
+		t.Fatalf("run exit = %d, stderr = %q", code, stderr)
+	}
+	runID := runIDFromWait(t, stdout)
+
+	stdout, stderr, code = runCLI(t, []string{"pawl", "poll", "--run", runID, "--step", "wait_for_build"})
+	if code != 0 {
+		t.Fatalf("poll exit = %d, want 0 (routed to the agentic step); stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stdout, "poll 3") {
+		t.Errorf("poll did not keep polling past the unrouted iterations:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "PENDING") {
+		t.Errorf("poll did not log the unrouted token it saw:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "DISPATCH") || !strings.Contains(stdout, "summarize_build") {
+		t.Errorf("poll did not dispatch summarize_build once the token routed:\n%s", stdout)
+	}
+}
+
+// TestPoll_TimeoutRoutesToBlocked: once timeout: has elapsed since step entry,
+// pawl poll routes the timeout outcome to the blocked terminal. The timeout is
+// the smallest the validator accepts (any valid Go duration; it sets no
+// minimum), so it has expired by the time poll runs. Deliberately NOT asserted:
+// how many polls ran — expiry may legitimately precede the first poll.
+func TestPoll_TimeoutRoutesToBlocked(t *testing.T) {
+	root := setupWorkingCopy(t)
+	writeWorkflow(t, root, "polly", pollVariant(t, "cat status", "10ms", "1ms"))
 	writeStatusFile(t, root, "PENDING")
 
 	stdout, stderr, code := runCLI(t, []string{"pawl", "run", "polly"})
@@ -110,12 +178,6 @@ func TestPoll_UnroutedThenTimeout(t *testing.T) {
 	stdout, stderr, code = runCLI(t, []string{"pawl", "poll", "--run", runID, "--step", "wait_for_build"})
 	if code != 3 {
 		t.Fatalf("poll exit = %d, want 3 (BLOCKED terminal); stderr = %q", code, stderr)
-	}
-	if !strings.Contains(stdout, "poll 2") {
-		t.Errorf("poll did not keep polling past the first unrouted iteration:\n%s", stdout)
-	}
-	if !strings.Contains(stdout, "PENDING") {
-		t.Errorf("poll did not log the unrouted token it saw:\n%s", stdout)
 	}
 	if !strings.Contains(stdout, "TERMINAL "+runID+" blocked") {
 		t.Errorf("poll did not reach the timeout route's blocked terminal:\n%s", stdout)
