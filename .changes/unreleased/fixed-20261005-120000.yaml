@@ -1,3 +1,0 @@
-kind: fixed
-body: 'Enforcement now covers runs in a different working copy from the Claude Code session''s start directory (e.g. `cd <jj workspace or git worktree> && pawl run …`): the PreToolUse hook also writes a heartbeat keyed by session id, which `pawl run`/`submit`/`poll` find through `CLAUDE_CODE_SESSION_ID` (falling back to the per-working-copy heartbeat), and PreToolUse now covers every run the session drives, not just runs in its start directory (#18).'
-time: 2026-10-05T12:00:00.000000000+02:00
