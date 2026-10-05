@@ -1,8 +1,10 @@
 package journal
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/dcferreira/agent-pawl/internal/spec"
@@ -18,7 +20,7 @@ import (
 // field, whether it belongs in digestWorkflow/digestStep too.
 const (
 	wantSpecWorkflowFieldCount = 12
-	wantSpecStepFieldCount     = 27
+	wantSpecStepFieldCount     = 28
 )
 
 func TestDigestProjection_PinnedAgainstSpecFieldCount(t *testing.T) {
@@ -186,5 +188,28 @@ func TestWriteStatus(t *testing.T) {
 	}
 	if err := WriteStatus(dir, "r1", "ship", "/home/user/proj", rs); err != nil {
 		t.Fatalf("WriteStatus: %v", err)
+	}
+}
+
+// TestDigest_ForeachSensitiveAndAdditive: a foreach: block is authored
+// content, so changing it changes the digest; and a workflow without one
+// digests with no trace of the field (omitempty), so runs started before
+// foreach: existed do not see their digest change under them.
+func TestDigest_ForeachSensitiveAndAdditive(t *testing.T) {
+	mk := func(f *spec.Foreach) *spec.Workflow {
+		return &spec.Workflow{Workflow: "w", Start: "p", Steps: []spec.Step{{ID: "p", Kind: "parallel", Foreach: f}}}
+	}
+	d0, err := Digest(mk(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d1, _ := Digest(mk(&spec.Foreach{Over: "xs", Body: "b", Collect: "out"}))
+	d2, _ := Digest(mk(&spec.Foreach{Over: "xs", Body: "b", Collect: "out", MaxItems: 5}))
+	if d0 == d1 || d1 == d2 {
+		t.Errorf("Digest insensitive to foreach: %q %q %q", d0, d1, d2)
+	}
+	data, _ := json.Marshal(newDigestWorkflow(mk(nil)))
+	if strings.Contains(string(data), "Foreach") {
+		t.Errorf("digest of a workflow without foreach: mentions Foreach: %s", data)
 	}
 }

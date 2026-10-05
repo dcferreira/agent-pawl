@@ -72,6 +72,9 @@ type Step struct {
 
 	// parallel
 	Branches []string
+	// Foreach is the alternative to Branches on kind: parallel
+	// (design/format-spec.md §B.15): nil when not declared.
+	Foreach *Foreach
 
 	// UnknownFields lists, sorted, any YAML key under this step that is not
 	// part of the authoring format — reported by Validate rather than
@@ -121,6 +124,7 @@ type stepShadow struct {
 	Outcomes map[string]string `yaml:"outcomes"`
 
 	Branches []string `yaml:"branches"`
+	Foreach  *Foreach `yaml:"foreach"`
 }
 
 // stepKnownFields is the set of step-level YAML keys this build understands.
@@ -132,7 +136,7 @@ var stepKnownFields = map[string]bool{
 	"writes": true, "postcondition": true, "soft": true,
 	"attempts": true, "attempt_key": true, "max_visits": true,
 	"retry": true, "catch": true, "next": true, "outcomes": true,
-	"branches": true,
+	"branches": true, "foreach": true,
 }
 
 // UnmarshalYAML decodes node into a map first (which resolves YAML merge
@@ -193,6 +197,7 @@ func (s *Step) UnmarshalYAML(node *yaml.Node) error {
 		Next:          sh.Next,
 		Outcomes:      sh.Outcomes,
 		Branches:      sh.Branches,
+		Foreach:       sh.Foreach,
 		UnknownFields: unknown,
 	}
 

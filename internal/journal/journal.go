@@ -109,6 +109,37 @@ type Event struct {
 	// before this field was added.
 	Group string `json:"group,omitempty"`
 
+	// Item is the index (into the frozen Items snapshot) of the foreach item
+	// this event belongs to, set together with Group on a STEP_ENTER,
+	// WRITES or TRANSITION for a foreach step's body: nil for every other
+	// event, including a branch event of a branches: group (Group set, Item
+	// nil) and the foreach step's own ungrouped events. It is a pointer
+	// because index 0 is a valid item and must survive omitempty. Replay
+	// folds an event with an Item into RunState.PendingItems/ItemOutcome/
+	// ItemWrites — never into PendingBranches/BranchOutcome/State, and
+	// without disturbing the singular lastEnter/Cursor tracking, exactly as
+	// a branch event is kept out of them.
+	//
+	// Additive and backward-compatible: an event recorded before this field
+	// existed decodes with Item nil (its JSON zero value), so it is never
+	// mistaken for a per-item event and Replay behaves exactly as it did
+	// before this field was added.
+	Item *int `json:"item,omitempty"`
+
+	// Items is the frozen list snapshot a foreach step fans out over,
+	// carried on that step's OWN ungrouped STEP_ENTER (Group "", Item nil)
+	// so a resumed run iterates the same list the first entry saw, never a
+	// re-read of the live state key. Replay folds the latest such entry
+	// into RunState.ForeachItems and resets that group's per-item state.
+	// Because of omitempty an empty snapshot is not journaled: a foreach
+	// over an empty list has no items to replay and must be resolved by the
+	// engine at entry rather than recovered from the journal.
+	//
+	// Additive and backward-compatible: an event recorded before this field
+	// existed decodes with Items nil (its JSON zero value), so Replay
+	// behaves exactly as it did before this field was added.
+	Items []any `json:"items,omitempty"`
+
 	// RUN_START
 	Args         map[string]any `json:"args,omitempty"`
 	Digest       string         `json:"digest,omitempty"`
