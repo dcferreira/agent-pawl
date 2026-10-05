@@ -519,8 +519,18 @@ func (e *Engine) dispatchInstruction(dir string, rs *journal.RunState, step *spe
 		}
 		items = append(items, item)
 	}
-	prev, err := e.previousFailureText(dir, step.ID, rs)
-	if err != nil {
+	var prev string
+	if fe != nil {
+		// A foreach item's attempts are its own: the previous failure is the
+		// item's latest failed POSTCONDITION, not the step-scoped lookup.
+		if attempt >= 2 {
+			events, rerr := journal.ReadEvents(dir)
+			if rerr != nil {
+				return nil, rerr
+			}
+			prev, _ = lastItemError(events, fe.group, fe.index).(string)
+		}
+	} else if prev, err = e.previousFailureText(dir, step.ID, rs); err != nil {
 		return nil, err
 	}
 	var itemIdx *int

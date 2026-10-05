@@ -8,6 +8,7 @@ import (
 
 	"github.com/dcferreira/agent-pawl/internal/engine"
 	"github.com/dcferreira/agent-pawl/internal/journal"
+	"github.com/dcferreira/agent-pawl/internal/spec"
 )
 
 // cmdSubmit implements pawl submit --run <id> --step <id> [--item <n>] --json '<result>'
@@ -123,7 +124,10 @@ func cmdSubmit(args []string, cwd string, stdout, stderr io.Writer) int {
 	if step != nil && step.Kind == "human" {
 		instr, err = e.SubmitHuman(runID, stepID, ref.State.Cursor.Attempt, json.RawMessage(result))
 	} else if item != nil {
-		instr, err = e.SubmitItem(runID, stepID, *item, ref.State.Cursor.Attempt, json.RawMessage(result))
+		// An item's attempt is its own (attempts: is per item), not the
+		// foreach step's cursor attempt. A step that is not a foreach body
+		// gets attempt 0 and the engine refuses it by name.
+		instr, err = e.SubmitItem(runID, stepID, *item, itemAttempt(w, ref.State, stepID, *item), json.RawMessage(result))
 	} else {
 		instr, err = e.Submit(runID, stepID, ref.State.Cursor.Attempt, json.RawMessage(result))
 	}
@@ -147,4 +151,15 @@ func cmdSubmit(args []string, cwd string, stdout, stderr io.Writer) int {
 // reporting "no run" for a run that in fact exists but has ended.
 func findRunByID(root, runID string) (*journal.RunRef, error) {
 	return journal.FindRun(root, runID)
+}
+
+// itemAttempt is the current attempt of item index of the foreach step whose
+// body is bodyID, from replayed state (0 when there is no such item).
+func itemAttempt(w *spec.Workflow, rs *journal.RunState, bodyID string, index int) int {
+	for i := range w.Steps {
+		if f := w.Steps[i].Foreach; f != nil && f.Body == bodyID {
+			return rs.ItemAttempt[w.Steps[i].ID][index]
+		}
+	}
+	return 0
 }

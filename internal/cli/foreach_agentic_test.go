@@ -139,3 +139,58 @@ func TestSubmit_ItemFlagParsing(t *testing.T) {
 		t.Errorf("bare --item: exit %d stderr %q", code, stderr)
 	}
 }
+
+func TestFormatDispatchParallel_ForeachItemRetry(t *testing.T) {
+	d := engine.DispatchParallel{
+		RunID: "b758", Step: "fan", Attempt: 1,
+		Agentic: []engine.Dispatch{
+			{RunID: "b758", Step: "one", Attempt: 2, Item: itemPtr(1), Description: "do b", PreviousFailure: "res is unset"},
+		},
+	}
+	got := formatDispatchParallel(d, map[string]int{"one": 3})
+	for _, want := range []string{
+		"  DISPATCH b758 one[1]\n  attempt: 2 of 3\n",
+		"  previous attempt failed (attempt 1 of this step, postcondition output)",
+		"res is unset",
+		"  submit with: pawl submit --run b758 --step one --item 1 --json '<the object above>'\n  END DISPATCH b758 one[1]\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	if n := strings.Count(got, "  DISPATCH b758 "); n != 1 {
+		t.Errorf("%d item blocks, want only the retried item", n)
+	}
+}
+
+func TestForeachAgentic_CLIRetryRoundTrip(t *testing.T) {
+	root := setupWorkingCopy(t)
+	src := strings.Replace(cliForeachAgentic, "    description: \"handle ${item}\"\n", "    description: \"handle ${item}\"\n    attempts: 2\n", 1)
+	writeWorkflow(t, root, "fe", src)
+	stdout, stderr, code := runCLI(t, []string{"pawl", "run", "fe"})
+	if code != 0 {
+		t.Fatalf("run: exit %d stderr %q", code, stderr)
+	}
+	runID := extractRunID(t, firstLineHavingPrefix(t, stdout, "DISPATCH_PARALLEL "))
+	if !strings.Contains(stdout, "attempt: 1 of 2") {
+		t.Errorf("first dispatch lacks `attempt: 1 of 2`:\n%s", stdout)
+	}
+	// item 1 fails its postcondition: only its retry comes back, siblings still pending
+	out, stderr, code := runCLI(t, []string{"pawl", "submit", "--run", runID, "--step", "one", "--item", "1", "--json", `{}`})
+	if code != 0 {
+		t.Fatalf("submit: exit %d stderr %q", code, stderr)
+	}
+	for _, want := range []string{"DISPATCH_PARALLEL " + runID + " fan", "  DISPATCH " + runID + " one[1]", "attempt: 2 of 2", "previous attempt failed (attempt 1"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("retry output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "one[0]") {
+		t.Errorf("retry output re-dispatches the pending sibling:\n%s", out)
+	}
+	// the CLI submits at the item's own attempt (2), not the foreach cursor's (1)
+	out, stderr, code = runCLI(t, []string{"pawl", "submit", "--run", runID, "--step", "one", "--item", "1", "--json", `{"r":"x"}`})
+	if code != 0 || out != "~ item one[1] recorded (foreach fan: waiting on: one[0])\n" {
+		t.Fatalf("submit retry: exit %d out %q stderr %q", code, out, stderr)
+	}
+}

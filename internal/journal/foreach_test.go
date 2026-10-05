@@ -197,3 +197,74 @@ func TestReplay_Foreach_HardRetryKeepsWrites(t *testing.T) {
 		t.Errorf("ItemWrites = %v, want %v", rs.ItemWrites["fe"][0], want)
 	}
 }
+
+func itemRetryEnter(i, attempt int, key string) Event {
+	return Event{Kind: KindStepEnter, Step: "body", Attempt: attempt, AttemptKey: key, Retry: true, Group: "fe", Item: intp(i)}
+}
+
+func TestReplay_Foreach_ItemAttemptTracking(t *testing.T) {
+	rs, err := Replay(foreachEvents(
+		foreachEnter([]any{"a", "b"}),
+		itemEnter(0), itemEnter(1),
+		Event{Kind: KindWrites, Step: "body", Group: "fe", Item: intp(0), Writes: map[string]any{"r": "x"}},
+		Event{Kind: KindPostcondition, Step: "body", Attempt: 1, Group: "fe", Item: intp(0), Text: "boom", AttemptKey: "k1"},
+		itemRetryEnter(0, 2, "k1"),
+		Event{Kind: KindPostcondition, Step: "body", Attempt: 2, Group: "fe", Item: intp(0), Text: "bang", AttemptKey: "k2"},
+		itemRetryEnter(0, 3, "k2"),
+	))
+	if err != nil {
+		t.Fatalf("Replay: %v", err)
+	}
+	if got := rs.ItemAttempt["fe"]; !reflect.DeepEqual(got, map[int]int{0: 3, 1: 1}) {
+		t.Errorf("ItemAttempt = %v", got)
+	}
+	if got := rs.ItemAttemptKey["fe"]; !reflect.DeepEqual(got, map[int]string{0: "k2", 1: ""}) {
+		t.Errorf("ItemAttemptKey = %v", got)
+	}
+	if got := rs.ItemKeyAttempts["fe"][0]; !reflect.DeepEqual(got, map[string]int{"": 1, "k1": 2, "k2": 3}) {
+		t.Errorf("ItemKeyAttempts[0] = %v", got)
+	}
+	// a Retry entry keeps the item's writes and visit counts untouched
+	if want := map[string]any{"r": "x"}; !reflect.DeepEqual(rs.ItemWrites["fe"][0], want) {
+		t.Errorf("ItemWrites = %v, want kept across a retry", rs.ItemWrites["fe"][0])
+	}
+	if rs.Visits["body"] != 0 || rs.LastError != "" {
+		t.Errorf("Visits[body]=%d LastError=%q, want untouched", rs.Visits["body"], rs.LastError)
+	}
+	if !rs.PendingItems["fe"][0] {
+		t.Error("item 0 should still be pending")
+	}
+}
+
+func TestReplay_Foreach_ItemAttemptResetByFreshEntry(t *testing.T) {
+	rs, err := Replay(foreachEvents(
+		foreachEnter([]any{"a"}),
+		itemEnter(0),
+		itemRetryEnter(0, 2, "k1"),
+		itemEnter(0), // a fresh (crash-resume) entry starts the item over
+	))
+	if err != nil {
+		t.Fatalf("Replay: %v", err)
+	}
+	if rs.ItemAttempt["fe"][0] != 1 || rs.ItemAttemptKey["fe"][0] != "" {
+		t.Errorf("ItemAttempt=%v key=%v, want reset to 1/\"\"", rs.ItemAttempt["fe"], rs.ItemAttemptKey["fe"])
+	}
+	if got := rs.ItemKeyAttempts["fe"][0]; !reflect.DeepEqual(got, map[string]int{"": 1}) {
+		t.Errorf("ItemKeyAttempts[0] = %v, want only the fresh entry", got)
+	}
+}
+
+func TestReplay_Foreach_ItemAttemptResetByForeachReentry(t *testing.T) {
+	rs, err := Replay(foreachEvents(
+		foreachEnter([]any{"a"}),
+		itemEnter(0), itemRetryEnter(0, 2, "k1"), itemTransition(0, "failure"),
+		Event{Kind: KindTransition, Step: "fe", Attempt: 1, Target: "fe", Outcome: "failure"},
+		foreachEnter([]any{"a"}),
+	))
+	if err != nil {
+		t.Fatalf("Replay: %v", err)
+	}
+	if len(rs.ItemAttempt["fe"]) != 0 || len(rs.ItemAttemptKey["fe"]) != 0 || len(rs.ItemKeyAttempts["fe"]) != 0 {
+		t.Errorf("not reset: %v %v %v", rs.ItemAttempt, rs.ItemAttemptKey, rs.ItemKeyAttempts)
+	}
+}

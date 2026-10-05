@@ -144,12 +144,13 @@ func checkForeachOverCollect(w *Workflow, errs *[]string) {
 	}
 }
 
-// checkForeachBody implements §H rule 24: foreach.body names a declared,
-// deterministic step (an agentic body is not yet supported in this build;
-// any other kind is "no nesting"), that is not start:, is owned by no other
-// parallel step (as a branch or another foreach's body), and declares none
-// of next:/outcomes:/catch:/attempts:/attempt_key:/max_visits:. Unlike a
-// branch, a body MAY declare retry: and postcondition:.
+// checkForeachBody implements §H rule 24: foreach.body names a declared
+// deterministic or agentic step (any other kind is "no nesting"), that is not
+// start:, is owned by no other parallel step (as a branch or another
+// foreach's body), and declares none of next:/outcomes:/catch:/max_visits:
+// (nor, for a deterministic body, attempts:/attempt_key:). Unlike a branch, a
+// body MAY declare retry: and postcondition:, and an agentic body MAY declare
+// attempts:/attempt_key: (a per-item budget).
 func checkForeachBody(w *Workflow, errs *[]string) {
 	owner := branchStepIDs(w)
 	for _, s := range foreachSteps(w) {
@@ -178,6 +179,15 @@ func checkForeachBody(w *Workflow, errs *[]string) {
 		}
 		for _, f := range ownedStepForbiddenFields {
 			if f.has(*body) {
+				if f.field == "attempts:" || f.field == "attempt_key:" {
+					// An agentic body owns a per-item attempt budget.
+					if body.Kind == "agentic" {
+						continue
+					}
+					*errs = append(*errs, stepErr(w, id, fmt.Sprintf(
+						"rule 24: declares %s, but it is a deterministic foreach body of parallel step %q; a deterministic body has retry: for hard failures, and %s applies only to an agentic body; remove %s", f.field, s.ID, f.field, f.field)))
+					continue
+				}
 				*errs = append(*errs, stepErr(w, id, fmt.Sprintf(
 					"rule 24: declares %s, but it is the foreach body of parallel step %q, which owns routing for every item; remove %s", f.field, s.ID, f.field)))
 			}

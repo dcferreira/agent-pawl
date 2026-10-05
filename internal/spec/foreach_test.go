@@ -245,6 +245,11 @@ func TestForeach_Rule24_BodyForbiddenFields(t *testing.T) {
 	} {
 		t.Run(f.field, func(t *testing.T) {
 			src := strings.Replace(foreachBase, "    writes: [res]\n", "    writes: [res]\n"+f.line, 1)
+			if f.field == "attempts:" || f.field == "attempt_key:" {
+				wantErrs(t, validateYAML(t, src),
+					`step "b": rule 24: declares `+f.field+`, but it is a deterministic foreach body of parallel step "p"; a deterministic body has retry: for hard failures, and `+f.field+` applies only to an agentic body; remove `+f.field)
+				return
+			}
 			wantErrs(t, validateYAML(t, src),
 				`step "b": rule 24: declares `+f.field+`, but it is the foreach body of parallel step "p", which owns routing for every item; remove `+f.field)
 		})
@@ -376,10 +381,15 @@ func TestForeach_AgenticBodyItemKeysInContextAndPostcondition(t *testing.T) {
 	wantErrs(t, validateYAML(t, src))
 }
 
-func TestForeach_AgenticBodyAttemptsStillRejected(t *testing.T) {
-	src := strings.Replace(foreachAgenticBase(t), "    writes: {res", "    attempts: 2\n    writes: {res", 1)
+func TestForeach_AgenticBodyAttemptsAccepted(t *testing.T) {
+	src := strings.Replace(foreachAgenticBase(t), "    writes: {res", "    attempts: 3\n    attempt_key: \"${item}-${item_index}\"\n    writes: {res", 1)
+	wantErrs(t, validateYAML(t, src))
+}
+
+func TestForeach_AgenticBodyStillRejectsOtherOwnedFields(t *testing.T) {
+	src := strings.Replace(foreachAgenticBase(t), "    writes: {res", "    max_visits: 2\n    writes: {res", 1)
 	wantErrs(t, validateYAML(t, src),
-		`step "b": rule 24: declares attempts:, but it is the foreach body of parallel step "p", which owns routing for every item; remove attempts:`)
+		`step "b": rule 24: declares max_visits:, but it is the foreach body of parallel step "p", which owns routing for every item; remove max_visits:`)
 }
 
 func TestForeach_Rule28_AgenticContextCmd(t *testing.T) {
