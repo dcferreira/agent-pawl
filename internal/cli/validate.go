@@ -5,6 +5,8 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
+
+	"github.com/dcferreira/agent-pawl/internal/render"
 )
 
 // cmdValidate implements pawl validate <workflow-name> | --path <file>
@@ -108,7 +110,25 @@ func cmdValidate(args []string, cwd string, stdout, stderr io.Writer) int {
 		var err error
 		rw, err = resolveWorkflowFile(cwd, name)
 		if err != nil {
-			printLine(stderr, err.Error())
+			msg := err.Error()
+			// pawl validate (unlike pawl run) takes --path, so a
+			// path-looking name is almost certainly a file the author
+			// meant to pass that way (issue #26).
+			if looksLikePath(name) && strings.Contains(msg, "no workflow named") {
+				abs := name
+				if !filepath.IsAbs(abs) {
+					abs = filepath.Join(cwd, abs)
+				}
+				stem := strings.TrimSuffix(strings.TrimSuffix(name, ".yaml"), ".yml")
+				if fileExists(abs) {
+					msg += "; did you mean: `pawl validate --path " + render.ShellQuote(name) + "`"
+				} else if stem != name {
+					if _, serr := resolveWorkflowFile(cwd, stem); serr == nil {
+						msg += "; did you mean: `pawl validate " + render.ShellQuote(stem) + "`"
+					}
+				}
+			}
+			printLine(stderr, msg)
 			return 1
 		}
 	}
