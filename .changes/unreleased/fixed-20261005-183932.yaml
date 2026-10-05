@@ -1,0 +1,3 @@
+kind: fixed
+body: 'The ASK `submit with:` hint now shows `selected` and `other` as alternatives for single-select human steps, so a session no longer submits both and blocks the run (#23)'
+time: 2026-10-05T18:39:32.000000000+02:00

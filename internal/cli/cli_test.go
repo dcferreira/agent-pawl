@@ -316,7 +316,8 @@ options:
   [1] approve
   [2] revise
 multi: false
-submit with: pawl submit --run RUNID --step ask --json '{"selected": ["<option label>"], "other": "<free text, if any>"}'
+submit with: pawl submit --run RUNID --step ask --json '{"selected": ["<option label>"]}'
+or: pawl submit --run RUNID --step ask --json '{"other": "<free text>"}'
 END ASK RUNID ask
 `
 	gotAsk := normaliseRunID(stdout)
@@ -2154,5 +2155,35 @@ func TestRun_InvariantViolationBlocksWithReason(t *testing.T) {
 	}
 	if !strings.Contains(statusOut, wantReason) {
 		t.Errorf("pawl status missing the invariant's reason; stdout = %q, want it to contain %q", statusOut, wantReason)
+	}
+}
+
+// TestFormatAsk_SubmitHintMatchesMulti pins the "submit with:" hint per case
+// the engine's resolveHumanAnswer distinguishes (#23): a single-select step
+// accepts exactly one of selected (one entry) or other — never both — so the
+// hint shows two alternatives; only multi: true combines them; a step with no
+// options can only take free text.
+func TestFormatAsk_SubmitHintMatchesMulti(t *testing.T) {
+	const prefix = "pawl submit --run r1 --step s1 --json "
+	tests := []struct {
+		name string
+		ask  engine.Ask
+		want string
+	}{
+		{"single-select", engine.Ask{RunID: "r1", Step: "s1", Options: []string{"a", "b"}},
+			"submit with: " + prefix + `'{"selected": ["<option label>"]}'` + "\n" +
+				"or: " + prefix + `'{"other": "<free text>"}'` + "\n"},
+		{"multi-select", engine.Ask{RunID: "r1", Step: "s1", Options: []string{"a", "b"}, Multi: true},
+			"submit with: " + prefix + `'{"selected": ["<option label>"], "other": "<free text, if any>"}'` + "\n"},
+		{"no options", engine.Ask{RunID: "r1", Step: "s1"},
+			"submit with: " + prefix + `'{"other": "<free text>"}'` + "\n"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := formatAsk(tc.ask)
+			if !strings.Contains(got, tc.want+"END ASK r1 s1\n") {
+				t.Errorf("hint mismatch:\n--- got ---\n%s\n--- want (before END) ---\n%s", got, tc.want)
+			}
+		})
 	}
 }

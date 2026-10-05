@@ -510,7 +510,7 @@ func formatPollIteration(it engine.PollIteration) string {
 // "the question and its deadline are journal records"), modeled tightly on
 // formatDispatch: question: (via w.field, matching how description: is
 // printed on DISPATCH), options: (a numbered list, matching how context:
-// entries are numbered), a multi: line, and a submit with: line — a literal
+// entries are numbered), a multi: line, and a submit with: line (a single-select step with options also gets an or: alternative line) — a literal
 // example of the JSON answer shape (design/format-spec.md §B.5's new
 // paragraph documenting it), not filled in, since unlike Dispatch's return:
 // schema the actual answer is free-form input from a person, not a value the
@@ -536,7 +536,21 @@ func formatAsk(a engine.Ask) string {
 
 	w.line(0, "multi:", strconv.FormatBool(a.Multi))
 
-	w.line(0, "submit with:", fmt.Sprintf(`pawl submit --run %s --step %s --json '{"selected": ["<option label>"], "other": "<free text, if any>"}'`, a.RunID, a.Step))
+	// The hint mirrors engine.resolveHumanAnswer: only multi: true accepts
+	// selected and other together; a single-select step takes exactly one of
+	// them (on a static-options step, both is rejected and routes to the
+	// step's failure outcome), and with no options there is
+	// nothing to select, so only other applies.
+	submit := fmt.Sprintf("pawl submit --run %s --step %s --json ", a.RunID, a.Step)
+	switch {
+	case a.Multi:
+		w.line(0, "submit with:", submit+`'{"selected": ["<option label>"], "other": "<free text, if any>"}'`)
+	case len(a.Options) == 0:
+		w.line(0, "submit with:", submit+`'{"other": "<free text>"}'`)
+	default:
+		w.line(0, "submit with:", submit+`'{"selected": ["<option label>"]}'`)
+		w.line(0, "or:", submit+`'{"other": "<free text>"}'`)
+	}
 	w.line(0, "END", "ASK", a.RunID, a.Step)
 	return w.String()
 }
