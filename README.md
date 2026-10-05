@@ -19,9 +19,11 @@ describe:
 - All five step kinds are implemented: `deterministic`, `agentic`, `wait`, `human`, and `parallel`
   (single-group, all-or-nothing `branches:` join — [design/format-spec.md](design/format-spec.md)
   §B.15), plus `foreach:` fan-out over a runtime-discovered json list with per-item postconditions
-  and a `success`/`partial`/`failure` join — **deterministic bodies only**; `foreach:` over an
-  `agentic` body (and any concurrent execution of items) remains a later slice. The example is
-  `docs/examples/foreach-fanout`.
+  and a `success`/`partial`/`failure` join , over `deterministic` or `agentic` bodies. An agentic body's items are dispatched together in one
+  `DISPATCH_PARALLEL` and answered with `pawl submit --item N`, with a per-item `attempts:` budget that
+  re-dispatches only the failed item; concurrent *execution* of deterministic items
+  (`concurrency:`) remains a later slice. The examples are `docs/examples/foreach-fanout`
+  (deterministic) and `docs/examples/foreach-agentic` (agentic).
 - Top-level `guards:` is now parsed and validated (id required+unique, `match:` required, must
   compile as a Go RE2 regexp, and must not be able to match zero characters; `only_in:` required —
   rule 15 checks every entry names a declared step; `only_in: []` denies everywhere — see
@@ -60,8 +62,8 @@ describe:
 - `pawl poll --run … --step …` drives a `wait` step; `pawl hook pre|stop` is the `PreToolUse`/`Stop`
   hook entry point (see above).
 
-The workflows under `docs/examples/` beyond `green-tests` and `foreach-fanout` (both covered by
-`e2e/`) remain authoring exercises rather than verified-runnable artefacts.
+The workflows under `docs/examples/` beyond `green-tests`, `foreach-fanout` and `foreach-agentic` (all covered by
+`e2e/`; the last with canned submits, not a live session) remain authoring exercises rather than verified-runnable artefacts.
 
 ## Installation
 

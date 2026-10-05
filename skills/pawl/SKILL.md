@@ -12,7 +12,8 @@ yourself; you only do what the machine tells you to do next.
 **This build implements all five step kinds: `deterministic`, `agentic`, `wait`, `human` and
 `parallel`.** `pawl run` executes every consecutive `deterministic` step itself, without stopping.
 It only ever hands control back to you at an `agentic` step (`DISPATCH`), a group of one or more
-`agentic` branches inside a `parallel` step (`DISPATCH_PARALLEL`), a `wait` step (`WAIT`), a
+`agentic` branches — or, for a `foreach:` step, per-item bodies — inside a `parallel` step
+(`DISPATCH_PARALLEL`), a `wait` step (`WAIT`), a
 `human` step (`ASK`), or when the run ends (`TERMINAL`).
 
 **The enforcement hooks are live.** `pawl run` will refuse to start at all (exit 4) unless its
@@ -151,6 +152,67 @@ still outstanding, or the next real instruction once the whole group has joined.
 outcome is `success` iff every branch succeeded, otherwise `failure` — that routing is `pawl`'s job,
 governed by the `parallel` step's own `next:`/`outcomes:`, never yours to infer from the branch
 results yourself.
+
+### A `foreach:` step's items
+
+A `parallel` step that declares `foreach:` runs one body per item of a list the workflow discovered
+at runtime. When that body is `agentic`, each item appears as a nested block headed
+`DISPATCH <run> <body>[N]` (N is the item's index) and closed by `END DISPATCH <run> <body>[N]`.
+Real output (abridged to two items):
+
+```
+DISPATCH_PARALLEL 553c count_all
+  DISPATCH 553c count_words[0]
+  attempt: 1 of 2
+  description:
+    Read the file .claude/workflows/inputs/alpha.txt (relative to the
+    repository root) and count its words. Return the count as `word_count`.
+  context: (none)
+  return: a JSON object with exactly these keys (key order does not matter)
+    word_count: integer
+  subagent_args: {"model":"haiku","tools":["Read"]}
+  submit with: pawl submit --run 553c --step count_words --item 0 --json '<the object above>'
+  END DISPATCH 553c count_words[0]
+  DISPATCH 553c count_words[1]
+  ...
+  submit with: pawl submit --run 553c --step count_words --item 1 --json '<the object above>'
+  END DISPATCH 553c count_words[1]
+END DISPATCH_PARALLEL 553c count_all
+```
+
+Treat them exactly like branches: the nested headers are indented, so the instruction is still the
+first column-0 line. Dispatch every item **concurrently**, and submit each item the moment its
+subagent returns, using **that item's own** `submit with:` line — it carries `--item N`; never
+reuse another item's command or drop the flag. While items are outstanding each submit prints
+`~ item count_words[2] recorded (foreach count_all: waiting on: count_words[0], count_words[1])`;
+the last one runs the join and prints the next real instruction.
+
+**A submit for an item can print a new `DISPATCH_PARALLEL` instead** — containing just that one
+item, at a higher attempt. That is a per-item retry: the item's postcondition failed and its
+`attempts:` budget is not spent. Real output:
+
+```
+DISPATCH_PARALLEL 553c count_all
+  DISPATCH 553c count_words[1]
+  attempt: 2 of 2
+  description:
+    Read the file .claude/workflows/inputs/bravo.txt (relative to the
+    repository root) and count its words. Return the count as `word_count`.
+  context: (none)
+  return: a JSON object with exactly these keys (key order does not matter)
+    word_count: integer
+  subagent_args: {"model":"haiku","tools":["Read"]}
+  previous attempt failed (attempt 1 of this step, postcondition output):
+    bravo.txt: you reported 99 words but wc -w counts 5
+  submit with: pawl submit --run 553c --step count_words --item 1 --json '<the object above>'
+  END DISPATCH 553c count_words[1]
+END DISPATCH_PARALLEL 553c count_all
+```
+
+Dispatch it right away, with the previous failure text visible to the subagent, **even while other
+items are still outstanding** — their own submits are still owed. Then submit its result with the
+printed command. Whether an item ultimately succeeds, and whether the step joins `success`,
+`partial` or `failure`, is `pawl`'s decision, never yours.
 
 ## WAIT `<run>` `<step>`
 

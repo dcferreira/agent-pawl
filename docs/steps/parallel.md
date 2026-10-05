@@ -83,8 +83,9 @@ needs what a branch wrote, route from a following `deterministic` step that read
 - Reaching for `parallel` when the branches aren't actually independent (one reads what another
   writes) — that's a race, not a fan-out; make it two sequential steps instead.
 - Expecting a partial-success join from `branches:` — there isn't one. One branch failing fails the
-  whole group. `foreach:` over a deterministic body does have a `partial` outcome
-  ([design/format-spec.md](../../design/format-spec.md) §B.15; example: `docs/examples/foreach-fanout`).
+  whole group. `foreach:` over a deterministic or agentic body does have a `partial` outcome
+  ([design/format-spec.md](../../design/format-spec.md) §B.15; examples: `docs/examples/foreach-fanout`,
+  `docs/examples/foreach-agentic`).
 - Nesting a `wait` or `human` step as a branch — not supported; a branch must be `deterministic` or
   `agentic`.
 

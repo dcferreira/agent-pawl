@@ -422,7 +422,8 @@ previous failure text. The journal side (per-item `item`/`items` event fields an
 and the engine execution are both in place: deterministic items run sequentially, in-process,
 against a list frozen on the step's `STEP_ENTER`; the join writes `collect:` (a json array of `{index, item,
 outcome, writes, error}` in list order) before invariants are evaluated. `docs/examples/foreach-fanout`
-is a runnable example, covered by `e2e/`.
+(deterministic) and `docs/examples/foreach-agentic` (agentic, driven with canned submits) are runnable
+examples, covered by `e2e/`.
 
 **Invariants and the join.** `invariants:` (§10) are evaluated once per parallel step, at the join —
 after every branch has transitioned and the group's own `success`/`failure` outcome is resolved —
@@ -779,10 +780,11 @@ the step sequence a given outcome assignment produces without executing anything
 **Milestone 3.** `foreach:` fan-out over a runtime-discovered list, with per-item postconditions and a
 **partial**-success join. *Shipped for `deterministic` bodies* (sequential in-process execution,
 `docs/examples/foreach-fanout`; `kind: parallel` itself, single-group and all-or-nothing, shipped in
-Milestone 1 — §B.15); *outstanding:* `agentic` bodies and concurrent item execution. *Shipped:*
-per-item `attempts:` for agentic bodies, which re-dispatches only the failed item before the join (a
-`partial` route back to the list producer would otherwise cost a full round-trip and re-run the whole
-list). Also outstanding: an `outcome:` member of the agentic return schema, constrained to a declared
+Milestone 1 — §B.15) *and for `agentic` bodies* (one `DISPATCH_PARALLEL` of per-item blocks answered
+with `pawl submit --item N`, `docs/examples/foreach-agentic`); *shipped:* per-item `attempts:` for
+agentic bodies, which re-dispatches only the failed item before the join (a `partial` route back to
+the list producer would otherwise cost a full round-trip and re-run the whole list); *outstanding:*
+concurrent item execution (`concurrency:`). Also outstanding: an `outcome:` member of the agentic return schema, constrained to a declared
 enum; a `when:` predicate.
 
 Installation and distribution are in DESIGN.md §9.
