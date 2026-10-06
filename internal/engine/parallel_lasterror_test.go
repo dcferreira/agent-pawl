@@ -2,6 +2,8 @@ package engine
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -191,6 +193,28 @@ func TestParallel_GroupSummaryIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := journal.RunDir(e.Root, e.Workflow.Workflow, "run1")
+	// Simulate the crash: cut the log right after the summary, so the
+	// group's own TRANSITION (and everything after it) is lost.
+	data, err := os.ReadFile(filepath.Join(dir, "events.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.SplitAfter(string(data), "\n")
+	cut := -1
+	for i, l := range lines {
+		if strings.Contains(l, `"summary":true`) {
+			cut = i + 1
+		}
+	}
+	if cut < 0 {
+		t.Fatal("no summary event found in journal")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "events.jsonl"), []byte(strings.Join(lines[:cut], "")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Resume("run1", true); err != nil {
+		t.Fatal(err)
+	}
 	events, _ := journal.ReadEvents(dir)
 	n := 0
 	for _, ev := range events {
@@ -200,6 +224,15 @@ func TestParallel_GroupSummaryIsIdempotent(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("summary events = %d, want 1", n)
+	}
+	routed := false
+	for _, ev := range events {
+		if ev.Kind == journal.KindTransition && ev.Step == "p" && ev.Target == "recover" {
+			routed = true
+		}
+	}
+	if !routed {
+		t.Fatal("resume did not route the failed group to recover")
 	}
 	rs := mustReplay(t, dir)
 	if !strings.Contains(rs.LastError, `branch "b1": `) || !strings.Contains(rs.LastError, `; branch "b2": `) {
