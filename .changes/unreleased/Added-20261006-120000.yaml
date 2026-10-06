@@ -1,3 +1,0 @@
-kind: added
-body: '`foreach:` now runs `agentic` bodies: each item is dispatched in one `DISPATCH_PARALLEL` and answered with the new `pawl submit --item N`, and a body''s `attempts:` is a per-item budget that re-dispatches only the failed item (see `docs/examples/foreach-agentic`).'
-time: 2026-10-06T12:00:00.000000000+01:00
