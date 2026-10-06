@@ -898,6 +898,12 @@ func TestReplay_CrashResumeReentryIsNotANewVisit(t *testing.T) {
 			{Kind: KindRunEnd, RunID: "r", Seq: 3, Status: "blocked", Step: "a"},
 			{Kind: KindResume, RunID: "r", Seq: 4, Step: "a", Attempt: 1, Intervention: true}, enter(5, "a"),
 		}, "a", 2},
+		{"crash after intervention resume, before its re-entry", []Event{
+			{Kind: KindRunStart, RunID: "r", Seq: 1}, enter(2, "a"),
+			{Kind: KindRunEnd, RunID: "r", Seq: 3, Status: "blocked", Step: "a"},
+			{Kind: KindResume, RunID: "r", Seq: 4, Step: "a", Attempt: 1, Intervention: true},
+			{Kind: KindResume, RunID: "r", Seq: 5, Step: "a", Attempt: 1}, enter(6, "a"),
+		}, "a", 2},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

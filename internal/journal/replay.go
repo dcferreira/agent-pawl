@@ -254,6 +254,12 @@ func Replay(events []Event) (*RunState, error) {
 			} else {
 				rs.ResumedInFlight = ""
 			}
+			if e.Intervention {
+				// A blocked resume starts a fresh visit: a later crash
+				// RESUME before its STEP_ENTER is a first entry, not a
+				// re-entry of an in-flight step.
+				inFlight = false
+			}
 			lastEnter = Cursor{Step: e.Step, Attempt: e.Attempt, AttemptKey: e.AttemptKey, HardRetry: e.HardRetry}
 			haveEnter = true
 			transitionedSinceEnter = false
