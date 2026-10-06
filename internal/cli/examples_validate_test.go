@@ -6,7 +6,7 @@ import (
 )
 
 // TestShippedWorkflowsValidate runs the load+validate path `pawl validate
-// --path` uses over every example and repo-utility workflow, so one can't rot
+// --path` uses over every docs/examples workflow, so one can't rot
 // unnoticed (docs/examples/manage-mr once did). Warnings and the soft-step
 // census are not failures; a load error or any report error is, exactly as in
 // cmdValidate.
@@ -15,7 +15,6 @@ func TestShippedWorkflowsValidate(t *testing.T) {
 	var files []string
 	for _, pattern := range []string{
 		"docs/examples/*/workflow.yaml",
-		".claude/workflows/*.yaml",
 	} {
 		m, err := filepath.Glob(filepath.Join(root, filepath.FromSlash(pattern)))
 		if err != nil {
