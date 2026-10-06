@@ -79,6 +79,16 @@ new_fixture() {
     cat >.changie.yaml <<'EOF'
 changesDir: .changes
 unreleasedDir: unreleased
+kinds:
+  - label: Breaking
+    key: breaking
+    auto: minor
+  - label: Added
+    key: added
+    auto: minor
+  - label: Fixed
+    key: fixed
+    auto: patch
 EOF
     cat >.claude-plugin/plugin.json <<'EOF'
 {
@@ -151,6 +161,61 @@ unreleasedDir: unreleased
 EOF
 git add -A && git commit -q -m "introduce changie, no fragment yet")
 assert_ok "bootstrap: .changie.yaml missing at base -> pass" bash -c "cd '$FIXTURE_DIR' && export PAWL_RELEASE_CHECK_TEST=1 && source '$REPO_ROOT/scripts/release/check-fragment.sh' && check_fragment \$(git rev-parse base) \$(git rev-parse HEAD)"
+
+# --- kind validation: fragment `kind:` must be a key in .changie.yaml ----
+# changie matches `kind:` against the kind KEY (`added`), not the label
+# (`Added`); a mismatch passes the "fragment added" check but breaks
+# `changie batch` at release time.
+cf_run() { # cf_run BASE_TAG HEAD_TAG [ENV...]
+  local b="$1" h="$2"
+  shift 2
+  env "$@" PAWL_RELEASE_CHECK_TEST=1 bash -c "cd '$FIXTURE_DIR' && source '$REPO_ROOT/scripts/release/check-fragment.sh' && check_fragment \$(git rev-parse $b) \$(git rev-parse $h)"
+}
+
+new_fixture
+fixture_git tag base
+(cd "$FIXTURE_DIR" && printf 'kind: Added\nbody: x\n' >.changes/unreleased/label.yaml && git add -A && git commit -q -m frag)
+assert_fails "kind: Added (label, not key) -> fail" cf_run base HEAD
+tests_run=$((tests_run + 1))
+if out=$(cf_run base HEAD 2>&1) || true; echo "$out" | grep -q "\.changes/unreleased/label.yaml" && echo "$out" | grep -q "'Added'" && echo "$out" | grep -q "valid: breaking, added, fixed"; then
+  echo "ok: error names the file, the bad kind and the valid keys"
+else
+  echo "FAIL: error should name file, bad kind and valid keys; got: $out"
+  failures=$((failures + 1))
+fi
+
+new_fixture
+fixture_git tag base
+(cd "$FIXTURE_DIR" && printf 'kind: "fixed"\nbody: x\n' >.changes/unreleased/q.yaml && git add -A && git commit -q -m frag)
+assert_ok "quoted valid kind key -> pass" cf_run base HEAD
+
+new_fixture
+fixture_git tag base
+(cd "$FIXTURE_DIR" && printf 'kind: nonsense\nbody: x\n' >.changes/unreleased/n.yaml && git add -A && git commit -q -m frag)
+assert_fails "unknown kind -> fail" cf_run base HEAD
+
+new_fixture
+fixture_git tag base
+(cd "$FIXTURE_DIR" && printf 'body: x\n' >.changes/unreleased/nokind.yaml && git add -A && git commit -q -m frag)
+assert_fails "fragment with no kind: line -> fail" cf_run base HEAD
+
+new_fixture
+(cd "$FIXTURE_DIR" && printf 'kind: Added\nbody: x\n' >.changes/unreleased/old.yaml && git add -A && git commit -q -m "bad fragment already on base")
+fixture_git tag base
+(cd "$FIXTURE_DIR" && echo unrelated >README.md && git add -A && git commit -q -m "PR: no fragment")
+assert_fails "skip-changelog PR, pre-existing bad-kind fragment at head -> fail" cf_run base HEAD "PR_LABELS=skip changelog"
+
+new_fixture
+(cd "$FIXTURE_DIR" && printf 'kind: Added\nbody: x\n' >.changes/unreleased/old.yaml && git add -A && git commit -q -m "bad fragment")
+fixture_git tag base
+(cd "$FIXTURE_DIR" && echo unrelated >README.md && git add -A && git commit -q -m "release")
+assert_ok "release/v* head ref skips the kind check too -> pass" cf_run base HEAD PR_HEAD_REF=release/v0.2.0
+
+new_fixture
+(cd "$FIXTURE_DIR" && rm .changie.yaml && git add -A && git commit -q -m "no changie yet")
+fixture_git tag base
+(cd "$FIXTURE_DIR" && printf 'changesDir: .changes\n' >.changie.yaml && printf 'kind: Added\nbody: x\n' >.changes/unreleased/b.yaml && git add -A && git commit -q -m "introduce changie")
+assert_ok "bootstrap with a bad-kind fragment -> still pass" cf_run base HEAD
 
 # base advances after the PR branches: a release merged into base deletes
 # .changes/unreleased/*.yaml fragments other PRs had added before the PR

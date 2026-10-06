@@ -60,7 +60,10 @@ apply the **`skip changelog`** label instead of adding a fragment (already creat
 
 - **`check-fragment.sh`** fails a PR that adds no `.changes/unreleased/*.yaml` fragment, unless
   it's labeled `skip changelog` or is itself the Release PR (which consumes fragments rather than
-  adding one).
+  adding one). It also fails if any `.changes/unreleased/*.yaml` fragment at the PR head has a
+  missing or unknown `kind:` (even with `skip changelog`): `kind:` must be the lowercase key from
+  `.changie.yaml` (`added`, not `Added`), which `changie new` writes for you; a bad one breaks
+  `changie batch` at release time.
 - **`check-no-version-bump.sh`** fails a PR that touches `CHANGELOG.md`, adds/modifies/deletes a
   `.changes/v*.md` release-notes file, or changes `.claude-plugin/plugin.json`'s `version` field —
   those only ever change on a `release/v*` branch. Editing or deleting your own

@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 # Fails a PR that doesn't add a changie fragment (.changes/unreleased/*.yaml),
-# unless it's exempt. See docs/releasing.md for the fragment workflow this
-# enforces.
+# unless it's exempt, and fails if ANY .changes/unreleased/*.yaml fragment at
+# HEAD has a missing or unknown `kind:`. changie matches `kind:` against the
+# kind KEY in .changie.yaml (`added`), not its label (`Added`); a bad kind
+# slips past the "fragment added" check but breaks `changie batch` at release
+# time, so the kind check runs on every fragment present at HEAD (not just
+# the ones this PR adds) and is NOT waived by the `skip changelog` label.
+# Only the bootstrap and release/v* exemptions skip it. See docs/releasing.md
+# for the fragment workflow this enforces.
 #
 # Usage: check-fragment.sh <base-sha> <head-sha>
 # Env:
@@ -63,6 +69,61 @@ diff_adds_fragment() {
   [ -n "$added" ]
 }
 
+# changie_kind_keys REV
+# Prints the `key:` of every entry in the top-level `kinds:` list of
+# REV:.changie.yaml, one per line. Plain awk: only `key:` lines indented
+# inside the `kinds:` block count (the block ends at the next top-level key),
+# so a `key:` under `custom:` is ignored. Surrounding quotes are stripped.
+changie_kind_keys() {
+  local rev="$1"
+  git show "${rev}:.changie.yaml" | awk '
+    /^kinds:[[:space:]]*$/ { in_kinds = 1; next }
+    /^[^[:space:]#-]/ { in_kinds = 0 }
+    in_kinds && /^[[:space:]]*-?[[:space:]]*key:/ {
+      v = $0
+      sub(/^[^:]*:[[:space:]]*/, "", v)
+      sub(/[[:space:]]*(#.*)?$/, "", v)
+      gsub(/^["\x27]|["\x27]$/, "", v)
+      print v
+    }'
+}
+
+# fragment_kind REV PATH
+# Prints the `kind:` value of REV:PATH with optional quotes stripped; prints
+# nothing if there is no `kind:` line.
+fragment_kind() {
+  local rev="$1" path="$2"
+  git show "${rev}:${path}" | awk '
+    /^kind:/ {
+      v = $0
+      sub(/^kind:[[:space:]]*/, "", v)
+      sub(/[[:space:]]*(#.*)?$/, "", v)
+      gsub(/^["\x27]|["\x27]$/, "", v)
+      print v
+      exit
+    }'
+}
+
+# invalid_fragment_kinds REV
+# For every .changes/unreleased/*.yaml at REV, prints one FAIL line to stdout
+# per file whose kind is missing or not a key in REV's .changie.yaml.
+# Prints nothing if all are valid.
+invalid_fragment_kinds() {
+  local rev="$1"
+  local keys valid path kind
+  keys=$(changie_kind_keys "$rev")
+  valid=$(echo "$keys" | paste -sd, - | sed 's/,/, /g')
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    kind=$(fragment_kind "$rev" "$path")
+    if [ -z "$kind" ]; then
+      echo "FAIL: $path: no 'kind:' line (valid: $valid)"
+    elif ! echo "$keys" | grep -qxF -- "$kind"; then
+      echo "FAIL: $path: kind '$kind' is not a kind key in .changie.yaml (valid: $valid)"
+    fi
+  done < <(git ls-tree --name-only -r "$rev" -- .changes/unreleased/ | grep '\.yaml$' || true)
+}
+
 check_fragment() {
   local base="$1" head="$2"
   local labels="${PR_LABELS:-}"
@@ -76,6 +137,14 @@ check_fragment() {
   if pr_head_is_release_branch "$head_ref"; then
     echo "ok: release branch ($head_ref) consumes fragments, doesn't add one"
     return 0
+  fi
+
+  local bad
+  bad=$(invalid_fragment_kinds "$head")
+  if [ -n "$bad" ]; then
+    echo "$bad" >&2
+    echo "FAIL: fragment kinds must be the lowercase kind key from .changie.yaml (changie new writes it for you)." >&2
+    return 1
   fi
 
   if pr_labels_has_skip "$labels"; then
