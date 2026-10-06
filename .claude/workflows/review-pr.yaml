@@ -5,9 +5,10 @@ description: >
   every round, findings get fixed, pushed, and re-checked — delta-scoped to
   just what changed after the first full pass — until a round is clean AND
   CI is green on the head that round reviewed (a CI failure is fed back to
-  the fixer as findings). Not a CI check — this is a tool Daniel runs on
-  his own machine, from a clean checkout of the PR head, with a human step
-  where his judgement is the point. Never posts a GitHub approval or review
+  the fixer as findings; a cancelled CI job is re-run instead). Not a CI
+  check — this is a tool Daniel runs on his own machine, from a clean
+  checkout of the PR head, with a human step where his judgement is the
+  point. Never posts a GitHub approval or review
   decision; it only fixes and pushes.
 start: fetch_pr
 # A full round (via prepare_review): prepare_review, fanout_review, its 2
@@ -80,7 +81,11 @@ start: fetch_pr
 # take_optional/skip_optional stay at the default 10: each is reachable at
 # most once per round (take_optional always empties the held list, so a
 # round can pass through unchanged_route's `ask` at most once).
-# 4 rounds x 21 entries = 84, plus fetch_pr and headroom for a step
+# wait_for_ci also keeps the default: at most once per round plus once per
+# rerun_ci entry, 4 + 3 = 7, under 10.
+# 4 rounds x 21 entries = 84, plus up to 6 for CI re-runs (rerun_ci's
+# max_visits: 3 bounds them for the whole run; each is 2 entries, rerun_ci +
+# the wait_for_ci it returns to) = 90, plus fetch_pr and headroom for a step
 # genuinely retried under its own attempts:/max_visits: before failing
 # outright — max_steps: 120 gives that headroom without being so loose it
 # stops meaning anything (the prior graph's 300 was sized for a ~23-entry
@@ -489,7 +494,26 @@ steps:
     outcomes:
       SUCCESS: done
       FAILURE: ci_failure
+      RERUN: rerun_ci               # only cancelled checks left — not the code's fault
       timeout: blocked
+
+  # Reached when poll-ci.sh found no failure and nothing still running, but
+  # some GitHub Actions jobs CANCELLED (a GitHub hiccup, or a run superseded
+  # by the repo's cancel-in-progress concurrency). That says nothing about the
+  # code, so instead of sending the fixer after it, re-run them and wait
+  # again (see rerun-ci.sh, which also waits for the rollup to stop showing
+  # the old cancelled conclusion). The bound is the engine-owned max_visits:
+  # 3 for the whole run (not per head): a 4th entry is the reserved
+  # `exhausted` outcome, unrouted here so it takes the engine's default
+  # (-> blocked, "rerun_ci: exhausted") — CI that keeps getting cancelled is
+  # an infra problem a human must look at, never a fixer's job. A per-head
+  # counter in state was rejected as extra machinery duplicating what the
+  # engine already counts.
+  - id: rerun_ci
+    kind: deterministic
+    run: scripts/rerun-ci.sh ${pr_number} ${head_sha} ${repo}
+    max_visits: 3
+    next: wait_for_ci
 
   - id: ci_failure
     kind: deterministic

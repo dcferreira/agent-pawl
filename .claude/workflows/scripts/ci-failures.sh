@@ -11,6 +11,11 @@
 # review-route.sh's findings share (critical > major > medium > minor >
 # nitpick) — never a nitpick.
 #
+# A CANCELLED check is not a finding: it says nothing about the code (see
+# poll-ci.sh's RERUN verdict), and wait_for_ci only reports FAILURE when at
+# least one real failure exists, so cancelled checks are left out of the list
+# below — a fix push starts a fresh CI run for them anyway.
+#
 # Also overwrites <fix_input_file> (atomically) with the same findings
 # array — a snapshot of exactly what fix_issues is about to be asked to
 # fix, read back by check-fix-result.sh (fix_issues' postcondition) to
@@ -90,13 +95,19 @@ if [ "$pr_head" != "$head_sha" ]; then
 fi
 
 failed=$(printf '%s' "$rollup" | jq -c '
-  (.statusCheckRollup // [])[]
+  def latest_runs:
+    def is_run: (.__typename != "StatusContext") and has("status");
+    (.statusCheckRollup // []) as $r
+    | ([$r[] | select(is_run)] | group_by([.workflowName, .name]) | map(max_by([(.status != "COMPLETED"), (.startedAt // "")])))
+      + [$r[] | select(is_run | not)];
+  latest_runs[]
   | if (.__typename == "StatusContext") or (has("state") and (has("status") | not)) then
       select(.state != "SUCCESS" and .state != "PENDING" and .state != "EXPECTED")
       | {name: (.context // "status"), url: (.targetUrl // "")}
     else
       select(.status == "COMPLETED"
-             and .conclusion != "SUCCESS" and .conclusion != "NEUTRAL" and .conclusion != "SKIPPED")
+             and .conclusion != "SUCCESS" and .conclusion != "NEUTRAL" and .conclusion != "SKIPPED"
+             and .conclusion != "CANCELLED")
       | {name: ((.workflowName // "") + (if .workflowName then " / " else "" end) + (.name // "check")),
          url: (.detailsUrl // "")}
     end')

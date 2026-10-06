@@ -6,7 +6,7 @@
 # happened to report.
 #
 # Reads `gh pr view --json headRefOid,statusCheckRollup` and prints one of
-# SUCCESS | FAILURE | PENDING:
+# SUCCESS | FAILURE | PENDING | RERUN:
 #   - gh fails (auth, network, ...)          -> PENDING (logged to stderr)
 #   - headRefOid != head_sha                 -> PENDING (GitHub hasn't caught
 #     up with the push yet, or someone else pushed; the latter runs into
@@ -14,10 +14,25 @@
 #   - no checks registered for the head      -> PENDING, unless allow_no_ci is
 #     "true" (a repo with no CI at all), then SUCCESS. Checks can take a
 #     moment to appear after a push, so "none yet" is not "green".
-#   - any check failed, errored, was cancelled, timed out, or needs action
+#   - any check failed, errored, timed out, or needs action
 #                                            -> FAILURE
 #   - any check still queued/running         -> PENDING
+#   - any check was cancelled (and none of the above)
+#                                            -> RERUN
 #   - otherwise (success/neutral/skipped)    -> SUCCESS
+#
+# Why cancelled is its own verdict: a CANCELLED job says nothing about the
+# code — it is a GitHub infrastructure hiccup, or a run superseded by this
+# repo's `concurrency: cancel-in-progress` — so feeding it to the fixer as a
+# "failure" sends it to fix code that isn't broken, with an empty log tail.
+# RERUN routes to rerun_ci instead, which re-runs the cancelled jobs. A
+# timed-out job stays FAILURE (it can be a genuinely hung test), as does
+# startup_failure (usually an invalid workflow file): both are things the
+# fixer can act on. Precedence is deliberate: a real failure wins over a
+# cancellation (the fixer's push starts a fresh CI run anyway), and anything
+# still running is awaited first (PENDING before RERUN) so rerun_ci never
+# meets an in-progress run, which `gh run rerun` refuses. A StatusContext has
+# no cancelled state, so its handling is unchanged.
 #
 # PENDING is not one of wait_for_ci's declared `outcomes:` — following the
 # same convention as docs/examples/wait-for-build/scripts/check_build.sh, an
@@ -50,16 +65,25 @@ verdict=$(printf '%s' "$out" | jq -r --arg sha "$head_sha" --arg allow "$allow_n
       else "fail" end
     else
       if .status != "COMPLETED" then "pending"
+      elif .conclusion == "CANCELLED" then "cancelled"
       elif .conclusion == "SUCCESS" or .conclusion == "NEUTRAL" or .conclusion == "SKIPPED" then "pass"
       else "fail" end
     end;
+  # Only the newest run of each (workflow, check) counts: a superseded
+  # (e.g. cancel-in-progress) run stays in the rollup next to its successor.
+  def latest_runs:
+    def is_run: (.__typename != "StatusContext") and has("status");
+    (.statusCheckRollup // []) as $r
+    | ([$r[] | select(is_run)] | group_by([.workflowName, .name]) | map(max_by([(.status != "COMPLETED"), (.startedAt // "")])))
+      + [$r[] | select(is_run | not)];
   if .headRefOid != $sha then "PENDING head-mismatch"
   else
-    [(.statusCheckRollup // [])[] | bucket] as $b
+    [latest_runs[] | bucket] as $b
     | if ($b | length) == 0 then
         (if $allow == "true" then "SUCCESS" else "PENDING no-checks" end)
       elif any($b[]; . == "fail") then "FAILURE"
       elif any($b[]; . == "pending") then "PENDING"
+      elif any($b[]; . == "cancelled") then "RERUN"
       else "SUCCESS" end
   end
 ' 2>/dev/null) || verdict="PENDING unparseable"
