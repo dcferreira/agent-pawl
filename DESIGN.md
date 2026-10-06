@@ -169,7 +169,7 @@ failure text cannot leak into a sibling or a later step (a sibling's pass cannot
 A failed group instead journals, before invariants and its own `TRANSITION`, one ungrouped
 `POSTCONDITION{OK:false, Summary:true}` diagnostic (not a postcondition verdict; replay sets `${last_error}` from it but leaves the step's attempt-budget clearing alone) on the parallel step whose text summarises each failed branch in declaration
 order (`branch "lint": <text>; branch "test": <text>`; a branch with no text is `branch "x" failed`),
-so the group's `catch:`/failure target sees a `${last_error}`. A successful group journals nothing extra.
+so the group's `catch:`/failure target sees a `${last_error}`. A successful group journals nothing extra unless `${last_error}` is non-empty (a loop-back after a failed group); then it journals one ungrouped `POSTCONDITION{OK:true, Summary:true}` on the parallel step, so replay clears `${last_error}` as a passing postcondition would.
 
 **`parallel` with `foreach:`.** The alternative form runs one **deterministic or agentic** body once per
 item of a json list (`internal/engine/foreach.go`). Entry journals the step's own ungrouped `STEP_ENTER`
