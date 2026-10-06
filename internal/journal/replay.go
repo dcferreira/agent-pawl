@@ -81,6 +81,19 @@ type RunState struct {
 	// Cursor is where a resumed run continues, per DESIGN.md §4 step 4.
 	Cursor Cursor
 
+	// ResumedInFlight names the step a crash RESUME (not an intervention
+	// one) re-entered while that step was already in flight — entered, not
+	// yet transitioned — and whose own next ungrouped STEP_ENTER is
+	// therefore the same visit continuing, not a new one: Replay does not
+	// count it in Visits (the visit-counting counterpart of §B.4's "attempts
+	// ... not advanced by a crash"), and the engine does not re-check
+	// max_visits:/max_steps: for it. Empty when nothing is pending: cleared
+	// by that STEP_ENTER, by the step's TRANSITION, and never set by a
+	// RESUME that follows a TRANSITION (the cursor step was never entered, so
+	// its first STEP_ENTER is a real first visit) or by a blocked-resume
+	// RESUME{intervention: true} (a fresh visit by design).
+	ResumedInFlight string
+
 	// PendingBranches is, per in-flight kind: parallel step id, the set of
 	// its branch step ids not yet transitioned (present with value true
 	// while outstanding; deleted once the branch's TRANSITION is replayed).
@@ -209,6 +222,11 @@ func Replay(events []Event) (*RunState, error) {
 	var lastEnter Cursor
 	haveEnter := false
 	transitionedSinceEnter := false
+	// inFlight is true from an ungrouped STEP_ENTER until the next ungrouped
+	// TRANSITION: the step lastEnter names has been entered and not left. A
+	// RESUME does not change it, so repeated crashes before the resumed
+	// STEP_ENTER keep the in-flight step in flight.
+	inFlight := false
 	lastTarget := ""
 	blockedStep := ""
 	lastKeyByStep := map[string]string{}
@@ -231,6 +249,17 @@ func Replay(events []Event) (*RunState, error) {
 				rs.Args[k] = v
 			}
 		case KindResume:
+			if !e.Intervention && inFlight && lastEnter.Step == e.Step {
+				rs.ResumedInFlight = e.Step
+			} else {
+				rs.ResumedInFlight = ""
+			}
+			if e.Intervention {
+				// A blocked resume starts a fresh visit: a later crash
+				// RESUME before its STEP_ENTER is a first entry, not a
+				// re-entry of an in-flight step.
+				inFlight = false
+			}
 			lastEnter = Cursor{Step: e.Step, Attempt: e.Attempt, AttemptKey: e.AttemptKey, HardRetry: e.HardRetry}
 			haveEnter = true
 			transitionedSinceEnter = false
@@ -331,9 +360,15 @@ func Replay(events []Event) (*RunState, error) {
 			// A hard-failure retry (Event.HardRetry > 0, §B.16) re-runs the
 			// same attempt's body, exactly like an attempts:-driven Retry
 			// re-entry — neither counts as a fresh visit.
-			if !e.Retry && e.HardRetry == 0 {
+			if rs.ResumedInFlight == e.Step {
+				// The re-entry a crash RESUME of this in-flight step asked
+				// for: the same visit, however the STEP_ENTER is flagged
+				// (the engine appends a plain one, Retry false).
+				rs.ResumedInFlight = ""
+			} else if !e.Retry && e.HardRetry == 0 {
 				rs.Visits[e.Step]++
 			}
+			inFlight = true
 		case KindWrites:
 			if e.Group != "" && e.Item != nil {
 				// A foreach item's writes are captured per item (they feed
@@ -400,6 +435,8 @@ func Replay(events []Event) (*RunState, error) {
 				break
 			}
 			transitionedSinceEnter = true
+			inFlight = false
+			rs.ResumedInFlight = ""
 			lastTarget = e.Target
 			// The §B.4 clearing rule as stated is a conjunction: cleared
 			// when the postcondition passed AND the step leaves by a

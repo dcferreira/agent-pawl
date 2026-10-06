@@ -864,3 +864,56 @@ func TestReplay_EnforcementOptOut(t *testing.T) {
 		}
 	}
 }
+
+// TestReplay_CrashResumeReentryIsNotANewVisit: a non-intervention RESUME of
+// a step that was entered and never transitioned makes that step's next
+// ungrouped STEP_ENTER the same visit (Visits stays 1); an intervention
+// RESUME, and a RESUME after a TRANSITION (target never entered), do not.
+func TestReplay_CrashResumeReentryIsNotANewVisit(t *testing.T) {
+	enter := func(seq int, step string) Event {
+		return Event{Kind: KindStepEnter, RunID: "r", Seq: seq, Step: step, Attempt: 1}
+	}
+	cases := []struct {
+		name   string
+		events []Event
+		step   string
+		want   int
+	}{
+		{"crash resume of in-flight step", []Event{
+			{Kind: KindRunStart, RunID: "r", Seq: 1}, enter(2, "a"),
+			{Kind: KindResume, RunID: "r", Seq: 3, Step: "a", Attempt: 1}, enter(4, "a"),
+		}, "a", 1},
+		{"two crashes before the re-entry", []Event{
+			{Kind: KindRunStart, RunID: "r", Seq: 1}, enter(2, "a"),
+			{Kind: KindResume, RunID: "r", Seq: 3, Step: "a", Attempt: 1},
+			{Kind: KindResume, RunID: "r", Seq: 4, Step: "a", Attempt: 1}, enter(5, "a"),
+		}, "a", 1},
+		{"resume after transition, target never entered", []Event{
+			{Kind: KindRunStart, RunID: "r", Seq: 1}, enter(2, "a"),
+			{Kind: KindTransition, RunID: "r", Seq: 3, Step: "a", Attempt: 1, Target: "b", Outcome: "success"},
+			{Kind: KindResume, RunID: "r", Seq: 4, Step: "b", Attempt: 1}, enter(5, "b"),
+		}, "b", 1},
+		{"intervention resume is a fresh visit", []Event{
+			{Kind: KindRunStart, RunID: "r", Seq: 1}, enter(2, "a"),
+			{Kind: KindRunEnd, RunID: "r", Seq: 3, Status: "blocked", Step: "a"},
+			{Kind: KindResume, RunID: "r", Seq: 4, Step: "a", Attempt: 1, Intervention: true}, enter(5, "a"),
+		}, "a", 2},
+		{"crash after intervention resume, before its re-entry", []Event{
+			{Kind: KindRunStart, RunID: "r", Seq: 1}, enter(2, "a"),
+			{Kind: KindRunEnd, RunID: "r", Seq: 3, Status: "blocked", Step: "a"},
+			{Kind: KindResume, RunID: "r", Seq: 4, Step: "a", Attempt: 1, Intervention: true},
+			{Kind: KindResume, RunID: "r", Seq: 5, Step: "a", Attempt: 1}, enter(6, "a"),
+		}, "a", 2},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			rs, err := Replay(c.events)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := rs.Visits[c.step]; got != c.want {
+				t.Errorf("Visits[%s] = %d, want %d", c.step, got, c.want)
+			}
+		})
+	}
+}

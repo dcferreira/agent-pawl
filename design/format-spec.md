@@ -129,7 +129,9 @@ body's budget is per item — keyed `(run_id, foreach step, item index, attempt_
 
 **`max_visits:`** caps how many times a step may be *entered* in one run, counting every entry from
 any edge. Default **10**. It is the cap on a cycle, since every cycle re-enters through at least one
-step; two entry points to one cycle means two independent caps.
+step; two entry points to one cycle means two independent caps. Re-entering a step that a crash interrupted
+is the same visit, not a new entry (like an attempt, a crash does not advance it); resuming a *blocked*
+run is a fresh visit.
 
 **`max_steps:`** is a workflow-level backstop on total step entries in a run. Default **200**.
 
