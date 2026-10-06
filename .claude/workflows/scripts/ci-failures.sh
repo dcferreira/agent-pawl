@@ -98,7 +98,7 @@ failed=$(printf '%s' "$rollup" | jq -c '
   def latest_runs:
     def is_run: (.__typename != "StatusContext") and has("status");
     (.statusCheckRollup // []) as $r
-    | ([$r[] | select(is_run)] | group_by([.workflowName, .name]) | map(max_by(.startedAt // "")))
+    | ([$r[] | select(is_run)] | group_by([.workflowName, .name]) | map(max_by([(.status != "COMPLETED"), (.startedAt // "")])))
       + [$r[] | select(is_run | not)];
   latest_runs[]
   | if (.__typename == "StatusContext") or (has("state") and (has("status") | not)) then

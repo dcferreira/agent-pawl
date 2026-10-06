@@ -74,7 +74,7 @@ verdict=$(printf '%s' "$out" | jq -r --arg sha "$head_sha" --arg allow "$allow_n
   def latest_runs:
     def is_run: (.__typename != "StatusContext") and has("status");
     (.statusCheckRollup // []) as $r
-    | ([$r[] | select(is_run)] | group_by([.workflowName, .name]) | map(max_by(.startedAt // "")))
+    | ([$r[] | select(is_run)] | group_by([.workflowName, .name]) | map(max_by([(.status != "COMPLETED"), (.startedAt // "")])))
       + [$r[] | select(is_run | not)];
   if .headRefOid != $sha then "PENDING head-mismatch"
   else
