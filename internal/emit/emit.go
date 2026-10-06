@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/dcferreira/agent-pawl/internal/spec"
 )
@@ -300,6 +301,9 @@ func parseJSON(step *spec.Step, decls map[string]spec.StateDecl, payload string)
 		if err != nil {
 			return nil, err
 		}
+		if err := checkMaxLength(step, decls, key, coerced); err != nil {
+			return nil, err
+		}
 		writes[key] = coerced
 	}
 	return writes, nil
@@ -329,9 +333,37 @@ func parsePairs(step *spec.Step, decls map[string]spec.StateDecl, payload string
 		if err != nil {
 			return nil, err
 		}
+		if err := checkMaxLength(step, decls, key, coerced); err != nil {
+			return nil, err
+		}
 		writes[key] = coerced
 	}
 	return writes, nil
+}
+
+// CheckMaxLength rejects a coerced string value longer than max code points
+// (utf8.RuneCountInString, i.e. wc -m), measured as stored — after C0
+// escaping. A non-string value or max <= 0 always passes. The error text is
+// shared by every write boundary (stdout payloads, agentic submit, human
+// answers); callers add their own step prefix.
+func CheckMaxLength(key string, coerced any, max int) error {
+	s, ok := coerced.(string)
+	if !ok || max <= 0 {
+		return nil
+	}
+	if n := utf8.RuneCountInString(s); n > max {
+		return fmt.Errorf("key %q: value is %d characters, longer than max_length %d", key, n, max)
+	}
+	return nil
+}
+
+// checkMaxLength applies CheckMaxLength with the effective cap for key and
+// wraps a failure as ErrParse, exactly like a type mismatch (badType).
+func checkMaxLength(step *spec.Step, decls map[string]spec.StateDecl, key string, coerced any) error {
+	if err := CheckMaxLength(key, coerced, spec.MaxLengthFor(decls, step, key)); err != nil {
+		return fmt.Errorf("%w: step %q: %v", ErrParse, step.ID, err)
+	}
+	return nil
 }
 
 func badType(stepID, key, declType string, v any) error {

@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dcferreira/agent-pawl/internal/render"
 )
@@ -101,6 +102,7 @@ func Validate(w *Workflow) (*Report, error) {
 	checkRule14(w, &errs)
 	checkRule20(w, &errs)
 	checkRule21(w, &errs)
+	checkMaxLength(w, &errs)
 	checkRule18(w, &errs)
 	checkForeachBodyWrites(w, &errs)
 	checkForeachRouting(w, &errs)
@@ -1463,6 +1465,48 @@ func checkRule21(w *Workflow, errs *[]string) {
 		for _, k := range s.Writes.Keys {
 			if !keyNamePattern.MatchString(k) {
 				*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf("rule 21: writes: key %q %s", k, keyNameFix)))
+			}
+		}
+	}
+}
+
+// checkMaxLength implements §H rule 29: max_length: is a non-negative cap on
+// a type: string key, on a state: entry or a typed writes: entry, and a
+// state: default: may not already exceed it.
+func checkMaxLength(w *Workflow, errs *[]string) {
+	keys := make([]string, 0, len(w.State))
+	for k := range w.State {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		d := w.State[k]
+		switch {
+		case d.MaxLength < 0:
+			*errs = append(*errs, fileErr(w, fmt.Sprintf("rule 29: state: %s: max_length: %d is negative; use 1 or more, or remove it", k, d.MaxLength)))
+		case d.MaxLength > 0 && d.Type != "string":
+			*errs = append(*errs, fileErr(w, fmt.Sprintf("rule 29: state: %s: max_length: is only valid on type: string, not type: %s; remove it", k, d.Type)))
+		case d.MaxLength > 0 && d.Default != nil:
+			if s, ok := (*d.Default).(string); ok {
+				if n := utf8.RuneCountInString(s); n > d.MaxLength {
+					*errs = append(*errs, fileErr(w, fmt.Sprintf("rule 29: state: %s: default: is %d characters, longer than max_length %d; shorten the default or raise max_length", k, n, d.MaxLength)))
+				}
+			}
+		}
+	}
+	for _, s := range w.Steps {
+		wkeys := make([]string, 0, len(s.Writes.MaxLength))
+		for k := range s.Writes.MaxLength {
+			wkeys = append(wkeys, k)
+		}
+		sort.Strings(wkeys)
+		for _, k := range wkeys {
+			n := s.Writes.MaxLength[k]
+			switch {
+			case n < 0:
+				*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf("rule 29: writes: %s: max_length: %d is negative; use 1 or more, or remove it", k, n)))
+			case n > 0 && s.Writes.Types[k] != "string":
+				*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf("rule 29: writes: %s: max_length: is only valid on type: string, not type: %s; remove it", k, s.Writes.Types[k])))
 			}
 		}
 	}
