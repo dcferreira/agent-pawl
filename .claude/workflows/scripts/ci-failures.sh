@@ -11,6 +11,11 @@
 # review-route.sh's findings share (critical > major > medium > minor >
 # nitpick) — never a nitpick.
 #
+# A CANCELLED check is not a finding: it says nothing about the code (see
+# poll-ci.sh's RERUN verdict), and wait_for_ci only reports FAILURE when at
+# least one real failure exists, so cancelled checks are left out of the list
+# below — a fix push starts a fresh CI run for them anyway.
+#
 # Also overwrites <fix_input_file> (atomically) with the same findings
 # array — a snapshot of exactly what fix_issues is about to be asked to
 # fix, read back by check-fix-result.sh (fix_issues' postcondition) to
@@ -96,7 +101,8 @@ failed=$(printf '%s' "$rollup" | jq -c '
       | {name: (.context // "status"), url: (.targetUrl // "")}
     else
       select(.status == "COMPLETED"
-             and .conclusion != "SUCCESS" and .conclusion != "NEUTRAL" and .conclusion != "SKIPPED")
+             and .conclusion != "SUCCESS" and .conclusion != "NEUTRAL" and .conclusion != "SKIPPED"
+             and .conclusion != "CANCELLED")
       | {name: ((.workflowName // "") + (if .workflowName then " / " else "" end) + (.name // "check")),
          url: (.detailsUrl // "")}
     end')
