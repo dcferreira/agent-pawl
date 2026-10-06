@@ -1,3 +1,0 @@
-kind: fixed
-body: '`pawl validate` now suggests `--path <file>` when given a file path instead of a workflow name (#26)'
-time: 2026-10-05T21:40:42.000000000+02:00

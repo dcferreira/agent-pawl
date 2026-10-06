@@ -1,3 +1,0 @@
-kind: fixed
-body: 'A step resumed after a crash no longer counts an extra visit: `${visits}` and `max_visits:`/`max_steps:` treat the interrupted step as the same visit, so a `max_visits: 1` step can be resumed instead of exhausting.'
-time: 2026-10-06T13:00:00.000000000+02:00
