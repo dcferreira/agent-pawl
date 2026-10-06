@@ -95,7 +95,12 @@ if [ "$pr_head" != "$head_sha" ]; then
 fi
 
 failed=$(printf '%s' "$rollup" | jq -c '
-  (.statusCheckRollup // [])[]
+  def latest_runs:
+    def is_run: (.__typename != "StatusContext") and has("status");
+    (.statusCheckRollup // []) as $r
+    | ([$r[] | select(is_run)] | group_by([.workflowName, .name]) | map(max_by(.startedAt // "")))
+      + [$r[] | select(is_run | not)];
+  latest_runs[]
   | if (.__typename == "StatusContext") or (has("state") and (has("status") | not)) then
       select(.state != "SUCCESS" and .state != "PENDING" and .state != "EXPECTED")
       | {name: (.context // "status"), url: (.targetUrl // "")}

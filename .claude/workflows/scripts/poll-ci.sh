@@ -69,9 +69,16 @@ verdict=$(printf '%s' "$out" | jq -r --arg sha "$head_sha" --arg allow "$allow_n
       elif .conclusion == "SUCCESS" or .conclusion == "NEUTRAL" or .conclusion == "SKIPPED" then "pass"
       else "fail" end
     end;
+  # Only the newest run of each (workflow, check) counts: a superseded
+  # (e.g. cancel-in-progress) run stays in the rollup next to its successor.
+  def latest_runs:
+    def is_run: (.__typename != "StatusContext") and has("status");
+    (.statusCheckRollup // []) as $r
+    | ([$r[] | select(is_run)] | group_by([.workflowName, .name]) | map(max_by(.startedAt // "")))
+      + [$r[] | select(is_run | not)];
   if .headRefOid != $sha then "PENDING head-mismatch"
   else
-    [(.statusCheckRollup // [])[] | bucket] as $b
+    [latest_runs[] | bucket] as $b
     | if ($b | length) == 0 then
         (if $allow == "true" then "SUCCESS" else "PENDING no-checks" end)
       elif any($b[]; . == "fail") then "FAILURE"

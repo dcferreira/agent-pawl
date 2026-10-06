@@ -65,7 +65,12 @@ fi
 # every COMPLETED + CANCELLED CheckRun.
 cancelled_checks() {
   printf '%s' "$1" | jq -c '
-    (.statusCheckRollup // [])[]
+    def latest_runs:
+      def is_run: (.__typename != "StatusContext") and has("status");
+      (.statusCheckRollup // []) as $r
+      | ([$r[] | select(is_run)] | group_by([.workflowName, .name]) | map(max_by(.startedAt // "")))
+        + [$r[] | select(is_run | not)];
+    latest_runs[]
     | select((.__typename != "StatusContext") and (has("status"))
              and .status == "COMPLETED" and .conclusion == "CANCELLED")
     | {name: ((.workflowName // "") + (if .workflowName then " / " else "" end) + (.name // "check")),
