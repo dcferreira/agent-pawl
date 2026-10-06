@@ -271,7 +271,7 @@ func (e *Engine) submitBranch(dir string, log *journal.Log, runID, parallelID st
 		if step.Postcondition != nil {
 			if _, err := log.Append(journal.Event{
 				Kind: journal.KindPostcondition, RunID: runID, Step: step.ID,
-				Attempt: attempt, OK: true, Soft: cr.Soft,
+				Attempt: attempt, OK: true, Soft: cr.Soft, Group: parallelID,
 			}); err != nil {
 				return nil, err
 			}
@@ -280,7 +280,7 @@ func (e *Engine) submitBranch(dir string, log *journal.Log, runID, parallelID st
 		outcome = "failure"
 		if _, err := log.Append(journal.Event{
 			Kind: journal.KindPostcondition, RunID: runID, Step: step.ID, Attempt: attempt,
-			OK: false, Text: cr.Text, Soft: cr.Soft,
+			OK: false, Text: cr.Text, Soft: cr.Soft, Group: parallelID,
 		}); err != nil {
 			return nil, err
 		}

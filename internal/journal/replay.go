@@ -392,14 +392,27 @@ func Replay(events []Event) (*RunState, error) {
 				rs.State[k] = v
 			}
 		case KindPostcondition:
-			if e.Group != "" && e.Item != nil {
-				// A foreach item's diagnostic is per item (it reaches the
-				// join through collect:'s error field) and never becomes
-				// the global ${last_error}, so it cannot leak into a later
-				// item's body or a step after the join.
+			if e.Group != "" {
+				// A grouped POSTCONDITION is scoped to one member of a
+				// group: a foreach item's diagnostic (it reaches the join
+				// through collect:'s error field) or a branches: branch's
+				// result. Neither becomes the global ${last_error}, so
+				// neither can leak into a sibling, a later item or a step
+				// after the join; a failed branches: group instead
+				// journals one ungrouped summary POSTCONDITION on the
+				// parallel step itself. lastPostconditionOKByStep is
+				// skipped too: it is read only for the owning step's own
+				// ungrouped TRANSITION (a member has only grouped ones),
+				// so skipping it is behaviour-preserving. An older journal's
+				// ungrouped branch POSTCONDITION replays as before.
 				break
 			}
-			lastPostconditionOKByStep[e.Step] = e.OK
+			if !e.Summary {
+				// A Summary event is a diagnostic, not the step's
+				// postcondition verdict (the step has no postcondition),
+				// so it must not stop the §B.4 clearing of its budget.
+				lastPostconditionOKByStep[e.Step] = e.OK
+			}
 			if e.OK {
 				rs.LastError = ""
 			} else {

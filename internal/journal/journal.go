@@ -159,6 +159,12 @@ type Event struct {
 	OK   bool   `json:"ok,omitempty"`
 	Text string `json:"text,omitempty"`
 	Soft bool   `json:"soft,omitempty"`
+	// Summary marks a POSTCONDITION-kind event that is only a diagnostic,
+	// not a postcondition verdict: the failed-branches join summary a
+	// parallel step journals on itself (a parallel step has no
+	// postcondition). Replay lets it set ${last_error} but never counts it
+	// as the step's postcondition result (§B.4 attempt clearing).
+	Summary bool `json:"summary,omitempty"`
 
 	// TRANSITION. ViaCatch marks a catch-chain edge, so Replay can apply
 	// the attempt-budget clearing rule (design/format-spec.md §B.4): a

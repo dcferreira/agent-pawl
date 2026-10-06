@@ -90,6 +90,17 @@ func (e *Engine) journalAttemptDiagnostic(log *journal.Log, runID, stepID string
 	return err
 }
 
+// journalBranchDiagnostic is journalFailureDiagnostic, stamped Group:
+// parallelID — a kind: parallel branch's own diagnostic, which Replay keeps
+// out of the run-wide ${last_error}.
+func (e *Engine) journalBranchDiagnostic(log *journal.Log, runID, stepID string, attempt int, text, parallelID string) error {
+	_, err := log.Append(journal.Event{
+		Kind: journal.KindPostcondition, RunID: runID, Step: stepID,
+		Attempt: attempt, OK: false, Text: text, Group: parallelID,
+	})
+	return err
+}
+
 // dispatchForeach enters a kind: parallel step that declares foreach:
 // (dispatchParallel's counterpart for that form): the same checkCaps and
 // beginAttempt, then the step's own ungrouped STEP_ENTER — carrying Items,
