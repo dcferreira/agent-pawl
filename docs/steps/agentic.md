@@ -18,8 +18,8 @@ the five kinds compare.
   `effort:`; other harnesses use whatever they need. The one subagent rule the `PreToolUse` hook
   keeps is denying VCS-mutating `Bash` from a subagent while any run is live for this working copy,
   not only while an agentic step is live — that applies regardless of what `subagent_args:` says.
-- **`writes:`** — required, a typed map: the subagent's return shape. Missing key or wrong type
-  fails the step; prose outside the schema is discarded.
+- **`writes:`** — required, a typed map: the subagent's return shape. Missing key, wrong type or a
+  `string` over its `max_length:` (code points) fails the step; prose outside the schema is discarded.
 - **`postcondition:`** — required; engine-run, the returned JSON is an input, never the verdict. Mark
   `soft: true` where you cannot check the real thing.
 - **`attempts:`** — on retry, `DISPATCH` carries the previous failure text. Attempt N+1 runs on the

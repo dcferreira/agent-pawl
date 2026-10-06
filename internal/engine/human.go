@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/dcferreira/agent-pawl/internal/emit"
 	"github.com/dcferreira/agent-pawl/internal/journal"
 	"github.com/dcferreira/agent-pawl/internal/render"
 	"github.com/dcferreira/agent-pawl/internal/spec"
@@ -247,15 +248,22 @@ func (e *Engine) SubmitHuman(runID, stepID string, attempt int, result json.RawM
 	if writeVal != nil && len(step.Writes.Keys) > 0 {
 		key := step.Writes.Keys[0]
 		coerced := writeVal
+		var cerr error
 		if step.Writes.IsTyped {
-			c, cerr := coerceAgenticValue(key, writeVal, step.Writes.Types[key])
-			if cerr != nil {
-				if jerr := e.journalFailureDiagnostic(log, runID, stepID, attempt, cerr.Error()); jerr != nil {
-					return nil, jerr
-				}
-				return e.routeHuman(dir, log, runID, step, "failure", attempt)
+			var c any
+			c, cerr = coerceAgenticValue(key, writeVal, step.Writes.Types[key])
+			if cerr == nil {
+				coerced = c
 			}
-			coerced = c
+		}
+		if cerr == nil {
+			cerr = emit.CheckMaxLength(key, coerced, spec.MaxLengthFor(e.Workflow.State, step, key))
+		}
+		if cerr != nil {
+			if jerr := e.journalFailureDiagnostic(log, runID, stepID, attempt, cerr.Error()); jerr != nil {
+				return nil, jerr
+			}
+			return e.routeHuman(dir, log, runID, step, "failure", attempt)
 		}
 		if _, err := log.Append(journal.Event{
 			Kind: journal.KindWrites, RunID: runID, Step: stepID,

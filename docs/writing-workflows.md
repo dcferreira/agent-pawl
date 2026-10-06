@@ -48,6 +48,9 @@ state:
   title:         {type: string,  max_length: 72}
 ```
 
+`max_length:` (`string` keys only, on `state:` or a typed `writes:` entry) caps the value in Unicode
+code points; a longer write is rejected like a type mismatch.
+
 Types are `string`, `integer`, `number`, `boolean`, `json`. A value that does not fit its type is
 rejected — the engine will not quietly stringify your integer.
 

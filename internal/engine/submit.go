@@ -149,7 +149,7 @@ func (e *Engine) submit(runID, stepID string, attempt int, item *int, result jso
 	} else if err := json.Unmarshal(result, &parsed); err != nil {
 		cr = checkResult{OK: false, Text: fmt.Sprintf("step %q: submitted result is not a JSON object: %v", stepID, err)}
 	} else {
-		writes, schemaErr := validateAgenticWrites(step, parsed)
+		writes, schemaErr := validateAgenticWrites(e.Workflow.State, step, parsed)
 		if schemaErr != "" {
 			cr = checkResult{OK: false, Text: schemaErr}
 		} else {
@@ -450,7 +450,7 @@ func (e *Engine) afterItemResolved(dir string, log *journal.Log, runID string, f
 // as the empty schema and fails closed: no returned key is ever accepted
 // (this should be unreachable once pawl run gates on spec.Validate, which
 // requires a typed writes: on every agentic step).
-func validateAgenticWrites(step *spec.Step, parsed map[string]any) (writes map[string]any, errText string) {
+func validateAgenticWrites(decls map[string]spec.StateDecl, step *spec.Step, parsed map[string]any) (writes map[string]any, errText string) {
 	if !step.Writes.IsTyped || len(step.Writes.Types) == 0 {
 		if len(parsed) > 0 {
 			return nil, fmt.Sprintf("step %q: agentic step has no writes: schema; refusing to accept any returned key (add a typed writes: map)", step.ID)
@@ -464,6 +464,9 @@ func validateAgenticWrites(step *spec.Step, parsed map[string]any) (writes map[s
 			continue
 		}
 		coerced, err := coerceAgenticValue(k, v, declType)
+		if err == nil {
+			err = emit.CheckMaxLength(k, coerced, spec.MaxLengthFor(decls, step, k))
+		}
 		if err != nil {
 			return nil, fmt.Sprintf("step %q: %s", step.ID, err.Error())
 		}

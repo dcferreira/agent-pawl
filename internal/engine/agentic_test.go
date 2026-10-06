@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/dcferreira/agent-pawl/internal/journal"
@@ -131,5 +132,45 @@ func TestSubmit_EmptyWritesSchemaFailsClosed(t *testing.T) {
 	term, ok := instr.(Terminal)
 	if !ok || term.Status != "blocked" {
 		t.Fatalf("got %+v, want Terminal{blocked}: a returned key with no writes: schema must fail closed", instr)
+	}
+}
+
+// TestSubmit_MaxLengthIsFixForward: an over-length string is rejected like a
+// type mismatch (a failed attempt carrying last_error), and a valid
+// resubmission then succeeds. Covers both the state: cap and the tighter
+// writes: cap.
+func TestSubmit_MaxLengthIsFixForward(t *testing.T) {
+	cases := map[string]string{
+		"state cap":  "state:\n  title: {type: string, default: \"\", max_length: 10}\nsteps:\n  - id: work\n    kind: agentic\n    description: d\n    writes: {title: {type: string}}\n",
+		"writes cap": "state:\n  title: {type: string, default: \"\"}\nsteps:\n  - id: work\n    kind: agentic\n    description: d\n    writes: {title: {type: string, max_length: 10}}\n",
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			e := newTestEngine(t, "workflow: ml\nstart: work\n"+body+"    postcondition: \"true\"\n    attempts: 3\n    next: done\nterminal: {done: {status: ok, message: \"t=${title}\"}}\n")
+			if _, err := e.Start("run1", nil); err != nil {
+				t.Fatalf("Start: %v", err)
+			}
+			instr, err := e.Submit("run1", "work", 1, []byte(`{"title":"01234567890"}`))
+			if err != nil {
+				t.Fatalf("Submit: %v", err)
+			}
+			d, ok := instr.(Dispatch)
+			if !ok || d.Attempt != 2 {
+				t.Fatalf("got %+v, want Dispatch attempt 2 (over-length is a failed attempt)", instr)
+			}
+			for _, want := range []string{`step "work"`, `key "title"`, "11 characters", "max_length 10"} {
+				if !strings.Contains(d.PreviousFailure, want) {
+					t.Fatalf("PreviousFailure = %q, want it to contain %q", d.PreviousFailure, want)
+				}
+			}
+			instr, err = e.Submit("run1", "work", 2, []byte(`{"title":"0123456789"}`))
+			if err != nil {
+				t.Fatalf("Submit 2: %v", err)
+			}
+			term, ok := instr.(Terminal)
+			if !ok || term.Status != "ok" || term.Message != "t=0123456789" {
+				t.Fatalf("got %+v, want Terminal{ok, t=0123456789}", instr)
+			}
+		})
 	}
 }

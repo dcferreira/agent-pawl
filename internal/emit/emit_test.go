@@ -525,3 +525,52 @@ func TestParse_F6_JSONNumberCoercesToString(t *testing.T) {
 		t.Errorf("Writes[b] = %#v, want \"1\"", res.Writes["b"])
 	}
 }
+
+func TestParse_MaxLength(t *testing.T) {
+	stateCap := map[string]spec.StateDecl{"title": {Type: "string", MaxLength: 5}}
+	writesStep := func(emits string) *spec.Step {
+		s := typedStep("s", nil, map[string]string{"title": "string"}, emits)
+		s.Writes.MaxLength = map[string]int{"title": 5}
+		return s
+	}
+	plain := func(emits string) *spec.Step { return namedStep("s", nil, []string{"title"}, emits) }
+	cases := []struct {
+		name   string
+		step   *spec.Step
+		decls  map[string]spec.StateDecl
+		stdout string
+		ok     bool
+	}{
+		{"json state cap over", plain("json"), stateCap, `{"title":"abcdef"}`, false},
+		{"json state cap at limit", plain("json"), stateCap, `{"title":"abcde"}`, true},
+		{"json writes cap over", writesStep("json"), nil, `{"title":"abcdef"}`, false},
+		{"json writes cap at limit", writesStep("json"), nil, `{"title":"abcde"}`, true},
+		{"pairs state cap over", plain("pairs"), stateCap, `title=abcdef`, false},
+		{"pairs state cap at limit", plain("pairs"), stateCap, `title=abcde`, true},
+		{"pairs writes cap over", writesStep("pairs"), nil, `title=abcdef`, false},
+		{"pairs writes cap at limit", writesStep("pairs"), nil, `title=abcde`, true},
+		{"json multibyte counted as code points", plain("json"), stateCap, `{"title":"héllo"}`, true},
+		{"json multibyte over", plain("json"), stateCap, `{"title":"héllo!"}`, false},
+		{"json emoji is one code point", plain("json"), stateCap, `{"title":"😀😀😀😀😀"}`, true},
+		{"pairs multibyte counted as code points", plain("pairs"), stateCap, `title=héllo`, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := emit.Parse(tc.stdout, 0, tc.step, tc.decls)
+			if tc.ok {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, emit.ErrParse) {
+				t.Fatalf("err = %v, want ErrParse", err)
+			}
+			for _, want := range []string{`"s"`, `key "title"`, "6 characters", "max_length 5"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("err = %q, want it to contain %q", err.Error(), want)
+				}
+			}
+		})
+	}
+}

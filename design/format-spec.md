@@ -53,6 +53,11 @@ under both modes, writes nothing, and leaves the declared keys at their previous
 Values are coerced to the declared `state:` type and rejected loudly if they do not fit. The engine
 escapes C0 control characters at this boundary, once, for all workflows.
 
+A `string` value is also rejected when it is longer than its `max_length:` — counted in Unicode code
+points (like `wc -m`) on the value as stored, after C0 escaping. The cap is the tighter of the
+`state:` entry's and the writing step's own typed `writes:` entry's; it fails exactly like a type
+mismatch (`key "title": value is 80 characters, longer than max_length 72`).
+
 **Non-zero exit is always `failure`**, whatever was printed; token parsing happens only on exit 0.
 Distinct non-zero exit codes do not select distinct outcomes — one signalling mechanism, not two.
 When the step declares `retry:`, a non-zero exit is instead a hard failure retried per §B.16; this
@@ -521,7 +526,7 @@ Reserved outcome tokens, usable anywhere: `success`, `failure`, `timeout`, `exha
 | `start` | yes | file | step id | First step. | — |
 | `max_steps` | no | file | integer | Backstop on total step entries in a run. | `200` |
 | `args` | no | file | map | Run arguments, typed like `state:`, read-only, bound as `key=value`. | `{}` |
-| `state` | no | file | map | Every key the run may carry: `{type, default, max_length}`. | `{}` |
+| `state` | no | file | map | Every key the run may carry: `{type, default, max_length}`; `max_length` (`string` only) caps the value in Unicode code points, 0/omitted = no cap. | `{}` |
 | `guards` | no | file | list | `{id, match, only_in: [steps]}` — see the guards[] sub-table below. | `[]` |
 | `invariants` | no | file | list | `{id, check, message}`; breaking one → `BLOCKED`. | `[]` |
 | `steps` | yes | file | list | The graph, read top to bottom. | — |
@@ -542,7 +547,7 @@ Reserved outcome tokens, usable anywhere: `success`, `failure`, `timeout`, `exha
 | `multi` | no | human | boolean | Multi-select. `true` forces the outcome to `chosen`. | `false` |
 | `branches` | one of `branches`/`foreach` | parallel | list | ≥ 2 declared `deterministic`/`agentic` step ids, dispatched and joined together (§B.15); a listed step may declare no `next:`/`outcomes:`/`catch:`/`attempts:`/`attempt_key:`/`max_visits:` of its own. | — |
 | `foreach` | one of `branches`/`foreach` | parallel | map | `{over, body, collect, max_items}` — fan one `deterministic` or `agentic` body out over a json list (§B.15). `over`/`collect`: declared `json` `state:` keys; `max_items`: ≥ 1, default `20`. | — |
-| `writes` | no | all | list/map | Keys produced. Typed map required on `agentic` — it is the output schema. On `human`, exactly one key, required whenever `options_from:`, `multi: true` or a `chosen:` route is used. | `[]` |
+| `writes` | no | all | list/map | Keys produced. Typed map required on `agentic` — it is the output schema; an entry is `{type, max_length}` and nothing else (an unknown field is a load error), `max_length` as under `state`. On `human`, exactly one key, required whenever `options_from:`, `multi: true` or a `chosen:` route is used. | `[]` |
 | `postcondition` | **yes** on agentic | all | string/map | Shell string, `{command}`, `{all_set}`, or `{equals}`. Evaluated by the engine; optional on `deterministic` (exit 0 = success unless declared), `wait`, `human`. | — |
 | `soft` | no | all | boolean | Marks the check as judgement-bounded. Counted at validate *and* run time. | `false` |
 | `attempts` | no | deterministic, agentic | integer | Re-runs of this step on postcondition failure. ≥ 1. | `1` |
@@ -739,6 +744,8 @@ work to an agent. See `docs/quickstart.md`.
 28. A foreach body's `run:`, `postcondition.command` or `!cmd` `context:` entry contains `-c ${item}` / `-c ${item_index}`
     (e.g. `sh -c ${item}`): the value comes from workflow state and must never be executed as a
     script (§B.2).
+29. `max_length:` on a `state:` or typed `writes:` entry is negative or on a key whose type is not
+    `string`; or a `state:` `default:` string is already longer than its `max_length:`.
 
 Plus two warnings: a key written and never read; a key read on some path before anything writes it.
 And one census, printed every time: the `soft:` count, percentage and list.

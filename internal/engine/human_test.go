@@ -345,3 +345,30 @@ func rewriteEventTimeInPast(t *testing.T, dir string, kind journal.Kind, step st
 		t.Fatal(err)
 	}
 }
+
+// TestSubmitHuman_MaxLengthRejected: an over-length free-text answer is a
+// submit-time validation error, routed "failure" like a type mismatch, for
+// both a typed writes: cap and a state: cap behind an untyped writes: list.
+func TestSubmitHuman_MaxLengthRejected(t *testing.T) {
+	cases := map[string]string{
+		"typed writes cap": "state:\n  reviewer: {type: string, default: \"\"}\nsteps:\n  - id: ask\n    kind: human\n    question: q\n    options: [alice]\n    timeout: 24h\n    writes: {reviewer: {type: string, max_length: 5}}\n",
+		"state cap":        "state:\n  reviewer: {type: string, default: \"\", max_length: 5}\nsteps:\n  - id: ask\n    kind: human\n    question: q\n    options: [alice]\n    timeout: 24h\n    writes: [reviewer]\n",
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			e := newTestEngine(t, "workflow: hml\nstart: ask\n"+body+"    outcomes: {alice: done, chosen: done, failure: bad, timeout: bad}\nterminal:\n  done: {status: ok}\n  bad: {status: blocked}\n")
+			instr, err := e.Start("run1", nil)
+			if err != nil {
+				t.Fatalf("Start: %v", err)
+			}
+			a := instr.(Ask)
+			instr, err = e.SubmitHuman("run1", "ask", a.Attempt, []byte(`{"other":"abcdef"}`))
+			if err != nil {
+				t.Fatalf("SubmitHuman: %v", err)
+			}
+			if term, ok := instr.(Terminal); !ok || term.Status != "blocked" {
+				t.Fatalf("got %+v, want Terminal{blocked} via failure", instr)
+			}
+		})
+	}
+}
