@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/dcferreira/agent-pawl/internal/journal"
 	"github.com/dcferreira/agent-pawl/internal/spec"
@@ -122,7 +123,7 @@ func (e *Engine) runOneBranch(dir string, log *journal.Log, runID, parallelID st
 			// N2: see dispatchAgentic/Submit for why a missing/failing
 			// context: entry is routed, not thrown — here that means
 			// resolving this one branch as failed, not the whole group.
-			if jerr := e.journalFailureDiagnostic(log, runID, branch.ID, 1, derr.Error()); jerr != nil {
+			if jerr := e.journalBranchDiagnostic(log, runID, branch.ID, 1, derr.Error(), parallelID); jerr != nil {
 				return Dispatch{}, false, jerr
 			}
 			if jerr := journalBranchTransition(log, runID, parallelID, branch.ID, 1, "failure"); jerr != nil {
@@ -147,7 +148,7 @@ func (e *Engine) execBranchDeterministic(dir string, log *journal.Log, runID, pa
 	if err != nil {
 		return err
 	}
-	at, _, err := e.runDeterministicAttempt(dir, log, runID, branch, 1, rs, nil)
+	at, _, err := e.runDeterministicAttemptBranch(dir, log, runID, branch, 1, rs, parallelID)
 	if err != nil {
 		return err
 	}
@@ -158,7 +159,7 @@ func (e *Engine) execBranchDeterministic(dir string, log *journal.Log, runID, pa
 		if branch.Postcondition != nil {
 			if _, err := log.Append(journal.Event{
 				Kind: journal.KindPostcondition, RunID: runID, Step: branch.ID,
-				Attempt: 1, OK: true, Soft: at.cr.Soft,
+				Attempt: 1, OK: true, Soft: at.cr.Soft, Group: parallelID,
 			}); err != nil {
 				return err
 			}
@@ -167,7 +168,7 @@ func (e *Engine) execBranchDeterministic(dir string, log *journal.Log, runID, pa
 	}
 	if _, err := log.Append(journal.Event{
 		Kind: journal.KindPostcondition, RunID: runID, Step: branch.ID, Attempt: 1,
-		OK: false, Text: at.cr.Text, Soft: at.cr.Soft,
+		OK: false, Text: at.cr.Text, Soft: at.cr.Soft, Group: parallelID,
 	}); err != nil {
 		return err
 	}
@@ -221,6 +222,20 @@ func (e *Engine) routeParallel(dir string, log *journal.Log, runID string, step 
 			break
 		}
 	}
+	if outcome == "failure" {
+		if err := e.journalGroupFailureSummary(dir, log, runID, step, attempt); err != nil {
+			return nil, err
+		}
+	} else if rs.LastError != "" {
+		// A passing group clears ${last_error}, as a passing ungrouped
+		// postcondition would (a loop-back after a failed group).
+		if _, err := log.Append(journal.Event{
+			Kind: journal.KindPostcondition, RunID: runID, Step: step.ID, Attempt: attempt,
+			OK: true, Summary: true,
+		}); err != nil {
+			return nil, err
+		}
+	}
 	if instr, err := e.preTransitionInvariantBlock(dir, log, runID, step.ID); err != nil {
 		return nil, err
 	} else if instr != nil {
@@ -244,6 +259,67 @@ func (e *Engine) routeParallel(dir string, log *journal.Log, runID string, step 
 		return e.runFrom(dir, log, runID, *next)
 	}
 	return instr, nil
+}
+
+// journalGroupFailureSummary journals, for a failed branches: group, one
+// ungrouped POSTCONDITION{OK:false, Summary:true} diagnostic on the parallel
+// step itself (not a postcondition verdict: Replay sets ${last_error} from it
+// but leaves the step's §B.4 attempt clearing alone) whose Text names each failed branch in branches: declaration order:
+//
+//	branch "lint": <text>; branch "test": <text>
+//
+// A branch's own POSTCONDITION is grouped, and Replay never lets a grouped
+// one touch the run-wide ${last_error}; this summary is therefore the only
+// thing that sets ${last_error} for the group, so the group's catch/failure
+// target (and any loop back into it) sees a diagnostic. A branch's text is
+// its latest grouped failure POSTCONDITION since the group's own latest
+// ungrouped STEP_ENTER; a branch that failed with none (a hard failure that
+// journaled no text) is named as `branch "x" failed`. It is journaled
+// before invariants are evaluated, so they too see it, and at most once per
+// group entry: a crash after it but before the group's TRANSITION re-enters
+// routeParallel on resume, which finds the summary already there.
+func (e *Engine) journalGroupFailureSummary(dir string, log *journal.Log, runID string, step *spec.Step, attempt int) error {
+	events, err := journal.ReadEvents(dir)
+	if err != nil {
+		return err
+	}
+	texts := map[string]string{}
+	for i := len(events) - 1; i >= 0; i-- {
+		ev := events[i]
+		if ev.Group == "" && ev.Step == step.ID {
+			if ev.Kind == journal.KindPostcondition && ev.Summary {
+				return nil // already summarised for this group entry
+			}
+			if ev.Kind == journal.KindStepEnter {
+				break
+			}
+		}
+		if ev.Kind == journal.KindPostcondition && !ev.OK && ev.Group == step.ID && ev.Item == nil {
+			if _, seen := texts[ev.Step]; !seen {
+				texts[ev.Step] = ev.Text
+			}
+		}
+	}
+	rs, err := replayDir(dir)
+	if err != nil {
+		return err
+	}
+	var parts []string
+	for _, b := range step.Branches {
+		if rs.BranchOutcome[b] == "success" {
+			continue
+		}
+		if t := texts[b]; t != "" {
+			parts = append(parts, fmt.Sprintf("branch %q: %s", b, t))
+		} else {
+			parts = append(parts, fmt.Sprintf("branch %q failed", b))
+		}
+	}
+	_, err = log.Append(journal.Event{
+		Kind: journal.KindPostcondition, RunID: runID, Step: step.ID, Attempt: attempt,
+		OK: false, Text: strings.Join(parts, "; "), Summary: true,
+	})
+	return err
 }
 
 // resumeParallel re-derives, from rs.PendingBranches[step.ID] (already

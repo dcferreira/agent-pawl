@@ -89,7 +89,7 @@ breaking equality checks like `[ "${key}" = true ]` (the comparison sees the lit
 never `true`). See `docs/dogfood.md`'s "traps" section for a worked example.
 
 **Engine-provided pseudo-keys**, readable everywhere, never declared and never written by a step:
-`run_id`, `step`, `attempt`, `visits`, `last_error`, `blocked_reason`. Two more, `item` and
+`run_id`, `step`, `attempt`, `visits`, `last_error` (a `branches:` branch's or `foreach:` item's own result never sets it; a failed `branches:` group sets it to a summary — §B.15), `blocked_reason`. Two more, `item` and
 `item_index`, are scoped to a `foreach:` body's own fields and reserved everywhere else (§B.15,
 §H rule 27).
 
@@ -369,6 +369,12 @@ role: with no `outcomes:` of its own, a branch resolves only to `success`/`failu
 itself produces exactly `success` / `failure`, routed by its own `next:` or an `outcomes: {success:
 …, failure: …}` map exactly like `deterministic`. If a decision needs to see which *branch* failed or
 what a branch wrote, route from a following `deterministic` step that reads the branches' `writes:`.
+
+**`${last_error}` and branches.** A branch's postcondition result never sets the run-wide
+`${last_error}` (a branch's journaled `POSTCONDITION` is scoped to its group, like a `foreach:` item's).
+A *failed* `branches:` group sets it, once, to a summary of the failed branches in `branches:` order —
+`branch "lint": <text>; branch "test": <text>` (`branch "x" failed` for a branch with no text) — so
+the group's `catch:`/`outcomes: failure:` target can read it. A successful group clears it, as a passing postcondition would.
 
 This is the full extent of `kind: parallel`'s `branches:` form as shipped: one branch group, one
 join, all-or-nothing.

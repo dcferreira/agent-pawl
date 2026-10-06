@@ -1,0 +1,3 @@
+kind: fixed
+body: 'A failed postcondition in a `branches:` parallel branch no longer leaks into the run-wide `${last_error}`; a failed group now sets `${last_error}` to a summary naming each failed branch.'
+time: 2026-10-06T15:48:00.000000000+02:00

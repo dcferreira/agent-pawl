@@ -63,7 +63,14 @@ type deterministicAttempt struct {
 // plain first-try path, or a kind: parallel branch, which owns no retry:
 // budget of its own) passes nil and gets the ordinary rs.LastError.
 func (e *Engine) runDeterministicAttempt(dir string, log *journal.Log, runID string, step *spec.Step, attempt int, rs *journal.RunState, lastErrorOverride *string) (deterministicAttempt, *journal.RunState, error) {
-	return e.runDeterministicAttemptItem(dir, log, runID, step, attempt, rs, lastErrorOverride, nil)
+	return e.runDeterministicAttemptScoped(dir, log, runID, step, attempt, rs, lastErrorOverride, nil, "")
+}
+
+// runDeterministicAttemptBranch is runDeterministicAttempt for a kind:
+// parallel branch: any hard-failure diagnostic it journals is stamped
+// Group: parallelID, so Replay keeps it out of the run-wide ${last_error}.
+func (e *Engine) runDeterministicAttemptBranch(dir string, log *journal.Log, runID string, step *spec.Step, attempt int, rs *journal.RunState, parallelID string) (deterministicAttempt, *journal.RunState, error) {
+	return e.runDeterministicAttemptScoped(dir, log, runID, step, attempt, rs, nil, nil, parallelID)
 }
 
 // runDeterministicAttemptItem is runDeterministicAttempt with an optional
@@ -77,6 +84,19 @@ func (e *Engine) runDeterministicAttempt(dir string, log *journal.Log, runID str
 // against the run's state overlaid with this item's own writes (which are
 // deliberately not in rs.State).
 func (e *Engine) runDeterministicAttemptItem(dir string, log *journal.Log, runID string, step *spec.Step, attempt int, rs *journal.RunState, lastErrorOverride *string, fe *foreachItem) (deterministicAttempt, *journal.RunState, error) {
+	return e.runDeterministicAttemptScoped(dir, log, runID, step, attempt, rs, lastErrorOverride, fe, "")
+}
+
+// runDeterministicAttemptScoped is the shared body: fe scopes the attempt to
+// a foreach item, branchGroup (a parallel step's id, mutually exclusive with
+// fe) to a branches: branch.
+func (e *Engine) runDeterministicAttemptScoped(dir string, log *journal.Log, runID string, step *spec.Step, attempt int, rs *journal.RunState, lastErrorOverride *string, fe *foreachItem, branchGroup string) (deterministicAttempt, *journal.RunState, error) {
+	diag := func(text string) error {
+		if branchGroup != "" {
+			return e.journalBranchDiagnostic(log, runID, step.ID, attempt, text, branchGroup)
+		}
+		return e.journalAttemptDiagnostic(log, runID, step.ID, attempt, text, fe)
+	}
 	mkVals := func(rs *journal.RunState) render.Values {
 		vals := buildValues(e.Workflow, rs, runID, step.ID, attempt, rs.Visits[step.ID])
 		if lastErrorOverride != nil {
@@ -95,7 +115,7 @@ func (e *Engine) runDeterministicAttemptItem(dir string, log *journal.Log, runID
 			// I3: unintelligible stdout is an authoring bug, not a Go error
 			// to throw out of the run loop — see the caller for why this is
 			// routed, not thrown.
-			if derr := e.journalAttemptDiagnostic(log, runID, step.ID, attempt, execErr.Error(), fe); derr != nil {
+			if derr := diag(execErr.Error()); derr != nil {
 				return deterministicAttempt{}, rs, derr
 			}
 			return deterministicAttempt{hardFailed: true, retryable: true}, rs, nil
@@ -104,7 +124,7 @@ func (e *Engine) runDeterministicAttemptItem(dir string, log *journal.Log, runID
 	}
 	if timedOut {
 		text := fmt.Sprintf("step %q exceeded the wall-clock ceiling of %s", step.ID, e.Timeout)
-		if derr := e.journalAttemptDiagnostic(log, runID, step.ID, attempt, text, fe); derr != nil {
+		if derr := diag(text); derr != nil {
 			return deterministicAttempt{}, rs, derr
 		}
 		return deterministicAttempt{hardFailed: true, retryable: true}, rs, nil
@@ -137,7 +157,7 @@ func (e *Engine) runDeterministicAttemptItem(dir string, log *journal.Log, runID
 		if text == "" {
 			text = strings.TrimSpace(stdout)
 		}
-		if derr := e.journalAttemptDiagnostic(log, runID, step.ID, attempt, text, fe); derr != nil {
+		if derr := diag(text); derr != nil {
 			return deterministicAttempt{}, rs, derr
 		}
 		return deterministicAttempt{hardFailed: true, retryable: exitCode != 0}, rs, nil

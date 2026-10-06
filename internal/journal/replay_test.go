@@ -917,3 +917,58 @@ func TestReplay_CrashResumeReentryIsNotANewVisit(t *testing.T) {
 		})
 	}
 }
+
+// A grouped POSTCONDITION (a parallel branch's) never touches the run-wide
+// LastError, in either direction.
+func TestReplay_GroupedPostconditionLeavesLastErrorAlone(t *testing.T) {
+	evs := []Event{
+		{Kind: KindRunStart, RunID: "r"},
+		{Kind: KindStepEnter, RunID: "r", Step: "p", Attempt: 1},
+		{Kind: KindStepEnter, RunID: "r", Step: "b1", Attempt: 1, Group: "p"},
+		{Kind: KindPostcondition, RunID: "r", Step: "b2", Attempt: 1, OK: true, Group: "p"},
+		{Kind: KindPostcondition, RunID: "r", Step: "b1", Attempt: 1, OK: false, Text: "boom", Group: "p"},
+	}
+	for i := range evs {
+		evs[i].Seq = i + 1
+	}
+	rs, err := Replay(evs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rs.LastError != "" {
+		t.Fatalf("LastError = %q, want \"\"", rs.LastError)
+	}
+	// An old, ungrouped branch POSTCONDITION keeps its old behaviour.
+	evs = append(evs, Event{Seq: 6, Kind: KindPostcondition, RunID: "r", Step: "b1", Attempt: 1, OK: false, Text: "old"})
+	rs, err = Replay(evs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rs.LastError != "old" {
+		t.Fatalf("ungrouped LastError = %q, want old", rs.LastError)
+	}
+}
+
+// A Summary POSTCONDITION sets LastError but is not a postcondition verdict:
+// a later non-catch TRANSITION still clears the step's attempt budget.
+func TestReplay_SummaryPostconditionKeepsAttemptClearing(t *testing.T) {
+	evs := []Event{
+		{Kind: KindRunStart, RunID: "r"},
+		{Kind: KindStepEnter, RunID: "r", Step: "p", Attempt: 1, AttemptKey: "k"},
+		{Kind: KindPostcondition, RunID: "r", Step: "p", Attempt: 1, OK: false, Text: "branch \"b\" failed", Summary: true},
+		{Kind: KindTransition, RunID: "r", Step: "p", Attempt: 1, Target: "x", Outcome: "failure"},
+	}
+	for i := range evs {
+		evs[i].Seq = i + 1
+	}
+	rs, err := Replay(evs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rs.LastError != `branch "b" failed` {
+		t.Errorf("LastError = %q", rs.LastError)
+	}
+	if _, ok := rs.Attempts[AttemptRef{"p", "k"}]; ok {
+		t.Errorf("attempt budget not cleared: %v", rs.Attempts)
+	}
+}
