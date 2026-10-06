@@ -161,10 +161,11 @@ runtime either — see the next section.
 
 ## Conventions and traps
 
+- **PR descriptions follow `.claude/skills/pr-description/SKILL.md`** (repo-local skill, not part of the
+  plugin): required template, Conventional Commit title, changelog fragment or `skip changelog`.
 - **Commits are Conventional Commits** (`feat:`, `fix:`, `ci:`, `docs:`, `test:`), imperative
-  subject line, a body explaining *why* and any non-obvious trade-off, trailers for
-  `Co-Authored-By:`/`Claude-Session:` where applicable — verified against this repo's actual
-  commit history, not assumed.
+  subject line, a body explaining *why* and any non-obvious trade-off, a `Co-Authored-By:` trailer
+  where applicable. Never a `Claude-Session:` trailer or session URL (see the pr-description skill).
 - **Every PR adds a `.changes/unreleased/` fragment via `changie new`, or gets the `skip
   changelog` label** — `.github/workflows/changelog.yml` enforces one or the other. Never edit
   `CHANGELOG.md`, a `.changes/v*.md` file, or `.claude-plugin/plugin.json`'s `version` field by
