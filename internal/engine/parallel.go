@@ -226,6 +226,15 @@ func (e *Engine) routeParallel(dir string, log *journal.Log, runID string, step 
 		if err := e.journalGroupFailureSummary(dir, log, runID, step, attempt); err != nil {
 			return nil, err
 		}
+	} else if rs.LastError != "" {
+		// A passing group clears ${last_error}, as a passing ungrouped
+		// postcondition would (a loop-back after a failed group).
+		if _, err := log.Append(journal.Event{
+			Kind: journal.KindPostcondition, RunID: runID, Step: step.ID, Attempt: attempt,
+			OK: true, Summary: true,
+		}); err != nil {
+			return nil, err
+		}
 	}
 	if instr, err := e.preTransitionInvariantBlock(dir, log, runID, step.ID); err != nil {
 		return nil, err

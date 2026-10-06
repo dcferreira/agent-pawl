@@ -374,7 +374,7 @@ what a branch wrote, route from a following `deterministic` step that reads the 
 `${last_error}` (a branch's journaled `POSTCONDITION` is scoped to its group, like a `foreach:` item's).
 A *failed* `branches:` group sets it, once, to a summary of the failed branches in `branches:` order —
 `branch "lint": <text>; branch "test": <text>` (`branch "x" failed` for a branch with no text) — so
-the group's `catch:`/`outcomes: failure:` target can read it. A successful group leaves it untouched.
+the group's `catch:`/`outcomes: failure:` target can read it. A successful group clears it, as a passing postcondition would.
 
 This is the full extent of `kind: parallel`'s `branches:` form as shipped: one branch group, one
 join, all-or-nothing.

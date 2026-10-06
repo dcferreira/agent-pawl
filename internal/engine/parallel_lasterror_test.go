@@ -260,3 +260,46 @@ terminal: {done: {status: ok}}
 		t.Fatalf("p STEP_ENTER attempts = %v, want [1 2] (unchanged from main)", attempts)
 	}
 }
+
+// A group that fails and then succeeds on a loop-back clears the
+// ${last_error} its own failure summary set, like a passing postcondition.
+func TestParallel_SuccessAfterFailedGroupClearsLastError(t *testing.T) {
+	mark := t.TempDir() + "/mark"
+	yaml := fmt.Sprintf(`
+workflow: parallel-loop-clear
+start: p
+steps:
+  - id: p
+    kind: parallel
+    branches: [b1, b2]
+    attempts: 2
+    attempt_key: "k"
+    outcomes:
+      success: done
+      failure: fix
+  - id: b1
+    kind: deterministic
+    run: "echo hi"
+    postcondition: {command: "if [ -f %[1]s ]; then true; else touch %[1]s; echo broken >&2; false; fi"}
+  - id: b2
+    kind: deterministic
+    run: "echo ok"
+  - id: fix
+    kind: deterministic
+    run: "echo fixing"
+    next: p
+terminal: {done: {status: ok}}
+`, mark)
+	e := newTestEngine(t, yaml)
+	instr, err := e.Start("run1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if term, ok := instr.(Terminal); !ok || term.Status != "ok" {
+		t.Fatalf("got %+v, want Terminal ok", instr)
+	}
+	dir := journal.RunDir(e.Root, e.Workflow.Workflow, "run1")
+	if rs := mustReplay(t, dir); rs.LastError != "" {
+		t.Fatalf("LastError after successful group = %q, want \"\"", rs.LastError)
+	}
+}
