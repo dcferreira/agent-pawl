@@ -245,11 +245,15 @@ resolves for this working copy; `--run <id>` is only needed to disambiguate seve
 4. Set the cursor:
    - **Crash resume** (last event is not a `RUN_END{status: blocked}`): to the last `TRANSITION`'s
      target, or — if the last step never transitioned — to the step of the last `STEP_ENTER`, at that
-     attempt.
+     attempt. Re-entering that interrupted step is the **same visit**, not a new one: the visit counter
+     (`${visits}`) and the `max_visits:`/`max_steps:` caps are not advanced or re-checked for it, just as
+     a crash never advances an attempt counter — so a `max_visits: 1` step that crashed mid-step can be
+     resumed. (Replay enforces this: it does not count the first `STEP_ENTER` after a crash `RESUME` of an
+     in-flight step as a visit.)
    - **Blocked resume** (last event is `RUN_END{status: blocked}`): to the step that produced the
      `blocked` outcome (the invariant-violating step, or the step whose route sent it there), with
      that step's attempt counter reset to 1, after appending a `RESUME` event with
-     `intervention: true`.
+     `intervention: true`. Unlike a crash resume, this is a fresh visit and counts against `max_visits:`.
 5. Re-check the `PreToolUse` heartbeat for this session (else this working copy) (the same `checkEnforcement` a fresh
    start runs) and print the enforcement banner.
 6. Print the resume line: run id, step, attempt, restored keys.

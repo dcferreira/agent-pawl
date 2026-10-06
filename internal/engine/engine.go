@@ -356,8 +356,14 @@ func (e *Engine) runFrom(dir string, log *journal.Log, runID string, cur journal
 }
 
 // checkCaps reports whether entering step would exceed its max_visits: or
-// the workflow's max_steps: backstop (design/format-spec.md §B.4).
+// the workflow's max_steps: backstop (design/format-spec.md §B.4). Re-entering
+// the step a crash RESUME left in flight is not a new entry (replay does not
+// count it as a visit either — RunState.ResumedInFlight), so it is never
+// capped: a max_visits: 1 step that crashed mid-step must stay resumable.
 func (e *Engine) checkCaps(rs *journal.RunState, step *spec.Step) bool {
+	if rs.ResumedInFlight == step.ID {
+		return false
+	}
 	if rs.Visits[step.ID] >= step.MaxVisits {
 		return true
 	}
