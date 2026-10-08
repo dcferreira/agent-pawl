@@ -103,7 +103,26 @@ main.
 4. Merge it.
 5. The merge (a push to `main` that touches `CHANGELOG.md`) triggers `.github/workflows/release.yml`,
    which reads the version from `.changes/`, tags `vX.Y.Z`, and runs goreleaser with that version's
-   release notes in the same job — publishing the GitHub Release and its binaries.
+   release notes in the same job — publishing the GitHub Release and its binaries — then builds and
+   uploads the plugin assets (next section).
+
+## Plugin assets
+
+Besides goreleaser's `pawl_<ver>_<os>_<arch>.tar.gz` archives and `checksums.txt`, each release
+carries two assets built by `scripts/release/build-plugin-archive.sh` (run by `release.yml` right
+after goreleaser, then `gh release upload ... --clobber`):
+
+- `agent-pawl-plugin_<ver>.zip` — the plugin root: `.claude-plugin/plugin.json`, `hooks/hooks.json`,
+  `skills/pawl/SKILL.md` (a real file), `bin/pawl`, `bin/pawl-hook`, and the four
+  `libexec/<os>_<arch>/pawl` binaries unpacked from goreleaser's archives. The script verifies each
+  archive against `checksums.txt` first and fails on a missing archive, a missing checksum line or a
+  mismatch; it also fails unless `plugin.json`'s version equals the release version. Built with
+  `zip -X` so the 0755 modes survive.
+- `marketplace.json` — a one-plugin marketplace whose `archive` source is the zip's release URL
+  pinned by its sha256, installable from
+  `https://github.com/dcferreira/agent-pawl/releases/latest/download/marketplace.json`.
+
+The script's tests (fake tarballs, no network) are part of `make test-release-checks`.
 
 ## One-time setup: the GitHub App
 
@@ -126,7 +145,9 @@ If `release.yml` fails partway (e.g. goreleaser flaked after the tag was already
 from **Actions → Release → Run workflow** (`workflow_dispatch`, `main` selected). It's idempotent
 across all three states a re-run can find:
 
-- tag and GitHub Release both already exist: nothing to do.
+- tag and GitHub Release both already exist: nothing to do, unless the release lacks the plugin
+  assets (a run that died between goreleaser and the upload) — then the workflow checks out the
+  tag, downloads the published archives and uploads just the plugin assets.
 - tag exists but the release doesn't (goreleaser failed after the tag push): the tag isn't
   recreated (that would fail outright); the workflow checks out the tagged commit (it needn't be
   main's current tip any more — other PRs may have merged since) and runs goreleaser from there.

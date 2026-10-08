@@ -92,8 +92,17 @@ jobs:
           gh release view "${VERSION}" >/dev/null 2>&1 && release_exists=1 || true
 
           if [ "$tag_exists" = "1" ] && [ "$release_exists" = "1" ]; then
-            echo "::notice::${VERSION} is already tagged and released — nothing to do."
-            echo "SKIP=1" >>"$GITHUB_ENV"
+            # A run that died between goreleaser and the plugin upload leaves
+            # a release without the plugin assets: finish that, don't skip.
+            if gh release view "${VERSION}" --json assets --jq '.assets[].name' | grep -qx "agent-pawl-plugin_${VERSION#v}.zip" &&
+              gh release view "${VERSION}" --json assets --jq '.assets[].name' | grep -qx "marketplace.json"; then
+              echo "::notice::${VERSION} is already tagged and released, with its plugin assets — nothing to do."
+              echo "SKIP=1" >>"$GITHUB_ENV"
+            else
+              echo "::notice::${VERSION} is already tagged and released but is missing its plugin assets — checking out the tag and uploading only those."
+              git checkout "refs/tags/${VERSION}"
+              echo "SKIP_GORELEASER=1" >>"$GITHUB_ENV"
+            fi
           elif [ "$tag_exists" = "1" ]; then
             echo "::notice::${VERSION} is already tagged with no release yet — checking out the tag and resuming from goreleaser without re-tagging."
             git checkout "refs/tags/${VERSION}"
@@ -117,7 +126,7 @@ jobs:
           GITHUB_EVENT_NAME: ${{ github.event_name }}
 
       - name: Write release notes from .changes/
-        if: env.SKIP != '1'
+        if: env.SKIP != '1' && env.SKIP_GORELEASER != '1'
         run: |
           set -euo pipefail
           # Drop the version-file's own header line ("## vX.Y.Z - date");
@@ -130,7 +139,7 @@ jobs:
       # `latest`, for reproducibility — same rationale as pinning
       # staticcheck's version in the Makefile.
       - name: Run goreleaser
-        if: env.SKIP != '1'
+        if: env.SKIP != '1' && env.SKIP_GORELEASER != '1'
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
@@ -140,3 +149,30 @@ jobs:
           # Used by goreleaser to publish the GitHub release and upload
           # archives/checksums.txt as its assets.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Plugin-only re-run (release exists, plugin assets don't): goreleaser
+      # didn't run in this job, so fetch the archives and checksums.txt it
+      # published, which build-plugin-archive.sh then re-verifies.
+      - name: Fetch the published archives (plugin-only re-run)
+        if: env.SKIP_GORELEASER == '1'
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh release download "${VERSION}" --dir dist --pattern 'pawl_*.tar.gz' --pattern checksums.txt
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # The plugin zip bundles goreleaser's own binaries (checked against
+      # checksums.txt first) with the plugin files from this checkout, which
+      # is the tagged commit in every path that reaches here. --clobber makes
+      # a re-run replace assets rather than fail on them.
+      - name: Build and upload the plugin archive and marketplace.json
+        if: env.SKIP != '1'
+        run: |
+          set -euo pipefail
+          bash scripts/release/build-plugin-archive.sh "${VERSION}" dist dist/plugin
+          gh release upload "${VERSION}" \
+            "dist/plugin/agent-pawl-plugin_${VERSION#v}.zip" dist/plugin/marketplace.json \
+            --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
