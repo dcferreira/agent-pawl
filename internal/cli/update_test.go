@@ -417,13 +417,13 @@ func TestCmdUpdate_CheckAndVersionMutuallyExclusive(t *testing.T) {
 	}
 }
 
-// TestCmdUpdate_DevRefusalAndCheckDoNotResolveExePath proves the
-// dev-build refusal and --check paths never need (and never attempt) to
-// resolve the running binary's own path: overriding osExecutable to fail
-// must not turn either of them into an unrelated exit-5 "couldn't locate
-// the running binary" error, since CmdUpdate only calls resolveExePath
-// from the branches that actually write to the binary.
-func TestCmdUpdate_DevRefusalAndCheckDoNotResolveExePath(t *testing.T) {
+// TestCmdUpdate_DevRefusalAndCheckToleratesExePathResolutionFailure proves
+// the dev-build refusal and --check paths tolerate a failure to resolve
+// the running binary's own path: CmdUpdate resolves it early for plugin
+// detection but ignores a failure there (fail open), so overriding
+// osExecutable to fail must not turn either of them into an unrelated
+// exit-5 "couldn't locate the running binary" error.
+func TestCmdUpdate_DevRefusalAndCheckToleratesExePathResolutionFailure(t *testing.T) {
 	orig := osExecutable
 	osExecutable = func() (string, error) { return "", fmt.Errorf("boom: no /proc/self/exe here") }
 	t.Cleanup(func() { osExecutable = orig })
@@ -578,7 +578,6 @@ func TestCmdUpdate_PluginManagedRefusesEveryModeWithoutNetwork(t *testing.T) {
 }
 
 func TestCmdUpdate_NonPluginPathStillUpdates(t *testing.T) {
-	pluginSeams(t, "/home/u/.local/bin/pawl", "/home/u/.local/bin/pawl")
 	srv := newUpdateTestServer(t, "v0.3.0")
 	exe := filepath.Join(t.TempDir(), "pawl")
 	if err := os.WriteFile(exe, []byte("old"), 0755); err != nil {
