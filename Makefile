@@ -1,7 +1,7 @@
-.PHONY: build test test-race install fmt fmt-check vet staticcheck test-install test-release-checks check
+.PHONY: build test test-race install fmt fmt-check vet staticcheck test-install test-release-checks test-launcher check
 
 # Output goes to dist/, not bin/: bin/ is a committed plugin directory
-# (bin/pawl is the plugin's wrapper script), so a compiled binary must not
+# (bin/pawl is the plugin's launcher script), so a compiled binary must not
 # land there.
 build:
 	go build -o dist/pawl ./cmd/pawl
@@ -43,4 +43,10 @@ test-install:
 test-release-checks:
 	bash scripts/release/test-checks.sh
 
-check: fmt vet test test-install test-release-checks
+# Tests bin/pawl, the plugin launcher (bundled-binary exec, platform
+# mapping, PATH fallback and its recursion guard), with stubbed uname and
+# throwaway plugin trees — no network.
+test-launcher:
+	bash scripts/test-launcher.sh
+
+check: fmt vet test test-install test-release-checks test-launcher

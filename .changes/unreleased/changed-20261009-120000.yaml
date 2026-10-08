@@ -1,0 +1,3 @@
+kind: changed
+body: 'The plugin launcher `bin/pawl` now execs a binary bundled at `libexec/<os>_<arch>/pawl` when the plugin ships one (failing clearly if that platform is missing, with no PATH fallback), and only searches PATH in a checkout without `libexec/`; the plugin and skill descriptions no longer say the plugin cannot ship the binary.'
+time: 2026-10-09T12:00:00.000000000+02:00

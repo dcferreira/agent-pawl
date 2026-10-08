@@ -116,3 +116,9 @@ jobs:
       # scripts/release/test-checks.sh.
       - name: Test release check scripts
         run: make test-release-checks
+
+      # bin/pawl, the plugin launcher: bundled-binary exec, platform mapping
+      # and the PATH fallback, with a stubbed uname — see
+      # scripts/test-launcher.sh.
+      - name: Test plugin launcher
+        run: make test-launcher
