@@ -1,8 +1,8 @@
 # goreleaser config for release binaries, consumed by install.sh and
 # .github/workflows/release.yml. Only the `pawl` binary is built and
-# archived; the plugin (.claude-plugin/, skills/) is not goreleaser's
-# concern — it's installed separately via `claude plugin marketplace add`,
-# per README.md.
+# archived; the plugin zip and marketplace.json are not goreleaser's
+# concern — scripts/release/build-plugin-archive.sh builds them from
+# goreleaser's archives after goreleaser runs (see docs/releasing.md).
 version: 2
 
 before:

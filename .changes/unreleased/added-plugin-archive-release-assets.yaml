@@ -1,0 +1,3 @@
+kind: added
+body: 'Releases now upload `agent-pawl-plugin_<ver>.zip` (the plugin with the `pawl` binaries for darwin and linux, amd64 and arm64, verified against `checksums.txt`) and a `marketplace.json` pinning it by sha256, built by `scripts/release/build-plugin-archive.sh`.'
+time: 2026-10-09T01:00:00.000000000+02:00
