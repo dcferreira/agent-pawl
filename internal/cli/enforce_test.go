@@ -523,7 +523,8 @@ func TestNoHeartbeatError_SessionHeartbeatMissing(t *testing.T) {
 	msg := checkRefusal(t, noHeartbeatError(root))
 	for _, want := range []string{
 		"has not recorded a pawl command for session sess-abc",
-		"older than 0.4.0 never writes a session heartbeat",
+		"hook is not installed or enabled for this session",
+		"older than 0.4.0, which never writes a session heartbeat",
 		"pawl update",
 		"no heartbeat for working copy " + root,
 	} {

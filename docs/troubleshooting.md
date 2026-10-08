@@ -20,8 +20,9 @@ session id in `CLAUDE_CODE_SESSION_ID`, then the one for this working copy; each
 - `CLAUDE_CODE_SESSION_ID is not set` — the session heartbeat (written by pawl >= 0.4.0) could not be
   looked up, so only the working-copy heartbeat was checked.
 - `the PreToolUse hook has not recorded a pawl command for session <id>` — the variable is set but no
-  session heartbeat exists. A hook running a pawl older than 0.4.0 never writes one: run `pawl update`
-  (and restart the session if the plugin was updated).
+  session heartbeat exists. Either the hook is not installed or enabled for this session (install the
+  plugin and restart the session), or it runs a pawl older than 0.4.0, which never writes one: run
+  `pawl update` (and restart the session if the plugin was updated).
 - `the heartbeat for session <id> is … old; the limit is 5m0s` (or the same for the working copy) — the
   hook did fire, but not within the last 5 minutes.
 - `no heartbeat for working copy <path>` — nothing was ever recorded for this directory.
@@ -152,8 +153,9 @@ Claude Code too old to export it) — then only the working-copy heartbeat is co
 to the session's start directory. Start the session in the working copy you run `pawl` in.
 
 The refusal's `Diagnosis:` lines (see [Hooks not live](#hooks-not-live)) tell you which case you are in.
-If it says the hook has not recorded a pawl command for your session id, the hook is probably running a
-pawl older than 0.4.0, which never writes the session heartbeat: run `pawl update`.
+If it says the hook has not recorded a pawl command for your session id, either the hook is not
+installed or enabled for this session (install the plugin and restart the session), or it runs a pawl
+older than 0.4.0, which never writes the session heartbeat (run `pawl update`).
 
 ## Workflow not found, or run not visible, outside a VCS-tracked directory
 

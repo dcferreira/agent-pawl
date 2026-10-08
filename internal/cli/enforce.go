@@ -42,7 +42,7 @@ func noHeartbeatError(root string) error {
 	if id := os.Getenv(envSessionID); id == "" {
 		lines = append(lines, envSessionID+" is not set, so the session-keyed heartbeat (written by pawl >= 0.4.0) cannot be looked up; only this working copy's heartbeat was checked.")
 	} else if hb, ok, err := journal.ReadSessionHeartbeat(id); err != nil || !ok {
-		lines = append(lines, "the PreToolUse hook has not recorded a pawl command for session "+id+". A hook running a pawl older than 0.4.0 never writes a session heartbeat: run `pawl update`.")
+		lines = append(lines, "the PreToolUse hook has not recorded a pawl command for session "+id+": either the hook is not installed or enabled for this session (install the plugin and restart the session), or it runs a pawl older than 0.4.0, which never writes a session heartbeat (run `pawl update`).")
 	} else {
 		lines = append(lines, "the heartbeat for session "+id+" "+heartbeatAge(hb, now))
 	}
