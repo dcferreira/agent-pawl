@@ -22,7 +22,8 @@ session id in `CLAUDE_CODE_SESSION_ID`, then the one for this working copy; each
 - `the PreToolUse hook has not recorded a pawl command for session <id>` — the variable is set but no
   session heartbeat exists. Either the hook is not installed or enabled for this session (install the
   plugin and restart the session), or it runs a pawl older than 0.4.0, which never writes one: run
-  `pawl update` (and restart the session if the plugin was updated).
+  `pawl update` for a standalone binary, or `claude plugin update agent-pawl@agent-pawl` if the binary
+  is the plugin's bundled one (`pawl update` refuses there), and restart the session.
 - `the heartbeat for session <id> is … old; the limit is 5m0s` (or the same for the working copy) — the
   hook did fire, but not within the last 5 minutes.
 - `no heartbeat for working copy <path>` — nothing was ever recorded for this directory.
@@ -94,11 +95,14 @@ not undone either way, and `pawl validate` on the edited file is free.
 
 ## A hook error: "pawl-hook: … exited 2; failing open"
 
-The plugin (`bin/pawl-hook`) is newer than the `pawl` binary on your `PATH`: a binary built before
-`pawl hook` existed prints its usage and exits 2 for the unknown subcommand. The wrapper treats that —
-and any other non-zero exit — as a non-blocking error, so nothing is denied or blocked, but nothing is
-enforced either and `pawl run` refuses to start for lack of a heartbeat. Update the binary (`pawl
-update`, or `go install github.com/dcferreira/agent-pawl/cmd/pawl@latest`).
+The wrapper treats any non-zero exit from the binary as a non-blocking error, so nothing is denied or
+blocked, but nothing is enforced either and `pawl run` refuses to start for lack of a heartbeat. With the
+release-marketplace plugin the binary is bundled (`libexec/<os>_<arch>/pawl`) and always matches the
+plugin, so this means the bundled binary is missing or broken: reinstall the plugin from the release
+marketplace. In a checkout or with `--plugin-dir` (no `libexec/`) the plugin (`bin/pawl-hook`) can be
+newer than the `pawl` binary on your `PATH`: a binary built before `pawl hook` existed prints its usage
+and exits 2 for the unknown subcommand. Update that binary (`pawl update`, or `go install
+github.com/dcferreira/agent-pawl/cmd/pawl@latest`).
 
 ## The run is fine but the session ended
 
@@ -136,8 +140,8 @@ payload carries `agent_id` (a subagent call), not the main session's own command
 A forgotten live run — including a `BLOCKED` one, which is still live — or a dangling `live/` link
 left behind by a deleted checkout makes `bin/pawl-hook`'s fast path think a run is live in every
 session, so it hands every Bash call's payload to the real `pawl` binary instead of exiting 0
-immediately. If `pawl` itself isn't installed (only the plugin's wrapper scripts are), this also
-surfaces as a non-blocking "the `pawl` binary is not installed" error on Bash calls that have nothing
+immediately. If `pawl` itself isn't available (only in a checkout with no `libexec/` bundled binary and no `pawl` on `PATH`), this also
+surfaces as a non-blocking "the `pawl` binary was not found" error on Bash calls that have nothing
 to do with `pawl`. Fix it with `pawl abandon --run <id>` in the checkout that started the run, or by
 removing the stale entries directly under `~/.claude/pawl/live/`.
 

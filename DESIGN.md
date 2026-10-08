@@ -289,12 +289,13 @@ Two hooks ship with the plugin (`hooks/hooks.json`), bound once at install: `Pre
 `Bash`) and `Stop`, both pointed at `bin/pawl-hook`. `pawl-hook` is a short POSIX sh fast-path
 wrapper: when there is no live run indexed under `live/` *and* the payload doesn't mention `pawl`,
 it exits 0 without invoking the real binary at all; otherwise it pipes stdin to the sibling
-`bin/pawl` wrapper's `hook pre|stop`, which finds a real `pawl` on `PATH` without recursing. A deny
+`bin/pawl` launcher's `hook pre|stop`, which execs the plugin's bundled binary (always the plugin's own
+version) or, only in a checkout without `libexec/`, a `pawl` found on `PATH` without recursing. A deny
 or block is always exit 0 with Claude Code's JSON decision on stdout (PreToolUse
 `hookSpecificOutput.permissionDecision: "deny"`, Stop `{"decision":"block"}`), never exit 2, and
-`pawl-hook` turns every non-zero exit from the binary into exit 1 (fail open): the plugin and the
-binary update separately, and a binary older than `pawl hook` exits 2 with usage for the unknown
-subcommand, which would otherwise read as "block" to Claude Code:
+`pawl-hook` turns every non-zero exit from the binary into exit 1 (fail open): in the `PATH`-fallback
+case the plugin and the binary update separately, and a binary older than `pawl hook` exits 2 with
+usage for the unknown subcommand, which would otherwise read as "block" to Claude Code:
 
 ```
 PreToolUse (matcher: Bash) → bin/pawl-hook pre  → (maybe) pawl hook pre
