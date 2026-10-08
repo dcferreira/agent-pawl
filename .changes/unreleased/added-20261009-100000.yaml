@@ -1,0 +1,3 @@
+kind: added
+body: '`pawl update` now refuses, in every mode and before any network access, when the running binary is the one shipped by the agent-pawl Claude Code plugin (exit 4), and points at `claude plugin update agent-pawl@agent-pawl` instead.'
+time: 2026-10-09T10:00:00.000000000+02:00
