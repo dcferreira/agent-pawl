@@ -1,18 +1,25 @@
 #!/usr/bin/env bash
-# Wrapper shipped by the agent-pawl Claude Code plugin.
+# Launcher shipped by the agent-pawl Claude Code plugin.
 #
-# A plugin cannot ship the real `pawl` binary (it's a Go build artifact, not
-# plugin content), so this script's only job is to find a real `pawl` on
-# PATH and exec it — or fail with an actionable message if there isn't one.
+# Release builds of the plugin bundle the real binary at
+# <plugin root>/libexec/<os>_<arch>/pawl. This script finds it relative to its
+# own (symlink-resolved) location and execs it: no PATH lookup, so no
+# recursion risk, and the binary always matches the plugin version.
 #
-# TRAP: Claude Code puts a plugin's bin/ on PATH, so this script is itself
-# named `pawl` and sits ahead of everywhere else. A naive `exec pawl "$@"`
-# would find itself and recurse forever. Skipping our own directory is not
-# enough either: a symlink named `pawl` in some *other* PATH directory can
-# point straight back here, which resolves the directory check but still
-# re-enters this script. So we fully resolve every candidate through its
-# symlinks before deciding, and keep a depth guard as a last line of defence
-# that does not depend on getting the path reasoning right.
+# - libexec/ exists but has no binary for this platform: fail with a clear
+#   message. Never fall back to some other `pawl` on PATH, which could be a
+#   different version than the plugin's hooks and skill expect.
+# - No libexec/ at all (a source checkout, or --plugin-dir): fall back to
+#   searching PATH for a real `pawl`.
+#
+# TRAP (fallback only): Claude Code puts a plugin's bin/ on PATH, so this
+# script is itself named `pawl` and sits ahead of everywhere else. A naive
+# `exec pawl "$@"` would find itself and recurse forever. Skipping our own
+# directory is not enough either: a symlink named `pawl` in some *other* PATH
+# directory can point straight back here, which resolves the directory check
+# but still re-enters this script. So we fully resolve every candidate
+# through its symlinks before deciding, and keep a depth guard as a last line
+# of defence that does not depend on getting the path reasoning right.
 set -euo pipefail
 
 if [ "${PAWL_WRAPPER_ACTIVE:-}" = "1" ]; then
@@ -20,7 +27,6 @@ if [ "${PAWL_WRAPPER_ACTIVE:-}" = "1" ]; then
   echo "A 'pawl' on PATH points back at this wrapper instead of the real binary." >&2
   exit 1
 fi
-export PAWL_WRAPPER_ACTIVE=1
 
 # Portable realpath: readlink -f is GNU-only, and this has to work on macOS.
 # The counter bounds a symlink cycle, which would otherwise spin here.
@@ -43,6 +49,50 @@ self="$(resolve "${BASH_SOURCE[0]}")" || {
   echo "error: pawl wrapper could not resolve its own path." >&2
   exit 1
 }
+plugin_root="$(dirname "$(dirname "$self")")"
+
+if [ -d "$plugin_root/libexec" ]; then
+  uname_s="$(uname -s)"
+  uname_m="$(uname -m)"
+  case "$uname_s" in
+    Darwin) os=darwin ;;
+    Linux) os=linux ;;
+    *) os="" ;;
+  esac
+  case "$uname_m" in
+    x86_64|amd64) arch=amd64 ;;
+    arm64|aarch64) arch=arm64 ;;
+    *) arch="" ;;
+  esac
+  if [ -z "$os" ] || [ -z "$arch" ]; then
+    cat >&2 <<MSG
+error: unsupported platform ($uname_s/$uname_m) for the agent-pawl plugin.
+
+The plugin bundles pawl for darwin and linux on amd64 and arm64 only. Build
+pawl from source instead (go install github.com/dcferreira/agent-pawl/cmd/pawl@latest)
+and run it from PATH rather than through this plugin's launcher.
+MSG
+    exit 1
+  fi
+  bundled="$plugin_root/libexec/${os}_${arch}/pawl"
+  if [ ! -f "$bundled" ] || [ ! -x "$bundled" ]; then
+    cat >&2 <<MSG
+error: the agent-pawl plugin has no usable bundled binary for ${os}_${arch}.
+
+Expected an executable file at:
+  $bundled
+
+The plugin install looks incomplete or corrupted. Reinstall it from the
+release marketplace:
+  /plugin marketplace add https://github.com/dcferreira/agent-pawl/releases/latest/download/marketplace.json
+MSG
+    exit 1
+  fi
+  exec "$bundled" "$@"
+fi
+
+# No libexec/: source checkout or --plugin-dir. Search PATH.
+export PAWL_WRAPPER_ACTIVE=1
 
 IFS=':' read -r -a path_entries <<< "${PATH:-}"
 
@@ -64,11 +114,15 @@ done
 
 if [ -z "$found" ]; then
   cat >&2 <<'EOF'
-error: the `pawl` binary is not installed.
+error: the `pawl` binary was not found.
 
-The agent-pawl Claude Code plugin ships the /agent-pawl:pawl skill, but it
-cannot ship the pawl binary itself (Go build artifacts aren't plugin
-content). Install it with:
+This checkout of the agent-pawl plugin has no bundled binary (no libexec/
+directory) and there is no `pawl` on PATH. Either install the plugin from
+the release marketplace, which bundles the binary:
+
+  /plugin marketplace add https://github.com/dcferreira/agent-pawl/releases/latest/download/marketplace.json
+
+or install pawl itself, with install.sh or:
 
   go install github.com/dcferreira/agent-pawl/cmd/pawl@latest
 

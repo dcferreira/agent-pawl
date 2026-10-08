@@ -8,13 +8,16 @@
 # itself always re-derives the live runs from the run directories.
 #
 # Otherwise hand the payload to the real binary through the sibling bin/pawl
-# wrapper, which already finds a real `pawl` on PATH without recursing.
+# launcher (called by absolute path): it execs the binary bundled in the plugin
+# (libexec/<os>_<arch>/pawl) or, in a checkout with no libexec/, a `pawl` found
+# on PATH without recursing.
 #
 # Only a positive JSON decision on stdout (exit 0) denies or blocks; every
-# non-zero exit fails open (exit 1), never a bare exit 2. The plugin and the
-# binary update separately, and a binary older than `pawl hook` exits 2 for
-# the unknown subcommand — passing that through would deny every pawl-
-# mentioning Bash call (including the `go install` that fixes it).
+# non-zero exit fails open (exit 1), never a bare exit 2. A bundled binary
+# always matches the plugin, but in the PATH-fallback case (a checkout or
+# --plugin-dir) the binary can be older than `pawl hook` and exit 2 for the
+# unknown subcommand — passing that through would deny every pawl-mentioning
+# Bash call (including the reinstall that fixes it).
 case "${1:-}" in
   pre|stop) ;;
   # A usage mistake fails open (exit 1), never exit 2: exit 2 means "block"
@@ -52,7 +55,7 @@ here=$(cd "$(dirname "$0")" && pwd -P)
 out=$(printf '%s' "$payload" | "$here/pawl" hook "$1")
 code=$?
 if [ "$code" -ne 0 ]; then
-  echo "pawl-hook: \`pawl hook $1\` exited $code; failing open (is the pawl binary older than the plugin? docs/troubleshooting.md)" >&2
+  echo "pawl-hook: \`pawl hook $1\` exited $code; failing open (missing or broken bundled binary, or, in a checkout without libexec/, a pawl on PATH older than this plugin? see docs/troubleshooting.md)" >&2
   exit 1
 fi
 if [ -n "$out" ]; then printf '%s\n' "$out"; fi
