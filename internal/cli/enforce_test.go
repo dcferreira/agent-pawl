@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -465,5 +466,107 @@ func TestResume_StampsGatedSessionEvenIfHeartbeatGoesStale(t *testing.T) {
 	d, ok, _ := journal.ReadDriver(live[0].Dir)
 	if !ok || d.SessionID != "s2" {
 		t.Fatalf("driver=%+v ok=%v, want the gated session s2", d, ok)
+	}
+}
+
+const refusalPrefix = "pawl: refusing to start: pawl's PreToolUse hook has not fired for this working copy in the last 5 minutes.\n" +
+	"Install the agent-pawl Claude Code plugin (docs/install.md#hooks), or pass --no-enforcement."
+
+func fixedNow(t *testing.T) time.Time {
+	t.Helper()
+	base := time.Date(2026, 1, 2, 12, 0, 0, 0, time.UTC)
+	old := nowFunc
+	nowFunc = func() time.Time { return base }
+	t.Cleanup(func() { nowFunc = old })
+	return base
+}
+
+func checkRefusal(t *testing.T, err error) string {
+	t.Helper()
+	if err == nil {
+		t.Fatal("want an error")
+	}
+	if !errors.Is(err, errNoHeartbeat) {
+		t.Fatalf("errors.Is(err, errNoHeartbeat) = false: %v", err)
+	}
+	msg := err.Error()
+	if !strings.HasPrefix(msg, refusalPrefix) {
+		t.Fatalf("message does not start with the verbatim refusal: %q", msg)
+	}
+	if !strings.Contains(msg, "\nDiagnosis:\n") {
+		t.Fatalf("no Diagnosis block: %q", msg)
+	}
+	return msg
+}
+
+func TestNoHeartbeatError_SessionEnvUnset(t *testing.T) {
+	root := setupWorkingCopy(t)
+	fixedNow(t)
+	msg := checkRefusal(t, noHeartbeatError(root))
+	for _, want := range []string{
+		"CLAUDE_CODE_SESSION_ID is not set",
+		"pawl >= 0.4.0",
+		"only this working copy's heartbeat was checked",
+		"no heartbeat for working copy " + root,
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("missing %q in %q", want, msg)
+		}
+	}
+	t.Log("\n" + msg)
+}
+
+func TestNoHeartbeatError_SessionHeartbeatMissing(t *testing.T) {
+	root := setupWorkingCopy(t)
+	fixedNow(t)
+	t.Setenv(envSessionID, "sess-abc")
+	msg := checkRefusal(t, noHeartbeatError(root))
+	for _, want := range []string{
+		"has not recorded a pawl command for session sess-abc",
+		"hook is not installed or enabled for this session",
+		"older than 0.4.0, which never writes a session heartbeat",
+		"pawl update",
+		"no heartbeat for working copy " + root,
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("missing %q in %q", want, msg)
+		}
+	}
+}
+
+func TestNoHeartbeatError_SessionHeartbeatStale(t *testing.T) {
+	root := setupWorkingCopy(t)
+	base := fixedNow(t)
+	t.Setenv(envSessionID, "sess-abc")
+	if err := journal.WriteSessionHeartbeat("sess-abc", base.Add(-7*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	msg := checkRefusal(t, noHeartbeatError(root))
+	if !strings.Contains(msg, "session sess-abc") || !strings.Contains(msg, "7m0s old") || !strings.Contains(msg, "5m0s") {
+		t.Errorf("stale session line missing: %q", msg)
+	}
+	t.Log("\n" + msg)
+}
+
+func TestNoHeartbeatError_RootHeartbeatStale(t *testing.T) {
+	root := setupWorkingCopy(t)
+	base := fixedNow(t)
+	if err := journal.WriteHeartbeat(root, "s1", base.Add(-9*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	msg := checkRefusal(t, noHeartbeatError(root))
+	if !strings.Contains(msg, "working copy "+root) || !strings.Contains(msg, "9m0s old") || !strings.Contains(msg, "5m0s") {
+		t.Errorf("stale root line missing: %q", msg)
+	}
+}
+
+func TestRun_RefusalIsDiagnosable(t *testing.T) {
+	enforcedWC(t)
+	code, _, errs := runPawl("run", "hookwf")
+	if code != 4 {
+		t.Fatalf("code=%d err=%q", code, errs)
+	}
+	if !strings.Contains(errs, refusalPrefix+"\nDiagnosis:\n") {
+		t.Fatalf("err=%q", errs)
 	}
 }

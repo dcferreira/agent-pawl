@@ -65,6 +65,9 @@ ago — its way of confirming the `PreToolUse` hook is actually wired up:
 ```
 pawl: refusing to start: pawl's PreToolUse hook has not fired for this working copy in the last 5 minutes.
 Install the agent-pawl Claude Code plugin (docs/install.md#hooks), or pass --no-enforcement.
+Diagnosis:
+  - CLAUDE_CODE_SESSION_ID is not set, so the session-keyed heartbeat (written by pawl >= 0.4.0) cannot be looked up; only this working copy's heartbeat was checked.
+  - no heartbeat for working copy /path/to/repo
 ```
 
 On success the banner reads `hooks: PreToolUse ✔ (heartbeat)  Stop assumed (same hooks.json)`, plus

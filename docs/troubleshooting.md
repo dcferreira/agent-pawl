@@ -9,7 +9,23 @@ to ask Claude Code that directly:
 ```
 pawl: refusing to start: pawl's PreToolUse hook has not fired for this working copy in the last 5 minutes.
 Install the agent-pawl Claude Code plugin (docs/install.md#hooks), or pass --no-enforcement.
+Diagnosis:
+  - CLAUDE_CODE_SESSION_ID is not set, so the session-keyed heartbeat (written by pawl >= 0.4.0) cannot be looked up; only this working copy's heartbeat was checked.
+  - no heartbeat for working copy /path/to/repo
 ```
+
+The `Diagnosis:` lines say which lookups failed. `pawl run` first looks up the heartbeat keyed by the
+session id in `CLAUDE_CODE_SESSION_ID`, then the one for this working copy; each line reports one:
+
+- `CLAUDE_CODE_SESSION_ID is not set` — the session heartbeat (written by pawl >= 0.4.0) could not be
+  looked up, so only the working-copy heartbeat was checked.
+- `the PreToolUse hook has not recorded a pawl command for session <id>` — the variable is set but no
+  session heartbeat exists. Either the hook is not installed or enabled for this session (install the
+  plugin and restart the session), or it runs a pawl older than 0.4.0, which never writes one: run
+  `pawl update` (and restart the session if the plugin was updated).
+- `the heartbeat for session <id> is … old; the limit is 5m0s` (or the same for the working copy) — the
+  hook did fire, but not within the last 5 minutes.
+- `no heartbeat for working copy <path>` — nothing was ever recorded for this directory.
 
 Check: the plugin is installed and enabled; you restarted the session after installing it (hooks bind
 at session start); the plugin's `hooks/hooks.json` exists and wires `PreToolUse`/`Stop` to
@@ -135,6 +151,11 @@ children: a session started in repo A can `cd /ws/B && pawl run …`, and the ho
 You only still see this refusal when `CLAUDE_CODE_SESSION_ID` is not set (a plain terminal, or a
 Claude Code too old to export it) — then only the working-copy heartbeat is consulted, and it belongs
 to the session's start directory. Start the session in the working copy you run `pawl` in.
+
+The refusal's `Diagnosis:` lines (see [Hooks not live](#hooks-not-live)) tell you which case you are in.
+If it says the hook has not recorded a pawl command for your session id, either the hook is not
+installed or enabled for this session (install the plugin and restart the session), or it runs a pawl
+older than 0.4.0, which never writes the session heartbeat (run `pawl update`).
 
 ## Workflow not found, or run not visible, outside a VCS-tracked directory
 
