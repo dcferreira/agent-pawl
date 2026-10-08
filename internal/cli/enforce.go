@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/dcferreira/agent-pawl/internal/journal"
 )
@@ -29,6 +30,38 @@ type enforcementMode struct {
 //lint:ignore ST1005 verbatim two-sentence refusal message (Global Constraint: "Refusal message, verbatim")
 var errNoHeartbeat = errors.New("pawl: refusing to start: pawl's PreToolUse hook has not fired for this working copy in the last 5 minutes.\n" +
 	"Install the agent-pawl Claude Code plugin (docs/install.md#hooks), or pass --no-enforcement.")
+
+// noHeartbeatError is errNoHeartbeat plus a "Diagnosis:" block saying which
+// of freshHeartbeat's two lookups failed and why, so a refusal caused by a
+// missing session id or a pre-0.4.0 hook is distinguishable from a hook that
+// is not installed. It re-reads the same data freshHeartbeat does and only
+// changes the message: errors.Is(err, errNoHeartbeat) still holds.
+func noHeartbeatError(root string) error {
+	now := nowFunc()
+	var lines []string
+	if id := os.Getenv(envSessionID); id == "" {
+		lines = append(lines, envSessionID+" is not set, so the session-keyed heartbeat (written by pawl >= 0.4.0) cannot be looked up; only this working copy's heartbeat was checked.")
+	} else if hb, ok, err := journal.ReadSessionHeartbeat(id); err != nil || !ok {
+		lines = append(lines, "the PreToolUse hook has not recorded a pawl command for session "+id+". A hook running a pawl older than 0.4.0 never writes a session heartbeat: run `pawl update`.")
+	} else {
+		lines = append(lines, "the heartbeat for session "+id+" "+heartbeatAge(hb, now))
+	}
+	if hb, ok, err := journal.ReadHeartbeat(root); err != nil || !ok {
+		lines = append(lines, "no heartbeat for working copy "+root)
+	} else {
+		lines = append(lines, "the heartbeat for working copy "+root+" "+heartbeatAge(hb, now))
+	}
+	return fmt.Errorf("%w\nDiagnosis:\n  - %s", errNoHeartbeat, strings.Join(lines, "\n  - "))
+}
+
+// heartbeatAge describes a heartbeat that failed Fresh, against the TTL.
+func heartbeatAge(hb journal.Heartbeat, now time.Time) string {
+	age := now.Sub(hb.Time)
+	if age < 0 {
+		return "is dated in the future (clock skew?)"
+	}
+	return fmt.Sprintf("is %s old; the limit is %s", age.Round(time.Second), journal.HeartbeatTTL)
+}
 
 // freshHeartbeat finds the PreToolUse heartbeat vouching for this
 // invocation. The hook payload's cwd is always the Claude Code session's
@@ -63,7 +96,7 @@ func checkEnforcement(root string, flagOff bool) (enforcementMode, error) {
 	}
 	hb, ok := freshHeartbeat(root)
 	if !ok {
-		return enforcementMode{}, errNoHeartbeat
+		return enforcementMode{}, noHeartbeatError(root)
 	}
 	return enforcementMode{On: true, SessionID: hb.SessionID}, nil
 }
