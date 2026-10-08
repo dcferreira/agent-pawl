@@ -64,9 +64,10 @@ func parseUpdateArgs(args []string) (updateFlags, error) {
 // osExecutable and evalSymlinks are os.Executable/filepath.EvalSymlinks,
 // indirected through package-level vars so a test can force a resolution
 // failure without needing a real broken /proc/self/exe — used by
-// TestCmdUpdate_DevRefusalAndCheckDoNotResolveExePath to prove that
-// resolveExePath below is never reached by the dev-build refusal or
-// --check paths, neither of which needs the running binary's own path.
+// TestCmdUpdate_DevRefusalAndCheckToleratesExePathResolutionFailure to
+// prove that a resolution failure in the early plugin-detection call to
+// resolveExePath below is ignored (fail open) by the dev-build refusal
+// and --check paths.
 var (
 	osExecutable = os.Executable
 	evalSymlinks = filepath.EvalSymlinks
@@ -97,12 +98,11 @@ func pluginRootOf(exePath, goos, goarch string, exists func(string) bool) (strin
 // resolveExePath returns cfg.ExePath if already set (the test seam:
 // tests always set it), otherwise resolves the running binary's own path
 // via osExecutable + evalSymlinks (production's path, when cmd/pawl/
-// main.go passes cfg == nil). Deliberately called only from the two
-// CmdUpdate branches that actually need to write to that path (the
-// no-flags/`--force`/`--version` update path) — not from the dev-build
-// refusal or `--check`, neither of which touches the filesystem, so a
-// resolution failure must not turn either of those into an unrelated
-// exit-5 error.
+// main.go passes cfg == nil). CmdUpdate calls it early, in every mode,
+// to detect a plugin-shipped binary; a resolution failure there is
+// ignored (fail open), so it must not turn the dev-build refusal or
+// `--check` into an unrelated exit-5 error. The update path that writes
+// to the binary calls it again and does treat a failure as an error.
 func resolveExePath(cfg selfupdate.Config) (string, error) {
 	if cfg.ExePath != "" {
 		return cfg.ExePath, nil
