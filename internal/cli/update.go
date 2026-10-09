@@ -64,23 +64,45 @@ func parseUpdateArgs(args []string) (updateFlags, error) {
 // osExecutable and evalSymlinks are os.Executable/filepath.EvalSymlinks,
 // indirected through package-level vars so a test can force a resolution
 // failure without needing a real broken /proc/self/exe — used by
-// TestCmdUpdate_DevRefusalAndCheckDoNotResolveExePath to prove that
-// resolveExePath below is never reached by the dev-build refusal or
-// --check paths, neither of which needs the running binary's own path.
+// TestCmdUpdate_DevRefusalAndCheckToleratesExePathResolutionFailure to
+// prove that a resolution failure in the early plugin-detection call to
+// resolveExePath below is ignored (fail open) by the dev-build refusal
+// and --check paths.
 var (
 	osExecutable = os.Executable
 	evalSymlinks = filepath.EvalSymlinks
+	pathExists   = func(p string) bool { _, err := os.Stat(p); return err == nil }
 )
+
+// pluginRootOf reports whether exePath (already fully symlink-resolved) is
+// a binary shipped by the agent-pawl Claude Code plugin: it must be exactly
+// <root>/libexec/<goos>_<goarch>/pawl, and <root>/.claude-plugin/plugin.json
+// must exist (checked through exists, so tests need no real plugin). It
+// returns <root>. Pure apart from the exists callback.
+func pluginRootOf(exePath, goos, goarch string, exists func(string) bool) (string, bool) {
+	dir := filepath.Dir(exePath)
+	if filepath.Base(exePath) != "pawl" || filepath.Base(dir) != goos+"_"+goarch {
+		return "", false
+	}
+	libexec := filepath.Dir(dir)
+	if filepath.Base(libexec) != "libexec" {
+		return "", false
+	}
+	root := filepath.Dir(libexec)
+	if !exists(filepath.Join(root, ".claude-plugin", "plugin.json")) {
+		return "", false
+	}
+	return root, true
+}
 
 // resolveExePath returns cfg.ExePath if already set (the test seam:
 // tests always set it), otherwise resolves the running binary's own path
 // via osExecutable + evalSymlinks (production's path, when cmd/pawl/
-// main.go passes cfg == nil). Deliberately called only from the two
-// CmdUpdate branches that actually need to write to that path (the
-// no-flags/`--force`/`--version` update path) — not from the dev-build
-// refusal or `--check`, neither of which touches the filesystem, so a
-// resolution failure must not turn either of those into an unrelated
-// exit-5 error.
+// main.go passes cfg == nil). CmdUpdate calls it early, in every mode,
+// to detect a plugin-shipped binary; a resolution failure there is
+// ignored (fail open), so it must not turn the dev-build refusal or
+// `--check` into an unrelated exit-5 error. The update path that writes
+// to the binary calls it again and does treat a failure as an error.
 func resolveExePath(cfg selfupdate.Config) (string, error) {
 	if cfg.ExePath != "" {
 		return cfg.ExePath, nil
@@ -108,8 +130,8 @@ func resolveExePath(cfg selfupdate.Config) (string, error) {
 //
 // Exit codes: 0 success/no-op/--check; 2 usage error (bad flag, missing
 // flag value, empty --version, --check combined with --version, or a
-// --version value that isn't a clean vX.Y.Z); 4 refused — the dev-build
-// build refusal below, the same "declining to act because the current
+// --version value that isn't a clean vX.Y.Z); 4 refused — the
+// plugin-managed refusal or the dev-build refusal below, the same "declining to act because the current
 // state doesn't match what was asked" bucket docs/cli.md's shared
 // exit-code table uses for pawl submit/abandon's refusals, even though
 // its listed examples are all run/submit-specific; 5 anything else that
@@ -143,6 +165,20 @@ func CmdUpdate(args []string, stdout, stderr io.Writer, currentVersion string, c
 		resolved = *cfg
 	}
 	resolved = resolved.WithDefaults()
+
+	// Plugin-managed refusal comes before the dev-build one: it applies to
+	// every mode (including --check/--force/--version) and a plugin-shipped
+	// binary is a release build in practice, so the two never legitimately
+	// overlap; if they somehow do, the plugin message is the actionable one.
+	// If the running binary's path can't be resolved we fail open (treat it
+	// as not plugin-managed) so the dev refusal and --check, which never
+	// need the path, keep working exactly as before.
+	if exe, rerr := resolveExePath(resolved); rerr == nil {
+		if root, ok := pluginRootOf(exe, resolved.GOOS, resolved.GOARCH, pathExists); ok {
+			printLine(stderr, fmt.Sprintf("pawl update: this pawl is managed by the agent-pawl Claude Code plugin (%s); update it through the plugin instead: run \"claude plugin update agent-pawl@agent-pawl\" (or enable auto-update for the marketplace under /plugin > Marketplaces), then restart Claude Code or run /reload-plugins. A self-update here would be overwritten by the plugin and bypass its checksum check.", root))
+			return 4
+		}
+	}
 
 	_, parseErr := selfupdate.ParseVersion(currentVersion)
 	isDevBuild := parseErr != nil
