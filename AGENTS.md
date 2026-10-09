@@ -53,7 +53,10 @@ describes the target system (full distribution, `foreach:` fan-out), not this bu
 - `pawl poll --run … --step …` drives a `wait` step; `pawl hook pre|stop` is the `PreToolUse`/`Stop`
   hook entry point (see above).
 - `install.sh` and goreleaser-built release binaries exist (tagged releases are published on
-  GitHub); release builds are version-stamped via `-ldflags -X main.Version`, but a source build
+  GitHub), and each release also publishes a plugin zip bundling those binaries plus a
+  release-hosted `marketplace.json`, so installing the plugin from that marketplace needs no
+  separate binary install (`install.sh`/`go install` remain the standalone path for terminal use
+  outside Claude Code); release builds are version-stamped via `-ldflags -X main.Version`, but a source build
   (`go build`/`go install`/`make install`) still prints `pawl dev`.
 - `kind: parallel` also accepts `foreach:`: fan one **deterministic or agentic** body out over a
   runtime-discovered json list (frozen as `Items` on the step's `STEP_ENTER`), per-item events carry
@@ -110,14 +113,24 @@ it by writing the design doc's version of reality into code comments or docs.
 - `.claude/skills/pawl` is a **relative symlink to `skills/pawl`**, so a Claude Code session opened
   in this repo picks up the skill without a plugin install. Do not replace it with a copy — that
   forks the skill into two sources of truth that will drift.
-- `bin/pawl` is a committed **wrapper script**, not a build artifact: it execs a real `pawl` off
-  `PATH`, with self-recursion guards (a plugin puts its `bin/` on `PATH`, so this script could
-  otherwise find and re-exec itself). A plugin cannot ship a compiled Go binary, so this is as far
-  as the plugin goes — the real binary is still `go install`ed separately.
+- **The plugin ships the binary.** Each release's workflow uploads a per-release plugin zip
+  (`agent-pawl-plugin_<ver>.zip`) whose root is the plugin root: `.claude-plugin/plugin.json`,
+  `hooks/`, `skills/pawl/`, `bin/`, and the platform binaries under
+  `libexec/<os>_<arch>/pawl` (darwin/linux × amd64/arm64), plus a release-hosted `marketplace.json`
+  whose entry points at that zip with its sha256. Users add that marketplace URL and enable
+  marketplace auto-update, so plugin and binary move together — see `docs/install.md`. (The older
+  claim that "a plugin cannot ship a compiled Go binary" is wrong; don't reintroduce it.)
+- `bin/pawl` is a committed **launcher script**, not a build artifact: in an installed plugin it
+  execs the bundled `libexec/<os>_<arch>/pawl`; in a source checkout (no `libexec/`, e.g. this repo
+  used via `--plugin-dir` or the in-repo marketplace) it falls back to a `pawl` off `PATH`. That
+  fallback keeps its self-recursion guards (a plugin puts its `bin/` on `PATH`, so the script could
+  otherwise find and re-exec itself). `pawl update` refuses on a plugin-managed binary (one whose
+  symlink-resolved path is `<root>/libexec/<os>_<arch>/pawl` with `<root>/.claude-plugin/plugin.json`
+  present) and says to run `claude plugin update agent-pawl@agent-pawl`.
 - `bin/pawl-hook` is the committed POSIX sh entry point `hooks/hooks.json` binds `PreToolUse`
   (matcher `Bash`) and `Stop` to (`${CLAUDE_PLUGIN_ROOT}/bin/pawl-hook pre|stop`): a cheap fast path
   that exits 0 with no live run and no `pawl` mention in the payload, otherwise pipes stdin to the
-  sibling `bin/pawl` wrapper's `hook pre|stop`. A deny/block is exit 0 with Claude Code's JSON
+  sibling `bin/pawl` launcher's `hook pre|stop`. A deny/block is exit 0 with Claude Code's JSON
   decision on stdout, never exit 2: `pawl-hook` maps every non-zero binary exit to exit 1 (fail
   open), because a `pawl` binary older than the plugin exits 2 (usage) for the unknown `hook`
   subcommand, which Claude Code would read as "block". Non-plugin users wire `pawl hook pre`/`pawl hook

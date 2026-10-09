@@ -22,7 +22,8 @@ session id in `CLAUDE_CODE_SESSION_ID`, then the one for this working copy; each
 - `the PreToolUse hook has not recorded a pawl command for session <id>` — the variable is set but no
   session heartbeat exists. Either the hook is not installed or enabled for this session (install the
   plugin and restart the session), or it runs a pawl older than 0.4.0, which never writes one: run
-  `pawl update` (and restart the session if the plugin was updated).
+  `pawl update` for a standalone binary, or `claude plugin update agent-pawl@agent-pawl` if the binary
+  is the plugin's bundled one (`pawl update` refuses there), and restart the session.
 - `the heartbeat for session <id> is … old; the limit is 5m0s` (or the same for the working copy) — the
   hook did fire, but not within the last 5 minutes.
 - `no heartbeat for working copy <path>` — nothing was ever recorded for this directory.
@@ -98,7 +99,9 @@ The plugin (`bin/pawl-hook`) is newer than the `pawl` binary on your `PATH`: a b
 `pawl hook` existed prints its usage and exits 2 for the unknown subcommand. The wrapper treats that —
 and any other non-zero exit — as a non-blocking error, so nothing is denied or blocked, but nothing is
 enforced either and `pawl run` refuses to start for lack of a heartbeat. Update the binary (`pawl
-update`, or `go install github.com/dcferreira/agent-pawl/cmd/pawl@latest`).
+update`, or `go install github.com/dcferreira/agent-pawl/cmd/pawl@latest`) — with the release plugin the
+binary is bundled and moves with the plugin, so this mainly affects a standalone `pawl` on your `PATH`
+or a source-checkout plugin.
 
 ## The run is fine but the session ended
 
@@ -136,7 +139,7 @@ payload carries `agent_id` (a subagent call), not the main session's own command
 A forgotten live run — including a `BLOCKED` one, which is still live — or a dangling `live/` link
 left behind by a deleted checkout makes `bin/pawl-hook`'s fast path think a run is live in every
 session, so it hands every Bash call's payload to the real `pawl` binary instead of exiting 0
-immediately. If `pawl` itself isn't installed (only the plugin's wrapper scripts are), this also
+immediately. If `pawl` itself isn't available (a source-checkout plugin with no bundled binary and no `pawl` on `PATH`), this also
 surfaces as a non-blocking "the `pawl` binary is not installed" error on Bash calls that have nothing
 to do with `pawl`. Fix it with `pawl abandon --run <id>` in the checkout that started the run, or by
 removing the stale entries directly under `~/.claude/pawl/live/`.
