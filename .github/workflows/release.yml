@@ -98,6 +98,11 @@ jobs:
               gh release view "${VERSION}" --json assets --jq '.assets[].name' | grep -qx "marketplace.json"; then
               echo "::notice::${VERSION} is already tagged and released, with its plugin assets — nothing to do."
               echo "SKIP=1" >>"$GITHUB_ENV"
+            elif ! git cat-file -e "refs/tags/${VERSION}:scripts/release/build-plugin-archive.sh" 2>/dev/null; then
+              # A release cut before plugin assets existed: its tag has no
+              # build script, so there is nothing to backfill.
+              echo "::notice::${VERSION} is already tagged and released and predates plugin assets (its tag has no scripts/release/build-plugin-archive.sh) — nothing to do."
+              echo "SKIP=1" >>"$GITHUB_ENV"
             else
               echo "::notice::${VERSION} is already tagged and released but is missing its plugin assets — checking out the tag and uploading only those."
               git checkout "refs/tags/${VERSION}"

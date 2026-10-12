@@ -147,7 +147,8 @@ across all three states a re-run can find:
 
 - tag and GitHub Release both already exist: nothing to do, unless the release lacks the plugin
   assets (a run that died between goreleaser and the upload) — then the workflow checks out the
-  tag, downloads the published archives and uploads just the plugin assets.
+  tag, downloads the published archives and uploads just the plugin assets. A release whose tag
+  predates the plugin assets (no `scripts/release/build-plugin-archive.sh`) is left alone.
 - tag exists but the release doesn't (goreleaser failed after the tag push): the tag isn't
   recreated (that would fail outright); the workflow checks out the tagged commit (it needn't be
   main's current tip any more — other PRs may have merged since) and runs goreleaser from there.
