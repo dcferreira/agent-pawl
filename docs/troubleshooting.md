@@ -140,7 +140,7 @@ payload carries `agent_id` (a subagent call), not the main session's own command
 A forgotten live run — including a `BLOCKED` one, which is still live — or a dangling `live/` link
 left behind by a deleted checkout makes `bin/pawl-hook`'s fast path think a run is live in every
 session, so it hands every Bash call's payload to the real `pawl` binary instead of exiting 0
-immediately. If `pawl` itself isn't available (only in a checkout with no `libexec/` bundled binary and no `pawl` on `PATH`), this also
+immediately. If `pawl` itself isn't available (a checkout with no `libexec/` bundled binary and no `pawl` on `PATH`; an installed release plugin can also fail with "unsupported platform" or "no usable bundled binary", see the "exited 2; failing open" section above), this also
 surfaces as a non-blocking "the `pawl` binary was not found" error on Bash calls that have nothing
 to do with `pawl`. Fix it with `pawl abandon --run <id>` in the checkout that started the run, or by
 removing the stale entries directly under `~/.claude/pawl/live/`.

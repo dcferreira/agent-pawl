@@ -21,6 +21,10 @@ marketplace and install the plugin:
 /plugin install agent-pawl@agent-pawl
 ```
 
+The release marketplace exists only from the first release that publishes the plugin assets (the
+release after v0.5.0). Until then, and for older versions, the only route is the GitHub-repo
+marketplace (`/plugin marketplace add dcferreira/agent-pawl`) plus a separately installed binary.
+
 Restart the session so the hooks bind. The plugin's `bin/pawl` launcher runs the bundled binary for
 your platform; the hooks and the skill use it, so no separate binary install is needed.
 
@@ -37,8 +41,8 @@ older binary against a newer hook wrapper. Updates are detected by the plugin's 
 
 ### Migrating from the older install
 
-If you installed the plugin from the `dcferreira/agent-pawl` GitHub marketplace (the 0.3.0-style
-plugin, which shipped only the skill and hooks) and the binary separately (`install.sh` or `go
+If you installed the plugin from the `dcferreira/agent-pawl` GitHub marketplace (any plugin version
+installed that way, which ships only the skill and hooks) and the binary separately (`install.sh` or `go
 install`), switch to the release marketplace:
 
 ```
@@ -55,8 +59,8 @@ launcher falls back to a `pawl` on `PATH`.
 ### Using pawl in a terminal outside Claude Code
 
 The bundled binary is not on your shell's `PATH`. For terminal use (`pawl status`, `pawl validate`,
-resuming a run), install a standalone copy with `install.sh` or `go install` below, and keep it
-current with `pawl update`. Two copies (the plugin's and the standalone one) are independent and
+resuming a run), install a standalone copy with `install.sh` or `go install` below. `pawl update` keeps an
+`install.sh` copy current; `go install` users re-run `go install ...@latest`. Two copies (the plugin's and the standalone one) are independent and
 can drift in version; the run state they share lives under `~/.claude/pawl/`, so keep them
 reasonably close.
 
