@@ -96,7 +96,7 @@ jobs:
             # a release without the plugin assets: finish that, don't skip.
             if gh release view "${VERSION}" --json assets --jq '.assets[].name' | grep -qx "agent-pawl-plugin_${VERSION#v}.zip" &&
               gh release view "${VERSION}" --json assets --jq '.assets[].name' | grep -qx "marketplace.json"; then
-              echo "::notice::${VERSION} is already tagged and released, with its plugin assets — nothing to do."
+              echo "::notice::${VERSION} is already tagged and released, with its plugin assets — skipping the build, but still re-checking that the repo marketplace points at it."
               echo "SKIP=1" >>"$GITHUB_ENV"
             elif ! git cat-file -e "refs/tags/${VERSION}:scripts/release/build-plugin-archive.sh" 2>/dev/null; then
               # A release cut before plugin assets existed: its tag has no
@@ -170,7 +170,12 @@ jobs:
       # The plugin zip bundles goreleaser's own binaries (checked against
       # checksums.txt first) with the plugin files from this checkout, which
       # is the tagged commit in every path that reaches here. --clobber makes
-      # a re-run replace assets rather than fail on them.
+      # a re-run replace assets rather than fail on them. The uploaded
+      # marketplace.json is the single source of truth for the zip's url and
+      # sha256; the final step below copies its source into the repo's own
+      # marketplace (users install via `/plugin marketplace add
+      # dcferreira/agent-pawl`, since Claude Code treats a github.com
+      # release-asset URL as a git repo and cannot add it directly).
       - name: Build and upload the plugin archive and marketplace.json
         if: env.SKIP != '1'
         run: |
@@ -181,3 +186,96 @@ jobs:
             --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # The release was already fully published (SKIP=1), but a previous run
+      # may have failed in the marketplace steps below (missing App secret,
+      # rejected pushes), so a re-run must still get to them. Fetch the
+      # published release marketplace.json they read. The updater is
+      # idempotent and never downgrades, so re-running it against an old
+      # release is harmless.
+      - name: Fetch the published marketplace.json (already-released re-run)
+        if: env.SKIP == '1'
+        run: |
+          set -euo pipefail
+          mkdir -p dist/plugin
+          if gh release view "${VERSION}" --json assets --jq '.assets[].name' | grep -qx marketplace.json; then
+            gh release download "${VERSION}" --dir dist/plugin --pattern marketplace.json --clobber
+          else
+            echo "::notice::${VERSION} has no marketplace.json asset (it predates plugin assets) — not updating the repo marketplace."
+            echo "SKIP_MARKETPLACE=1" >>"$GITHUB_ENV"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Point the repo's own .claude-plugin/marketplace.json at this release.
+      # Users add the marketplace as `/plugin marketplace add
+      # dcferreira/agent-pawl` (a git marketplace); its agent-pawl entry is an
+      # archive source naming the release zip + sha256, so until this lands a
+      # new release is not installable. That is why it pushes straight to main
+      # instead of opening a PR: a PR would leave the release uninstallable
+      # until a second manual merge. The sha256 is copied from the release's
+      # marketplace.json (built next to the zip above), never recomputed.
+      #
+      # An App token, not GITHUB_TOKEN: a push made with GITHUB_TOKEN triggers
+      # no workflows, so CI would never run on this commit, and the App can be
+      # a ruleset bypass actor for main's protection (same App as
+      # release-pr.yml). This cannot recurse: this workflow triggers only on
+      # CHANGELOG.md changes, which this commit does not touch.
+      - name: Create a GitHub App token to update the repo marketplace
+        id: app-token
+        if: env.SKIP_MARKETPLACE != '1'
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      # A separate checkout of main: in the resume paths this job's own
+      # checkout is a detached tag, which can't be pushed to main.
+      - name: Check out main to update the repo marketplace
+        if: env.SKIP_MARKETPLACE != '1'
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          path: repo-main
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Point the repo marketplace at the release
+        if: env.SKIP_MARKETPLACE != '1'
+        run: |
+          set -euo pipefail
+          # The updater comes from main, not this job's checkout: on a resume
+          # path that is the release tag, which may predate the script.
+          updater=repo-main/scripts/release/update-repo-marketplace.sh
+          mp=repo-main/.claude-plugin/marketplace.json
+          if [ ! -f "$updater" ]; then
+            echo "::notice::main has no scripts/release/update-repo-marketplace.sh — not updating the repo marketplace."
+            exit 0
+          fi
+          git -C repo-main config user.name "github-actions[bot]"
+          git -C repo-main config user.email "github-actions[bot]@users.noreply.github.com"
+          # Main may move between the checkout and the push (or between
+          # attempts), so each attempt starts from the current origin/main,
+          # re-runs the updater (idempotent, and it never downgrades if a
+          # newer release got there first) and commits only if that changes
+          # anything. Resetting rather than rebasing means a concurrent edit
+          # to marketplace.json can't leave a conflicted rebase behind.
+          for attempt in 1 2 3 4 5; do
+            git -C repo-main fetch -q origin main
+            git -C repo-main reset -q --hard origin/main
+            bash "$updater" dist/plugin/marketplace.json "$mp"
+            if git -C repo-main diff --quiet; then
+              echo "::notice::The repo marketplace is already up to date for ${VERSION} (or points at a newer release)."
+              exit 0
+            fi
+            git -C repo-main add .claude-plugin/marketplace.json
+            git -C repo-main commit -q \
+              -m "chore(release): point the marketplace at ${VERSION}" \
+              -m "Updates the agent-pawl plugin's archive source (zip url and sha256) in .claude-plugin/marketplace.json to the ${VERSION} release assets, so /plugin marketplace add dcferreira/agent-pawl installs it."
+            if git -C repo-main push origin HEAD:main; then
+              echo "::notice::Pointed the repo marketplace at ${VERSION}."
+              exit 0
+            fi
+            echo "push rejected (attempt ${attempt}/5); retrying from the new origin/main"
+          done
+          echo "::error::Could not push the marketplace update to main after 5 attempts." >&2
+          exit 1

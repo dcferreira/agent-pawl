@@ -73,7 +73,9 @@ apply the **`skip changelog`** label instead of adding a fragment (already creat
 `ci.yml`'s lint job also runs `scripts/release/check-version-consistency.sh` on every PR and on
 `main`, which fails unless `plugin.json`'s version matches the highest version recorded under
 `.changes/`. It's a cheap sanity check that the two never quietly drift, independent of the PR-diff
-checks above.
+checks above. It also checks that `.claude-plugin/marketplace.json`'s `agent-pawl` entry is an
+`archive` source for a released version (a `.changes/vV.md` exists) with a 64-hex sha256; that
+entry's version may lag `plugin.json` while a release PR is open, until the release job commits.
 
 Both `.changes/unreleased/*.yaml` fragments and `.claude-plugin/plugin.json` version changes are
 allowed — expected, even — on a `release/v*` branch: that's what the Release PR workflow's commit
@@ -119,8 +121,21 @@ after goreleaser, then `gh release upload ... --clobber`):
   mismatch; it also fails unless `plugin.json`'s version equals the release version. Built with
   `zip -X` so the 0755 modes survive.
 - `marketplace.json` — a one-plugin marketplace whose `archive` source is the zip's release URL
-  pinned by its sha256, installable from
-  `https://github.com/dcferreira/agent-pawl/releases/latest/download/marketplace.json`.
+  pinned by its sha256. It is not addable by URL (Claude Code treats a github.com URL as a git
+  repo); it records the zip's sha256 for the next step, and can be used for a version-pinned local
+  install (see [install.md](install.md#migrating-from-an-earlier-install)).
+
+After the upload, `release.yml` commits the new zip URL and sha256 to `main`'s
+`.claude-plugin/marketplace.json`, which is what `/plugin marketplace add dcferreira/agent-pawl`
+installs from. It copies the source block from the release's own `marketplace.json` asset
+(`scripts/release/update-repo-marketplace.sh`; idempotent, and it never downgrades an entry that
+already points at a newer release) and pushes directly to `main` with the release GitHub App token.
+A PR would leave each release uninstallable until a second manual merge. The App token, unlike
+`GITHUB_TOKEN`, makes CI run on that commit; it can't recurse, because `release.yml` only triggers
+on a `CHANGELOG.md` change. The App needs the Contents read & write it already has. If a `main`
+ruleset or branch protection is ever enabled, the release App must be a bypass actor, or this push
+fails. A failed push is retried by re-running the workflow: with the release already complete, the
+re-run only redoes this step.
 
 The script's tests (fake tarballs, no network) are part of `make test-release-checks`.
 

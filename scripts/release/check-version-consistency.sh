@@ -1,11 +1,22 @@
 #!/usr/bin/env bash
 # Fails unless .claude-plugin/plugin.json's "version" matches the latest
-# released version recorded under .changes/. Runs in CI on every PR and on
+# released version recorded under .changes/, and (when present) the repo's
+# .claude-plugin/marketplace.json points at a real release. Runs in CI on every PR and on
 # main (see ci.yml's lint job) as a sanity check that the two never drift,
 # and again in release.yml right after a Release PR merges.
 #
 # Usage: check-version-consistency.sh [repo-dir]
 # repo-dir defaults to ".".
+#
+# The marketplace check: the agent-pawl entry of <repo-dir>/.claude-plugin/
+# marketplace.json must be an `archive` source whose url is the release-asset
+# url for some version V with a .changes/vV.md (a released version), tag and
+# zip name agreeing, and a 64-char lowercase hex sha256. V is deliberately NOT
+# required to equal plugin.json's version: release.yml's follow-up commit
+# (update-repo-marketplace.sh) lands AFTER the release PR merges, so in the
+# release PR itself, and between its merge and that commit, plugin.json is one
+# release ahead of the marketplace entry. Skipped when the file is absent
+# (the test fixtures).
 #
 # Deliberately doesn't shell out to changie: "latest" is just the highest
 # semver among .changes/v*.md filenames, computed here so this check has no
@@ -75,6 +86,43 @@ plugin_version() {
   jq -r '.version // empty' "$dir/.claude-plugin/plugin.json" 2>/dev/null
 }
 
+# check_marketplace DIR
+# See the header comment: validates the repo marketplace's agent-pawl entry.
+check_marketplace() {
+  local dir="$1" mp="$1/.claude-plugin/marketplace.json"
+  [ -f "$mp" ] || return 0
+  local src url sha ver
+  src="$(jq -c '[.plugins[]? | select(.name == "agent-pawl")][0].source // empty' "$mp")" || {
+    echo "FAIL: $mp is not valid JSON." >&2
+    return 1
+  }
+  if [ -z "$src" ]; then
+    echo "FAIL: $mp has no plugin named agent-pawl (with a source)." >&2
+    return 1
+  fi
+  if [ "$(jq -r 'if type == "object" then (.source // "") else "" end' <<<"$src")" != "archive" ]; then
+    echo "FAIL: $mp's agent-pawl source must be an archive source pointing at a release zip (got $src). Run scripts/release/update-repo-marketplace.sh." >&2
+    return 1
+  fi
+  url="$(jq -r '.url // ""' <<<"$src")"
+  sha="$(jq -r '.sha256 // ""' <<<"$src")"
+  local re='^https://github\.com/dcferreira/agent-pawl/releases/download/v([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?)/agent-pawl-plugin_([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?)\.zip$'
+  if ! [[ "$url" =~ $re ]] || [ "${BASH_REMATCH[1]}" != "${BASH_REMATCH[3]}" ]; then
+    echo "FAIL: $mp's agent-pawl url ($url) isn't https://github.com/dcferreira/agent-pawl/releases/download/vX.Y.Z/agent-pawl-plugin_X.Y.Z.zip." >&2
+    return 1
+  fi
+  ver="${BASH_REMATCH[1]}"
+  if [ ! -f "$dir/.changes/v$ver.md" ]; then
+    echo "FAIL: $mp points at v$ver, but there is no .changes/v$ver.md (not a released version)." >&2
+    return 1
+  fi
+  if ! [[ "$sha" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "FAIL: $mp's agent-pawl sha256 ($sha) isn't 64 lowercase hex characters." >&2
+    return 1
+  fi
+  echo "ok: marketplace.json points at released v$ver"
+}
+
 check_version_consistency() {
   local dir="${1:-.}"
   local latest plugin_ver latest_no_v
@@ -97,7 +145,8 @@ check_version_consistency() {
   fi
 
   echo "ok: plugin.json version ($plugin_ver) matches latest release ($latest)"
-  return 0
+  check_marketplace "$dir"
+  return $?
 }
 
 main() {

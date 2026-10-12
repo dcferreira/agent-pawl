@@ -82,9 +82,13 @@ error: the agent-pawl plugin has no usable bundled binary for ${os}_${arch}.
 Expected an executable file at:
   $bundled
 
-The plugin install looks incomplete or corrupted. Reinstall it from the
-release marketplace:
-  /plugin marketplace add https://github.com/dcferreira/agent-pawl/releases/latest/download/marketplace.json
+The plugin install looks incomplete or corrupted. Refresh the marketplace
+and reinstall the plugin (a plain install of the same version would not
+replace the broken copy, so uninstall first):
+  /plugin marketplace update agent-pawl
+  /plugin uninstall agent-pawl@agent-pawl
+  /plugin install agent-pawl@agent-pawl
+(or, if the marketplace is not added yet: /plugin marketplace add dcferreira/agent-pawl)
 MSG
     exit 1
   fi
@@ -118,9 +122,11 @@ error: the `pawl` binary was not found.
 
 This checkout of the agent-pawl plugin has no bundled binary (no libexec/
 directory) and there is no `pawl` on PATH. Either install the plugin from
-the release marketplace, which bundles the binary:
+the agent-pawl marketplace (it serves the release plugin, which bundles
+the binary):
 
-  /plugin marketplace add https://github.com/dcferreira/agent-pawl/releases/latest/download/marketplace.json
+  /plugin marketplace add dcferreira/agent-pawl
+  /plugin install agent-pawl@agent-pawl
 
 or install pawl itself, with install.sh or:
 

@@ -1,13 +1,18 @@
 {
   "name": "agent-pawl",
-  "description": "The agent-pawl plugin: a Claude Code skill for driving the pawl workflow engine.",
+  "description": "The agent-pawl plugin: a Claude Code skill and hooks for driving the pawl workflow engine, shipping the pawl binary.",
   "owner": {
     "name": "Daniel Ferreira"
   },
   "plugins": [
     {
       "name": "agent-pawl",
-      "source": "./"
+      "source": {
+        "source": "archive",
+        "url": "https://github.com/dcferreira/agent-pawl/releases/download/v0.6.0/agent-pawl-plugin_0.6.0.zip",
+        "sha256": "1d61b40641b1d81b677635686b62194ec03de24041047a273f84607897625604"
+      },
+      "description": "Drive pawl workflow runs from Claude Code; bundles the pawl binary for darwin and linux (amd64, arm64)."
     }
   ]
 }
