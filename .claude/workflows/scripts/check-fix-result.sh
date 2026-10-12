@@ -26,11 +26,11 @@
 #         CI-originated round's findings don't name real repo paths — their
 #         `file` is "CI: <check name>" — so there is nothing to scope
 #         against), every path the working copy actually changed (jj:
-#         `jj diff --name-only`; git: `git status --porcelain`, including
-#         untracked files) must be either the `file` of one of THIS round's
-#         input findings, or named in <extra_files> (a JSON array of
-#         {file, reason} the fixer returns for a file none of the findings
-#         named but the fix genuinely needed). A changed path matching
+#         `jj diff --name-only`; git: `git status --porcelain -uall`,
+#         including untracked files) must be either the `file` of one of
+#         THIS round's input findings, or named in <extra_files> (a JSON
+#         array of {file, reason} the fixer returns for a file none of the
+#         findings named but the fix genuinely needed). A changed path matching
 #         neither fails the step — the fixer is re-prompted (attempts: 3)
 #         naming the offending path(s), same as any other failure here.
 #
@@ -70,7 +70,10 @@ fail=0
 reasons=""
 
 add_reason() {
-  reasons="${reasons}${reasons:+$(printf '\n')}$1"
+  # A literal newline, not $(printf '\n'): command substitution strips
+  # trailing newlines, so that would join the reasons with nothing.
+  reasons="${reasons}${reasons:+
+}$1"
 }
 
 if ! printf '%s' "$findings" | jq -e 'type == "array"' >/dev/null 2>&1; then
@@ -127,7 +130,14 @@ if [ "$ci_round" != "true" ]; then
   case "$vcs" in
     jj) changed=$(jj diff --name-only) ;;
     git)
-      changed=$(git status --porcelain | sed -E 's/^.. //; s/.* -> //')
+      # -uall lists each untracked file, not just its new directory
+      # (`dir/`). -z emits NUL-separated, never C-quoted records (so paths
+      # with spaces or non-ASCII compare equal to a finding's `file`); a
+      # rename/copy record is followed by its source path, which is skipped.
+      changed=$(git status --porcelain -z -uall | tr '\0' '\n' | awk '
+        skip { skip = 0; next }
+        { print substr($0, 4) }
+        substr($0, 1, 2) ~ /[RC]/ { skip = 1 }')
       ;;
     *)
       echo "check-fix-result.sh: unknown vcs '${vcs}' (expected jj or git)" >&2
