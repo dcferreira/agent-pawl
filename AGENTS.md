@@ -110,14 +110,14 @@ it by writing the design doc's version of reality into code comments or docs.
 - `.claude/skills/pawl` is a **relative symlink to `skills/pawl`**, so a Claude Code session opened
   in this repo picks up the skill without a plugin install. Do not replace it with a copy — that
   forks the skill into two sources of truth that will drift.
-- `bin/pawl` is a committed **wrapper script**, not a build artifact: it execs a real `pawl` off
-  `PATH`, with self-recursion guards (a plugin puts its `bin/` on `PATH`, so this script could
-  otherwise find and re-exec itself). A plugin cannot ship a compiled Go binary, so this is as far
-  as the plugin goes — the real binary is still `go install`ed separately.
+- `bin/pawl` is a committed **launcher script**, not a build artifact: it execs the bundled
+  `libexec/<os>_<arch>/pawl` and fails clearly if that platform is missing, with no PATH fallback.
+  Only a checkout without `libexec/` searches `PATH`, with self-recursion guards (a plugin puts
+  its `bin/` on `PATH`, so this script could otherwise find and re-exec itself).
 - `bin/pawl-hook` is the committed POSIX sh entry point `hooks/hooks.json` binds `PreToolUse`
   (matcher `Bash`) and `Stop` to (`${CLAUDE_PLUGIN_ROOT}/bin/pawl-hook pre|stop`): a cheap fast path
   that exits 0 with no live run and no `pawl` mention in the payload, otherwise pipes stdin to the
-  sibling `bin/pawl` wrapper's `hook pre|stop`. A deny/block is exit 0 with Claude Code's JSON
+  sibling `bin/pawl` launcher's `hook pre|stop`. A deny/block is exit 0 with Claude Code's JSON
   decision on stdout, never exit 2: `pawl-hook` maps every non-zero binary exit to exit 1 (fail
   open), because a `pawl` binary older than the plugin exits 2 (usage) for the unknown `hook`
   subcommand, which Claude Code would read as "block". Non-plugin users wire `pawl hook pre`/`pawl hook
@@ -128,7 +128,7 @@ it by writing the design doc's version of reality into code comments or docs.
 Makefile targets (all real, all in CI or documented for local use):
 
 - `make build` — `go build -o dist/pawl ./cmd/pawl`. **Output is `dist/pawl`, never `bin/`** —
-  `bin/` is the committed plugin wrapper above; writing a compiled binary there would clobber it.
+  `bin/` is the committed plugin launcher above; writing a compiled binary there would clobber it.
 - `make install` — `go install ./cmd/pawl` (installs to `$(go env GOPATH)/bin`).
 - `make test` / `make test-race` — `go test ./...` / `go test -race ./...`.
 - `make fmt` — `go fmt ./...`, **rewrites files**.

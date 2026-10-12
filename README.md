@@ -53,8 +53,10 @@ describe:
   `.github/workflows/release.yml`, cross-compiling `pawl` for linux/darwin × amd64/arm64), and
   tagged releases are published on GitHub for `install.sh` to fetch — see
   [docs/install.md](docs/install.md). There is also a Claude Code plugin (see Installation below)
-  that ships the `/agent-pawl:pawl` skill, but a plugin cannot ship a compiled Go binary, so it
-  still depends on installing the binary separately (`install.sh` or a source build).
+  that ships the `/agent-pawl:pawl` skill; release builds of the plugin bundle the binary
+  (darwin/linux × amd64/arm64) when installed from the release marketplace; the GitHub-repo
+  marketplace, a source checkout, and `--plugin-dir` have no bundled binary and need a separate
+  install (`install.sh` or a source build).
 - Releases are cut through a bot-opened **Release PR**: per-PR fragments under `.changes/` are
   batched into `CHANGELOG.md` and a `.claude-plugin/plugin.json` version bump, then a merge to
   `main` tags and publishes via goreleaser in the same run — see
@@ -109,11 +111,16 @@ claude plugin marketplace add dcferreira/agent-pawl
 then use the in-session `/plugin` UI to install `agent-pawl` from that marketplace, or run
 `claude plugin install agent-pawl@agent-pawl` directly.
 
-**The plugin does not and cannot ship the `pawl` binary** — a plugin distributes Claude Code
-components (skills, commands, agents, hooks), not compiled Go binaries. Installing the plugin
-gives you the skill and `bin/pawl`, a wrapper script that execs a real `pawl` from your `PATH` if
-one exists, and otherwise fails with an install message pointing back at the CLI instructions
-above — it is not a substitute for installing the CLI.
+**The release marketplace bundles the `pawl` binary** for darwin/linux (amd64/arm64), and
+`bin/pawl` is a launcher that execs it:
+
+```
+claude plugin marketplace add https://github.com/dcferreira/agent-pawl/releases/latest/download/marketplace.json
+```
+
+The GitHub-repo marketplace above (`dcferreira/agent-pawl`), a source checkout, and `--plugin-dir`
+have no `libexec/`, so they fall back to a `pawl` on your `PATH` and need a separate install (see
+the CLI instructions above).
 
 ### Working in this repo itself
 
@@ -144,5 +151,6 @@ plus `gopkg.in/yaml.v3` only. Package layout: `internal/spec` (YAML types, loade
 (run directory, event log, replay), `internal/engine` (cursor, outcomes, counters), `internal/cli`
 (the commands above). DESIGN.md §9's fuller distribution story (self-installing pinned release
 binaries via two static hooks) is not built; what exists is the plugin described in Installation
-above, plus the `pawl` binary you still build or `go install` yourself — see the Status section
-above.
+above (release builds bundle the `pawl` binary; the GitHub-repo marketplace, a source checkout
+and `--plugin-dir` need a separately installed one), plus `install.sh`/`go install` for the
+standalone binary — see the Status section above.
