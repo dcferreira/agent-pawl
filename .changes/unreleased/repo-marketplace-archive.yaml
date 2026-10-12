@@ -1,3 +1,0 @@
-kind: fixed
-body: The plugin now installs via the GitHub-repo marketplace (`/plugin marketplace add dcferreira/agent-pawl`), whose `marketplace.json` points at the release plugin zip with the bundled `pawl` binary and is kept current by the release workflow (`scripts/release/update-repo-marketplace.sh`); the release-URL `marketplace add` documented in v0.6.0 fails because Claude Code treats github.com URLs as git repos.
-time: 2026-10-12T13:30:00.000000000+01:00
