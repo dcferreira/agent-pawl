@@ -53,8 +53,9 @@ describe:
   `.github/workflows/release.yml`, cross-compiling `pawl` for linux/darwin × amd64/arm64), and
   tagged releases are published on GitHub for `install.sh` to fetch — see
   [docs/install.md](docs/install.md). There is also a Claude Code plugin (see Installation below)
-  that ships the `/agent-pawl:pawl` skill, but a plugin cannot ship a compiled Go binary, so it
-  still depends on installing the binary separately (`install.sh` or a source build).
+  that ships the `/agent-pawl:pawl` skill; release builds of the plugin bundle the binary
+  (darwin/linux × amd64/arm64), and a separate install (`install.sh` or a source build) is needed
+  only for a source checkout or `--plugin-dir`.
 - Releases are cut through a bot-opened **Release PR**: per-PR fragments under `.changes/` are
   batched into `CHANGELOG.md` and a `.claude-plugin/plugin.json` version bump, then a merge to
   `main` tags and publishes via goreleaser in the same run — see
@@ -109,11 +110,10 @@ claude plugin marketplace add dcferreira/agent-pawl
 then use the in-session `/plugin` UI to install `agent-pawl` from that marketplace, or run
 `claude plugin install agent-pawl@agent-pawl` directly.
 
-**The plugin does not and cannot ship the `pawl` binary** — a plugin distributes Claude Code
-components (skills, commands, agents, hooks), not compiled Go binaries. Installing the plugin
-gives you the skill and `bin/pawl`, a wrapper script that execs a real `pawl` from your `PATH` if
-one exists, and otherwise fails with an install message pointing back at the CLI instructions
-above — it is not a substitute for installing the CLI.
+**Release builds of the plugin bundle the `pawl` binary** for darwin/linux (amd64/arm64), and
+`bin/pawl` is a launcher that execs it. Only a source checkout or `--plugin-dir` without
+`libexec/` falls back to a `pawl` on your `PATH` and needs a separate install (see the CLI
+instructions above).
 
 ### Working in this repo itself
 
