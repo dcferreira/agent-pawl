@@ -151,5 +151,6 @@ plus `gopkg.in/yaml.v3` only. Package layout: `internal/spec` (YAML types, loade
 (run directory, event log, replay), `internal/engine` (cursor, outcomes, counters), `internal/cli`
 (the commands above). DESIGN.md §9's fuller distribution story (self-installing pinned release
 binaries via two static hooks) is not built; what exists is the plugin described in Installation
-above, plus the `pawl` binary you still build or `go install` yourself — see the Status section
-above.
+above (release builds bundle the `pawl` binary; the GitHub-repo marketplace, a source checkout
+and `--plugin-dir` need a separately installed one), plus `install.sh`/`go install` for the
+standalone binary — see the Status section above.
