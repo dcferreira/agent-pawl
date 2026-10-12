@@ -131,9 +131,13 @@ if [ "$ci_round" != "true" ]; then
     jj) changed=$(jj diff --name-only) ;;
     git)
       # -uall lists each untracked file, not just its new directory
-      # (`dir/`), and core.quotePath=false keeps non-ASCII paths unquoted,
-      # so both compare equal to a finding's `file`.
-      changed=$(git -c core.quotePath=false status --porcelain -uall | sed -E 's/^.. //; s/.* -> //')
+      # (`dir/`). -z emits NUL-separated, never C-quoted records (so paths
+      # with spaces or non-ASCII compare equal to a finding's `file`); a
+      # rename/copy record is followed by its source path, which is skipped.
+      changed=$(git status --porcelain -z -uall | tr '\0' '\n' | awk '
+        skip { skip = 0; next }
+        { print substr($0, 4) }
+        substr($0, 1, 2) ~ /[RC]/ { skip = 1 }')
       ;;
     *)
       echo "check-fix-result.sh: unknown vcs '${vcs}' (expected jj or git)" >&2
