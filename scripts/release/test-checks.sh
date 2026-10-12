@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Unit tests for scripts/release/check-fragment.sh,
-# check-no-version-bump.sh and check-version-consistency.sh — run with
+# check-no-version-bump.sh, check-version-consistency.sh and
+# build-plugin-archive.sh — run with
 # `make test-release-checks` or `bash scripts/release/test-checks.sh`.
 #
 # Each script is SOURCED (not executed) with PAWL_RELEASE_CHECK_TEST=1, the
@@ -25,6 +26,8 @@ source ./scripts/release/check-fragment.sh
 source ./scripts/release/check-no-version-bump.sh
 # shellcheck source=/dev/null
 source ./scripts/release/check-version-consistency.sh
+# shellcheck source=/dev/null
+source ./scripts/release/build-plugin-archive.sh
 
 failures=0
 tests_run=0
@@ -431,6 +434,125 @@ cat >.claude-plugin/plugin.json <<'EOF'
 EOF
 git add -A && git commit -q -m "two prereleases of the same base version")
 assert_ok "v1.0.0-rc2 sorts after v1.0.0-rc1, rc2 is latest -> pass" check_version_consistency "$FIXTURE_DIR"
+
+# --- build-plugin-archive.sh --------------------------------------------
+#
+# Fixtures: a fake plugin source tree (only the files the plugin zip takes)
+# and a fake goreleaser dist/ whose four tarballs each hold a one-line
+# "pawl" script naming its platform, plus a matching checksums.txt.
+
+PLUGIN_PLATFORMS="darwin_amd64 darwin_arm64 linux_amd64 linux_arm64"
+
+# new_plugin_src DIR VERSION
+new_plugin_src() {
+  local d="$1" v="$2"
+  mkdir -p "$d/.claude-plugin" "$d/hooks" "$d/skills/pawl" "$d/bin"
+  printf '{"name":"agent-pawl","version":"%s"}\n' "$v" >"$d/.claude-plugin/plugin.json"
+  echo '{"hooks":{}}' >"$d/hooks/hooks.json"
+  echo '# skill' >"$d/skills/pawl/SKILL.md"
+  printf '#!/bin/sh\necho launcher\n' >"$d/bin/pawl"
+  printf '#!/bin/sh\necho hook\n' >"$d/bin/pawl-hook"
+  chmod 0644 "$d/bin/pawl" "$d/bin/pawl-hook" # the zip must still ship them 0755
+  # An unrelated file the zip must NOT pick up.
+  echo junk >"$d/README.md"
+}
+
+# new_dist DIR VERSION
+new_dist() {
+  local d="$1" v="$2" plat stage
+  mkdir -p "$d"
+  : >"$d/checksums.txt"
+  for plat in $PLUGIN_PLATFORMS; do
+    stage="$(mktemp -d)"
+    printf '#!/bin/sh\necho pawl %s\n' "$plat" >"$stage/pawl"
+    chmod 0644 "$stage/pawl" # tar mode must not be trusted
+    tar -czf "$d/pawl_${v}_${plat}.tar.gz" -C "$stage" pawl
+    rm -rf "$stage"
+    (cd "$d" && sha256sum "pawl_${v}_${plat}.tar.gz") >>"$d/checksums.txt"
+  done
+}
+
+EXPECTED_ZIP_FILES=".claude-plugin/plugin.json
+bin/pawl
+bin/pawl-hook
+hooks/hooks.json
+libexec/darwin_amd64/pawl
+libexec/darwin_arm64/pawl
+libexec/linux_amd64/pawl
+libexec/linux_arm64/pawl
+skills/pawl/SKILL.md"
+
+PLUGIN_TMP="$(mktemp -d)"
+PSRC="$PLUGIN_TMP/src"
+PDIST="$PLUGIN_TMP/dist"
+POUT="$PLUGIN_TMP/out"
+new_plugin_src "$PSRC" 1.2.3
+new_dist "$PDIST" 1.2.3
+
+# Runs the script in a subshell so `set -e`/exit paths can't kill the test run.
+run_build() { (PLUGIN_SRC="$PSRC" build_plugin_archive "$@"); }
+
+assert_ok "build-plugin-archive: happy path succeeds" run_build 1.2.3 "$PDIST" "$POUT"
+ZIP="$POUT/agent-pawl-plugin_1.2.3.zip"
+assert_ok "zip and marketplace.json are written" test -f "$ZIP" -a -f "$POUT/marketplace.json"
+
+listing="$(unzip -Z1 "$ZIP" 2>/dev/null | grep -v '/$' | LC_ALL=C sort || true)"
+assert_ok "zip contains exactly the contract's file list" test "$listing" = "$EXPECTED_ZIP_FILES"
+
+modes_bad="$(unzip -Z "$ZIP" 2>/dev/null | awk '/^[-d]r/ && $1 !~ /^-rwxr-xr-x/ && $NF !~ /\/$/ && ($NF ~ /^libexec\// || $NF ~ /^bin\//) {print}' || true)"
+assert_ok "libexec binaries and bin/* are mode 0755 in the zip" test -z "$modes_bad" -a "$(unzip -Z "$ZIP" | grep -c -- '-rwxr-xr-x')" -eq 6
+
+x="$(mktemp -d)"
+unzip -q "$ZIP" -d "$x"
+assert_ok "libexec/linux_arm64/pawl is the linux_arm64 tarball's binary" grep -q 'pawl linux_arm64' "$x/libexec/linux_arm64/pawl"
+assert_ok "skills/pawl/SKILL.md is a real file, not a symlink" test -f "$x/skills/pawl/SKILL.md" -a ! -L "$x/skills/pawl/SKILL.md" -a ! -L "$x/skills/pawl"
+rm -rf "$x"
+
+want_sha="$(sha256sum "$ZIP" | awk '{print $1}')"
+want_url="https://github.com/dcferreira/agent-pawl/releases/download/v1.2.3/agent-pawl-plugin_1.2.3.zip"
+assert_ok "marketplace.json sha256 equals sha256sum of the zip" test "$(jq -r '.plugins[0].source.sha256' "$POUT/marketplace.json")" = "$want_sha"
+assert_ok "marketplace.json url matches the contract" test "$(jq -r '.plugins[0].source.url' "$POUT/marketplace.json")" = "$want_url"
+assert_ok "marketplace.json shape (archive source, no version, owner, name)" jq -e '.name=="agent-pawl" and .owner.name=="Daniel Ferreira" and .plugins[0].name=="agent-pawl" and .plugins[0].source.source=="archive" and (.plugins[0]|has("version")|not)' "$POUT/marketplace.json"
+
+if command -v claude >/dev/null 2>&1; then
+  cfg="$(mktemp -d)"
+  assert_ok "marketplace.json passes claude plugin validate" env CLAUDE_CONFIG_DIR="$cfg" claude plugin validate "$POUT/marketplace.json"
+  rm -rf "$cfg"
+else
+  echo "skip: claude not on PATH, not validating marketplace.json"
+fi
+
+# Leading v: normalised (the release workflow's VERSION carries one).
+POUT_V="$PLUGIN_TMP/out_v"
+assert_ok "version with leading v is normalised" run_build v1.2.3 "$PDIST" "$POUT_V"
+assert_ok "leading-v run writes the same zip name and url" test -f "$POUT_V/agent-pawl-plugin_1.2.3.zip" -a "$(jq -r '.plugins[0].source.url' "$POUT_V/marketplace.json")" = "$want_url"
+
+# Checksum mismatch.
+BAD="$PLUGIN_TMP/dist_bad"
+cp -r "$PDIST" "$BAD"
+echo tampered >>"$BAD/pawl_1.2.3_linux_amd64.tar.gz"
+assert_fails "checksum mismatch fails" run_build 1.2.3 "$BAD" "$PLUGIN_TMP/out_bad"
+assert_ok "checksum mismatch writes no zip" test ! -e "$PLUGIN_TMP/out_bad/agent-pawl-plugin_1.2.3.zip"
+
+# Missing archive.
+MISS="$PLUGIN_TMP/dist_miss"
+cp -r "$PDIST" "$MISS"
+rm "$MISS/pawl_1.2.3_darwin_arm64.tar.gz"
+assert_fails "missing archive fails" run_build 1.2.3 "$MISS" "$PLUGIN_TMP/out_miss"
+
+# Missing checksum line.
+NOSUM="$PLUGIN_TMP/dist_nosum"
+cp -r "$PDIST" "$NOSUM"
+grep -v darwin_amd64 "$PDIST/checksums.txt" >"$NOSUM/checksums.txt"
+assert_fails "missing checksum line fails" run_build 1.2.3 "$NOSUM" "$PLUGIN_TMP/out_nosum"
+
+# plugin.json version != requested version.
+assert_fails "plugin.json version != <ver> is a hard failure" run_build 1.2.4 "$PDIST" "$PLUGIN_TMP/out_ver"
+
+# Missing version argument.
+assert_fails "no version argument fails" run_build
+
+rm -rf "$PLUGIN_TMP"
 
 echo
 echo "$tests_run tests run, $failures failed"
