@@ -141,7 +141,7 @@ it by writing the design doc's version of reality into code comments or docs.
 Makefile targets (all real, all in CI or documented for local use):
 
 - `make build` — `go build -o dist/pawl ./cmd/pawl`. **Output is `dist/pawl`, never `bin/`** —
-  `bin/` is the committed plugin wrapper above; writing a compiled binary there would clobber it.
+  `bin/` is the committed plugin launcher above; writing a compiled binary there would clobber it.
 - `make install` — `go install ./cmd/pawl` (installs to `$(go env GOPATH)/bin`).
 - `make test` / `make test-race` — `go test ./...` / `go test -race ./...`.
 - `make fmt` — `go fmt ./...`, **rewrites files**.
