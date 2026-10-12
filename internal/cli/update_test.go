@@ -417,13 +417,13 @@ func TestCmdUpdate_CheckAndVersionMutuallyExclusive(t *testing.T) {
 	}
 }
 
-// TestCmdUpdate_DevRefusalAndCheckDoNotResolveExePath proves the
-// dev-build refusal and --check paths never need (and never attempt) to
-// resolve the running binary's own path: overriding osExecutable to fail
-// must not turn either of them into an unrelated exit-5 "couldn't locate
-// the running binary" error, since CmdUpdate only calls resolveExePath
-// from the branches that actually write to the binary.
-func TestCmdUpdate_DevRefusalAndCheckDoNotResolveExePath(t *testing.T) {
+// TestCmdUpdate_DevRefusalAndCheckToleratesExePathResolutionFailure proves
+// the dev-build refusal and --check paths tolerate a failure to resolve
+// the running binary's own path: CmdUpdate resolves it early for plugin
+// detection but ignores a failure there (fail open), so overriding
+// osExecutable to fail must not turn either of them into an unrelated
+// exit-5 "couldn't locate the running binary" error.
+func TestCmdUpdate_DevRefusalAndCheckToleratesExePathResolutionFailure(t *testing.T) {
 	orig := osExecutable
 	osExecutable = func() (string, error) { return "", fmt.Errorf("boom: no /proc/self/exe here") }
 	t.Cleanup(func() { osExecutable = orig })
@@ -489,5 +489,102 @@ func TestCmdUpdate_SuccessUpdateLine_HostileExePathGuarded(t *testing.T) {
 	assertOnlyExpectedInstructionLines(t, "pawl update stdout", out)
 	if n := strings.Count(strings.TrimSuffix(out, "\n"), "\n"); n != 0 {
 		t.Errorf("success line must be exactly one physical line, got %d extra newlines: %q", n, out)
+	}
+}
+
+func TestPluginRootOf(t *testing.T) {
+	manifest := func(root string) string { return root + "/.claude-plugin/plugin.json" }
+	cache := "/home/u/.claude/plugins/cache/agent-pawl/agent-pawl/0.6.0"
+	cases := []struct {
+		name     string
+		exe      string
+		existing []string
+		want     string
+		wantOK   bool
+	}{
+		{"plugin cache layout", cache + "/libexec/linux_amd64/pawl", []string{manifest(cache)}, cache, true},
+		{"wrong arch dir name", cache + "/libexec/linux_arm64/pawl", []string{manifest(cache)}, "", false},
+		{"libexec without plugin.json", cache + "/libexec/linux_amd64/pawl", nil, "", false},
+		{"plain local bin", "/home/u/.local/bin/pawl", nil, "", false},
+		{"dev build in repo dist", "/home/u/src/agent-pawl/dist/pawl", []string{manifest("/home/u/src/agent-pawl")}, "", false},
+		{"wrong binary name", cache + "/libexec/linux_amd64/other", []string{manifest(cache)}, "", false},
+		{"libexec not directly under root", cache + "/x/libexec/linux_amd64/pawl", []string{manifest(cache)}, "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			exists := func(p string) bool {
+				for _, e := range tc.existing {
+					if e == p {
+						return true
+					}
+				}
+				return false
+			}
+			got, ok := pluginRootOf(tc.exe, "linux", "amd64", exists)
+			if ok != tc.wantOK || got != tc.want {
+				t.Errorf("pluginRootOf(%q) = (%q, %v), want (%q, %v)", tc.exe, got, ok, tc.want, tc.wantOK)
+			}
+		})
+	}
+}
+
+// pluginSeams makes the running binary look like it lives at exe (after
+// symlink resolution) with the given files present, with no real plugin.
+func pluginSeams(t *testing.T, exe, resolved string, existing ...string) {
+	t.Helper()
+	oe, es, pe := osExecutable, evalSymlinks, pathExists
+	osExecutable = func() (string, error) { return exe, nil }
+	evalSymlinks = func(string) (string, error) { return resolved, nil }
+	pathExists = func(p string) bool {
+		for _, e := range existing {
+			if e == p {
+				return true
+			}
+		}
+		return false
+	}
+	t.Cleanup(func() { osExecutable, evalSymlinks, pathExists = oe, es, pe })
+}
+
+func TestCmdUpdate_PluginManagedRefusesEveryModeWithoutNetwork(t *testing.T) {
+	root := "/c/plugins/cache/agent-pawl/agent-pawl/0.6.0"
+	// exe is a symlink; only the resolved target is plugin-shaped.
+	pluginSeams(t, "/usr/local/bin/pawl", root+"/libexec/linux_amd64/pawl", root+"/.claude-plugin/plugin.json")
+
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits++ }))
+	t.Cleanup(srv.Close)
+	cfg := &selfupdate.Config{Client: srv.Client(), APIBase: srv.URL, DownloadBase: srv.URL, Repo: selfupdate.DefaultRepo, GOOS: "linux", GOARCH: "amd64"}
+
+	want := `pawl update: this pawl is managed by the agent-pawl Claude Code plugin (` + root + `); update it through the plugin instead: run "claude plugin update agent-pawl@agent-pawl" (or enable auto-update for the marketplace under /plugin > Marketplaces), then restart Claude Code or run /reload-plugins. A self-update here would be overwritten by the plugin and bypass its checksum check.` + "\n"
+	for _, args := range [][]string{nil, {"--check"}, {"--force"}, {"--version", "v0.3.0"}} {
+		for _, ver := range []string{"0.2.0", "dev"} {
+			var stdout, stderr bytes.Buffer
+			code := CmdUpdate(args, &stdout, &stderr, ver, cfg)
+			if code != 4 {
+				t.Errorf("args=%v ver=%s: exit = %d, want 4", args, ver, code)
+			}
+			if stderr.String() != want {
+				t.Errorf("args=%v ver=%s: stderr = %q, want %q", args, ver, stderr.String(), want)
+			}
+			if stdout.Len() != 0 {
+				t.Errorf("args=%v ver=%s: stdout = %q, want empty", args, ver, stdout.String())
+			}
+		}
+	}
+	if hits != 0 {
+		t.Errorf("made %d network requests, want 0", hits)
+	}
+}
+
+func TestCmdUpdate_NonPluginPathStillUpdates(t *testing.T) {
+	srv := newUpdateTestServer(t, "v0.3.0")
+	exe := filepath.Join(t.TempDir(), "pawl")
+	if err := os.WriteFile(exe, []byte("old"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := CmdUpdate(nil, &stdout, &stderr, "0.2.0", newTestUpdateConfig(srv, exe)); code != 0 {
+		t.Fatalf("exit = %d; stderr=%q", code, stderr.String())
 	}
 }
