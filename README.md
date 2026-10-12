@@ -54,8 +54,9 @@ describe:
   tagged releases are published on GitHub for `install.sh` to fetch — see
   [docs/install.md](docs/install.md). There is also a Claude Code plugin (see Installation below)
   that ships the `/agent-pawl:pawl` skill; release builds of the plugin bundle the binary
-  (darwin/linux × amd64/arm64), and a separate install (`install.sh` or a source build) is needed
-  only for a source checkout or `--plugin-dir`.
+  (darwin/linux × amd64/arm64) when installed from the release marketplace; the GitHub-repo
+  marketplace, a source checkout, and `--plugin-dir` have no bundled binary and need a separate
+  install (`install.sh` or a source build).
 - Releases are cut through a bot-opened **Release PR**: per-PR fragments under `.changes/` are
   batched into `CHANGELOG.md` and a `.claude-plugin/plugin.json` version bump, then a merge to
   `main` tags and publishes via goreleaser in the same run — see
@@ -110,10 +111,16 @@ claude plugin marketplace add dcferreira/agent-pawl
 then use the in-session `/plugin` UI to install `agent-pawl` from that marketplace, or run
 `claude plugin install agent-pawl@agent-pawl` directly.
 
-**Release builds of the plugin bundle the `pawl` binary** for darwin/linux (amd64/arm64), and
-`bin/pawl` is a launcher that execs it. Only a source checkout or `--plugin-dir` without
-`libexec/` falls back to a `pawl` on your `PATH` and needs a separate install (see the CLI
-instructions above).
+**The release marketplace bundles the `pawl` binary** for darwin/linux (amd64/arm64), and
+`bin/pawl` is a launcher that execs it:
+
+```
+claude plugin marketplace add https://github.com/dcferreira/agent-pawl/releases/latest/download/marketplace.json
+```
+
+The GitHub-repo marketplace above (`dcferreira/agent-pawl`), a source checkout, and `--plugin-dir`
+have no `libexec/`, so they fall back to a `pawl` on your `PATH` and need a separate install (see
+the CLI instructions above).
 
 ### Working in this repo itself
 
