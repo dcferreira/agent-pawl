@@ -79,9 +79,9 @@ Add the release marketplace, install the plugin, and enable marketplace auto-upd
 /plugin install agent-pawl@agent-pawl
 ```
 
-The release marketplace exists only from the first release that publishes the plugin assets (the
-release after v0.5.0). Until then, and for older versions, the only route is the GitHub-repo
-marketplace (`/plugin marketplace add dcferreira/agent-pawl`) plus a separately installed binary.
+The release marketplace is available from v0.6.0 on; v0.5.0 and earlier releases did not publish the
+plugin assets. For those older versions, the only route is the GitHub-repo marketplace
+(`/plugin marketplace add dcferreira/agent-pawl`) plus a separately installed binary.
 
 Then `/plugin` > Marketplaces > Enable auto-update (off by default for third-party marketplaces), so
 the plugin and its binary move together. See [docs/install.md](docs/install.md) for the details,

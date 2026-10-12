@@ -21,9 +21,9 @@ marketplace and install the plugin:
 /plugin install agent-pawl@agent-pawl
 ```
 
-The release marketplace exists only from the first release that publishes the plugin assets (the
-release after v0.5.0). Until then, and for older versions, the only route is the GitHub-repo
-marketplace (`/plugin marketplace add dcferreira/agent-pawl`) plus a separately installed binary.
+The release marketplace is available from v0.6.0 on; v0.5.0 and earlier releases did not publish the
+plugin assets. For those older versions, the only route is the GitHub-repo marketplace
+(`/plugin marketplace add dcferreira/agent-pawl`) plus a separately installed binary.
 
 Restart the session so the hooks bind. The plugin's `bin/pawl` launcher runs the bundled binary for
 your platform; the hooks and the skill use it, so no separate binary install is needed.

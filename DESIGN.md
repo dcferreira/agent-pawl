@@ -515,7 +515,8 @@ The skill runs `install.sh` on first use — not a `SessionStart` hook, to avoid
 ensures `~/.claude/pawl/bin/pawl` exists at the version pinned in the plugin manifest, downloading the
 matching release if not. `pawl run` refuses to start if the installed binary's version does not match
 the pin, naming both. `brew install` / `go install` remain as alternatives that put `pawl` on `PATH`;
-the plugin prefers `PATH` when versions match.
+as built today, the plugin's `bin/pawl` launcher prefers its bundled `libexec/<os>_<arch>/pawl` and
+uses a `pawl` on `PATH` only in a checkout without `libexec/`.
 
 **Workflow resolution**: repo-local `.claude/workflows/<name>.yaml` (found by walking up from the
 working-copy root), then user-level `~/.claude/workflows/<name>.yaml`; first match wins, and `pawl run`
