@@ -144,6 +144,9 @@ code=$?
 check "missing platform binary exits non-zero" "$([ "$code" -ne 0 ]; echo $?)" "code: $code"
 check "missing platform binary does NOT fall back to PATH" "$(contains "$out" "path:"; [ $? -ne 0 ]; echo $?)" "got: $out"
 check "missing platform binary names linux_amd64" "$(contains "$out" "linux_amd64"; echo $?)" "got: $out"
+check "missing platform binary points at the repo marketplace update" "$(contains "$out" "/plugin marketplace update agent-pawl"; echo $?)" "got: $out"
+check "missing platform binary says to uninstall before reinstalling" "$(contains "$out" "/plugin uninstall agent-pawl@agent-pawl"; echo $?)" "got: $out"
+check "missing platform binary no longer points at the release-asset URL" "$(contains "$out" "releases/latest/download"; [ $? -ne 0 ]; echo $?)" "got: $out"
 
 r="$(new_plugin not-executable)"
 bundle "$r" linux_amd64
@@ -164,7 +167,9 @@ out="$(PATH="$tmp/selfbin:$tools" ${TIMEOUT_CMD:-} "$r/bin/pawl" x 2>&1)"
 code=$?
 check "self-pointing PATH symlink is not recursed into" "$([ "$code" -eq 1 ] && ! contains "$out" "re-entered"; echo $?)" "code: $code got: $out"
 check "fallback error says this checkout has no bundled binary" "$(contains "$out" "no bundled"; echo $?)" "got: $out"
-check "fallback error points at the release marketplace" "$(contains "$out" "releases/latest/download/marketplace.json"; echo $?)" "got: $out"
+check "fallback error points at the repo marketplace" "$(contains "$out" "/plugin marketplace add dcferreira/agent-pawl"; echo $?)" "got: $out"
+check "fallback error gives the plugin install command" "$(contains "$out" "/plugin install agent-pawl@agent-pawl"; echo $?)" "got: $out"
+check "fallback error no longer points at the release-asset URL" "$(contains "$out" "releases/latest/download"; [ $? -ne 0 ]; echo $?)" "got: $out"
 check "fallback error points at go install / install.sh" "$(contains "$out" "go install"; echo $?)" "got: $out"
 check "fallback error no longer claims a plugin cannot ship the binary" "$(contains "$out" "cannot ship"; [ $? -ne 0 ]; echo $?)" "got: $out"
 

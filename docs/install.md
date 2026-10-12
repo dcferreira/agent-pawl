@@ -12,49 +12,69 @@ changie from `.changes/`) — see [docs/releasing.md](releasing.md) for how a re
 ## Install the plugin (recommended inside Claude Code)
 
 Each release publishes `agent-pawl-plugin_<version>.zip` — the `/agent-pawl:pawl` skill, the
-enforcement hooks, and `pawl` binaries for linux/darwin × amd64/arm64 under `libexec/` — and a
-`marketplace.json` that points at that zip with its sha256 (Claude Code verifies it). Add that
-marketplace and install the plugin:
+enforcement hooks, and `pawl` binaries for linux/darwin × amd64/arm64 under `libexec/`. The repo's
+`.claude-plugin/marketplace.json` lists the plugin with an `archive` source: the latest release's zip,
+pinned by its sha256 (Claude Code refuses a zip whose hash doesn't match), and the release job keeps it
+current. Add the repo as a marketplace and install the plugin:
 
 ```
-/plugin marketplace add https://github.com/dcferreira/agent-pawl/releases/latest/download/marketplace.json
+/plugin marketplace add dcferreira/agent-pawl
 /plugin install agent-pawl@agent-pawl
 ```
 
-The release marketplace is available from v0.6.0 on; v0.5.0 and earlier releases did not publish the
-plugin assets. For those older versions, the only route is the GitHub-repo marketplace
-(`/plugin marketplace add dcferreira/agent-pawl`) plus a separately installed binary.
+The bundled binary is available from v0.6.0 on; v0.5.0 and earlier releases did not publish the
+plugin zip, so for those you need a separately installed binary.
 
 Restart the session so the hooks bind. The plugin's `bin/pawl` launcher runs the bundled binary for
 your platform; the hooks and the skill use it, so no separate binary install is needed.
 
-**Enable auto-update for the marketplace**: `/plugin` > Marketplaces > select it > Enable
-auto-update. Third-party marketplaces default to auto-update OFF. When on, Claude Code checks after
+**Enable auto-update for the marketplace**: `/plugin` > Marketplaces > agent-pawl > Enable
+auto-update, or declare it in `~/.claude/settings.json`:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "agent-pawl": {
+      "source": { "source": "github", "repo": "dcferreira/agent-pawl" },
+      "autoUpdate": true
+    }
+  }
+}
+```
+
+Third-party marketplaces default to auto-update OFF. When on, Claude Code checks after
 your first message of a session, with a random delay of up to ten minutes. A new version loads at the
 next launch or on `/reload-plugins`; until then the hooks keep using the old plugin path. Because the
 binary ships inside the plugin, plugin and binary always move together, and you never run an
-older binary against a newer hook wrapper. Updates are detected by the plugin's `version`.
+older binary against a newer hook wrapper. Updates are detected by the plugin's `version`: an install
+only moves when that changes. To update by hand: `claude plugin marketplace update agent-pawl`, then
+`claude plugin update agent-pawl@agent-pawl`.
 
 `pawl update` refuses on a plugin-managed binary (one that lives at
 `<plugin root>/libexec/<os>_<arch>/pawl` inside an installed plugin) and tells you to run
 `claude plugin update agent-pawl@agent-pawl` instead.
 
-### Migrating from the older install
+### Migrating from an earlier install
 
-If you installed the plugin from the `dcferreira/agent-pawl` GitHub marketplace (any plugin version
-installed that way, which ships only the skill and hooks) and the binary separately (`install.sh` or `go
-install`), switch to the release marketplace:
+If you already installed the plugin from the `dcferreira/agent-pawl` marketplace and the binary
+separately (`install.sh` or `go install`), there is nothing to re-add: update as above. A v0.6.0
+install from before the archive source was added came from the repo's old in-tree source, which has
+no `libexec/`, and updates are gated on `version`, so it stays on a `PATH` binary until the next
+release moves it onto the bundled one. To get the bundled binary now, run `/plugin marketplace update
+agent-pawl`, then uninstall and reinstall the plugin (`/plugin uninstall agent-pawl@agent-pawl`, then
+`/plugin install agent-pawl@agent-pawl`). Your standalone `pawl` can stay for terminal use or be removed (see
+[Uninstall](#uninstall)). (The release-URL form `/plugin marketplace add
+https://github.com/.../releases/latest/download/marketplace.json` documented in v0.6.0 does not
+work: Claude Code treats any github.com URL as a git repo. If you tried it there is nothing to undo.)
 
-```
-/plugin marketplace remove agent-pawl
-/plugin marketplace add https://github.com/dcferreira/agent-pawl/releases/latest/download/marketplace.json
-/plugin install agent-pawl@agent-pawl
-```
+To pin a specific release, download that release's `marketplace.json` asset into
+`<dir>/.claude-plugin/marketplace.json` and run `/plugin marketplace add <dir>`; a directory
+marketplace stays on that release and does not auto-update.
 
-Then enable auto-update as above and restart the session. Your old standalone `pawl` can stay for
-terminal use or be removed (see [Uninstall](#uninstall)). The in-repo `.claude-plugin/marketplace.json`
-stays in the repository for contributors and `--plugin-dir`; that checkout has no `libexec/`, so its
-launcher falls back to a `pawl` on `PATH`.
+Contributors: `claude --plugin-dir .` from a checkout loads the working tree as the plugin; it has no
+`libexec/`, so `bin/pawl` falls back to a `pawl` on `PATH` (`go install ./cmd/pawl` / `make install`).
+Adding the checkout as a marketplace (`/plugin marketplace add ./`) installs the release zip, not the
+working tree, so use `--plugin-dir` to test local plugin changes.
 
 ### Using pawl in a terminal outside Claude Code
 

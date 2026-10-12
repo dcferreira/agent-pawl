@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Unit tests for scripts/release/check-fragment.sh,
 # check-no-version-bump.sh, check-version-consistency.sh and
-# build-plugin-archive.sh — run with
+# build-plugin-archive.sh and update-repo-marketplace.sh — run with
 # `make test-release-checks` or `bash scripts/release/test-checks.sh`.
 #
 # Each script is SOURCED (not executed) with PAWL_RELEASE_CHECK_TEST=1, the
@@ -28,6 +28,8 @@ source ./scripts/release/check-no-version-bump.sh
 source ./scripts/release/check-version-consistency.sh
 # shellcheck source=/dev/null
 source ./scripts/release/build-plugin-archive.sh
+# shellcheck source=/dev/null
+source ./scripts/release/update-repo-marketplace.sh
 
 failures=0
 tests_run=0
@@ -435,6 +437,47 @@ EOF
 git add -A && git commit -q -m "two prereleases of the same base version")
 assert_ok "v1.0.0-rc2 sorts after v1.0.0-rc1, rc2 is latest -> pass" check_version_consistency "$FIXTURE_DIR"
 
+# --- marketplace.json check (only when the file exists) -------------------
+SHA_A=1d61b40641b1d81b677635686b62194ec03de24041047a273f84607897625604
+write_fixture_marketplace() { # DIR SOURCE_JSON
+  jq -n --argjson src "$2" '{name:"agent-pawl",plugins:[{name:"agent-pawl",source:$src}]}' >"$1/.claude-plugin/marketplace.json"
+}
+archive_src() { # VERSION SHA
+  jq -n --arg v "$1" --arg s "$2" '{source:"archive",url:("https://github.com/dcferreira/agent-pawl/releases/download/v"+$v+"/agent-pawl-plugin_"+$v+".zip"),sha256:$s}'
+}
+
+new_fixture
+write_fixture_marketplace "$FIXTURE_DIR" "$(archive_src 0.1.0 $SHA_A)"
+assert_ok "marketplace archive entry for a released version -> pass" check_version_consistency "$FIXTURE_DIR"
+
+new_fixture
+(cd "$FIXTURE_DIR" && cat >.changes/v0.2.0.md <<'EOF'
+## v0.2.0 - 2026-02-01
+EOF
+  sed -i 's/0.1.0/0.2.0/' .claude-plugin/plugin.json)
+write_fixture_marketplace "$FIXTURE_DIR" "$(archive_src 0.1.0 $SHA_A)"
+assert_ok "marketplace one release behind plugin.json (release PR window) -> pass" check_version_consistency "$FIXTURE_DIR"
+
+new_fixture
+write_fixture_marketplace "$FIXTURE_DIR" '"./"'
+assert_fails "marketplace entry is not an archive source -> fail" check_version_consistency "$FIXTURE_DIR"
+
+new_fixture
+write_fixture_marketplace "$FIXTURE_DIR" "$(archive_src 0.9.0 $SHA_A)"
+assert_fails "marketplace points at a version with no .changes/v*.md -> fail" check_version_consistency "$FIXTURE_DIR"
+
+new_fixture
+write_fixture_marketplace "$FIXTURE_DIR" "$(archive_src 0.1.0 deadbeef)"
+assert_fails "marketplace sha256 is not 64 hex -> fail" check_version_consistency "$FIXTURE_DIR"
+
+new_fixture
+write_fixture_marketplace "$FIXTURE_DIR" '{"source":"archive","url":"https://example.com/agent-pawl-plugin_0.1.0.zip","sha256":"'$SHA_A'"}'
+assert_fails "marketplace url is not the release asset url -> fail" check_version_consistency "$FIXTURE_DIR"
+
+new_fixture
+jq -n '{name:"agent-pawl",plugins:[{name:"other",source:"./"}]}' >"$FIXTURE_DIR/.claude-plugin/marketplace.json"
+assert_fails "marketplace has no agent-pawl plugin -> fail" check_version_consistency "$FIXTURE_DIR"
+
 # --- build-plugin-archive.sh --------------------------------------------
 #
 # Fixtures: a fake plugin source tree (only the files the plugin zip takes)
@@ -553,6 +596,73 @@ assert_fails "plugin.json version != <ver> is a hard failure" run_build 1.2.4 "$
 assert_fails "no version argument fails" run_build
 
 rm -rf "$PLUGIN_TMP"
+
+# --- update-repo-marketplace.sh -----------------------------------------
+echo
+echo "== update-repo-marketplace.sh =="
+
+UM_TMP="$(mktemp -d)"
+SHA_B=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+um_release() { # FILE SOURCE_JSON
+  jq -n --argjson src "$2" '{name:"agent-pawl",description:"release desc",plugins:[{name:"agent-pawl",description:"plugin desc",source:$src}]}' >"$1"
+}
+um_repo() { # SOURCE_JSON FILE
+  jq -n --argjson src "$1" '{name:"agent-pawl",description:"repo desc",owner:{name:"Daniel Ferreira"},plugins:[{name:"agent-pawl",source:$src},{name:"other",description:"keep me",source:"./other"}]}' >"$2"
+}
+run_um() { (update_repo_marketplace "$@"); }
+is_pretty() { [ "$(cat "$1")" = "$(jq . "$1")" ] && [ -z "$(tail -c1 "$1")" ] && [ "$(tail -c2 "$1" | od -An -tx1 | tr -d ' ')" != "0a0a" ]; }
+
+um_release "$UM_TMP/rel.json" "$(archive_src 0.6.0 $SHA_A)"
+
+um_repo '"./"' "$UM_TMP/repo1.json"
+assert_ok "replaces a './' source with the release archive source" run_um "$UM_TMP/rel.json" "$UM_TMP/repo1.json"
+assert_ok "'./' replaced: source now equals the release source" test "$(jq -c '.plugins[0].source' "$UM_TMP/repo1.json")" = "$(jq -c '.plugins[0].source' "$UM_TMP/rel.json")"
+assert_ok "other fields and plugins are preserved" test "$(jq -c 'del(.plugins[0].source)' "$UM_TMP/repo1.json")" = '{"name":"agent-pawl","description":"repo desc","owner":{"name":"Daniel Ferreira"},"plugins":[{"name":"agent-pawl"},{"name":"other","description":"keep me","source":"./other"}]}'
+assert_ok "output is jq-pretty-printed with a trailing newline" is_pretty "$UM_TMP/repo1.json"
+
+cp "$UM_TMP/repo1.json" "$UM_TMP/repo1.before"
+assert_ok "same version again is a no-op success" run_um "$UM_TMP/rel.json" "$UM_TMP/repo1.json"
+assert_ok "same version leaves the file byte-identical" cmp "$UM_TMP/repo1.json" "$UM_TMP/repo1.before"
+
+um_repo "$(archive_src 0.5.0 $SHA_B)" "$UM_TMP/repo2.json"
+assert_ok "replaces an older archive source" run_um "$UM_TMP/rel.json" "$UM_TMP/repo2.json"
+assert_ok "older archive replaced with 0.6.0" test "$(jq -r '.plugins[0].source.sha256' "$UM_TMP/repo2.json")" = "$SHA_A"
+
+um_release "$UM_TMP/rel_old.json" "$(archive_src 0.5.0 $SHA_B)"
+cp "$UM_TMP/repo2.json" "$UM_TMP/repo2.before"
+assert_ok "downgrade is refused without failing" run_um "$UM_TMP/rel_old.json" "$UM_TMP/repo2.json"
+assert_ok "downgrade leaves the file byte-identical" cmp "$UM_TMP/repo2.json" "$UM_TMP/repo2.before"
+
+um_release "$UM_TMP/rel_rc.json" "$(archive_src 1.0.0-rc1 $SHA_B)"
+um_repo "$(archive_src 1.0.0 $SHA_A)" "$UM_TMP/repo3.json"
+cp "$UM_TMP/repo3.json" "$UM_TMP/repo3.before"
+assert_ok "1.0.0-rc1 over 1.0.0 is a refused downgrade" run_um "$UM_TMP/rel_rc.json" "$UM_TMP/repo3.json"
+assert_ok "prerelease downgrade leaves the file byte-identical" cmp "$UM_TMP/repo3.json" "$UM_TMP/repo3.before"
+
+um_release "$UM_TMP/rel_new.json" "$(archive_src 0.10.0 $SHA_B)"
+um_repo "$(archive_src 0.9.0 $SHA_A)" "$UM_TMP/repo4.json"
+assert_ok "0.10.0 is newer than 0.9.0 (numeric, not lexical)" run_um "$UM_TMP/rel_new.json" "$UM_TMP/repo4.json"
+assert_ok "0.9.0 replaced by 0.10.0" test "$(jq -r '.plugins[0].source.sha256' "$UM_TMP/repo4.json")" = "$SHA_B"
+
+um_release "$UM_TMP/bad1.json" '{"source":"archive","url":"https://example.com/agent-pawl-plugin_0.6.0.zip","sha256":"'$SHA_A'"}'
+um_repo '"./"' "$UM_TMP/repo5.json"
+assert_fails "release file with a bad url is rejected" run_um "$UM_TMP/bad1.json" "$UM_TMP/repo5.json"
+um_release "$UM_TMP/bad2.json" '{"source":"archive","url":"https://github.com/dcferreira/agent-pawl/releases/download/v0.6.0/agent-pawl-plugin_0.7.0.zip","sha256":"'$SHA_A'"}'
+assert_fails "release url with mismatched tag and zip versions is rejected" run_um "$UM_TMP/bad2.json" "$UM_TMP/repo5.json"
+um_release "$UM_TMP/bad3.json" '"./"'
+assert_fails "release file with a non-archive source is rejected" run_um "$UM_TMP/bad3.json" "$UM_TMP/repo5.json"
+um_release "$UM_TMP/bad4.json" "$(archive_src 0.6.0 DEADBEEF)"
+assert_fails "release file with a bad sha256 is rejected" run_um "$UM_TMP/bad4.json" "$UM_TMP/repo5.json"
+um_release "$UM_TMP/bad5.json" "$(archive_src 0.6.0 ${SHA_A^^})"
+assert_fails "release file with an uppercase sha256 is rejected" run_um "$UM_TMP/bad5.json" "$UM_TMP/repo5.json"
+assert_ok "rejected release leaves the repo file untouched" test "$(jq -c '.plugins[0].source' "$UM_TMP/repo5.json")" = '"./"'
+
+jq -n '{name:"agent-pawl",plugins:[{name:"other",source:"./"}]}' >"$UM_TMP/repo6.json"
+assert_fails "repo marketplace without an agent-pawl plugin fails" run_um "$UM_TMP/rel.json" "$UM_TMP/repo6.json"
+assert_fails "missing repo marketplace file fails" run_um "$UM_TMP/rel.json" "$UM_TMP/nonexistent.json"
+assert_fails "no arguments fails" run_um
+
+rm -rf "$UM_TMP"
 
 echo
 echo "$tests_run tests run, $failures failed"

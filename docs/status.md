@@ -54,11 +54,11 @@ describe:
   that ships the `/agent-pawl:pawl` skill and a `bin/pawl` launcher. When the plugin bundles a
   binary at `libexec/<os>_<arch>/pawl`, the launcher execs it. If that directory exists without a
   binary for this platform, it fails clearly, with no `PATH` fallback. Only a plugin without
-  `libexec/` searches `PATH`: one from the GitHub-repo marketplace (`dcferreira/agent-pawl`), a
-  source checkout, or `--plugin-dir`. Those need the binary installed separately (`install.sh` or
-  a source build). From v0.6.0 on, each release publishes the plugin with the bundle, via a
-  release marketplace (`releases/latest/download/marketplace.json`), so that install needs no
-  separate binary.
+  `libexec/` searches `PATH`: a source checkout, `--plugin-dir`, or a v0.6.0 install from before the
+  marketplace gained its archive source. Those need the binary installed separately (`install.sh` or
+  a source build). From v0.6.0 on, each release publishes the plugin with the bundle, and the repo's own
+  `.claude-plugin/marketplace.json` points at the latest release's zip (`/plugin marketplace add
+  dcferreira/agent-pawl`), so that install needs no separate binary.
 - Releases are cut through a bot-opened **Release PR**: per-PR fragments under `.changes/` are
   batched into `CHANGELOG.md` and a `.claude-plugin/plugin.json` version bump, then a merge to
   `main` tags and publishes via goreleaser in the same run — see

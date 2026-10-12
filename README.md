@@ -48,12 +48,14 @@ is [`docs/examples/green-tests`](docs/examples/green-tests/workflow.yaml).
 In Claude Code:
 
 ```
-/plugin marketplace add https://github.com/dcferreira/agent-pawl/releases/latest/download/marketplace.json
+/plugin marketplace add dcferreira/agent-pawl
 /plugin install agent-pawl@agent-pawl
 ```
 
 The plugin bundles the `pawl` binary, the skill and the enforcement hooks. Restart Claude Code
-afterwards. To use `pawl` in a terminal outside Claude Code, see
+afterwards. Third-party marketplaces default to auto-update off; see
+[docs/install.md](docs/install.md#install-the-plugin-recommended-inside-claude-code) to enable it.
+To use `pawl` in a terminal outside Claude Code, see
 [docs/install.md](docs/install.md#using-pawl-in-a-terminal-outside-claude-code).
 
 ## Usage

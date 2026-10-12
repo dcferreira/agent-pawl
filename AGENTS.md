@@ -55,9 +55,9 @@ yet" list names what isn't built — and its sample output is illustrative, not 
   hook entry point (see above).
 - `install.sh` and goreleaser-built release binaries exist (tagged releases are published on
   GitHub), and each release also publishes a plugin zip bundling those binaries plus a
-  release-hosted `marketplace.json`, so installing the plugin from that marketplace needs no
-  separate binary install (`install.sh`/`go install` remain the standalone path for terminal use
-  outside Claude Code); release builds are version-stamped via `-ldflags -X main.Version`, but a source build
+  repo `marketplace.json` that points at the latest zip, so installing the plugin from
+  `dcferreira/agent-pawl` needs no separate binary install (`install.sh`/`go install` remain the
+  standalone path for terminal use outside Claude Code); release builds are version-stamped via `-ldflags -X main.Version`, but a source build
   (`go build`/`go install`/`make install`) still prints `pawl dev`.
 - `kind: parallel` also accepts `foreach:`: fan one **deterministic or agentic** body out over a
   runtime-discovered json list (frozen as `Items` on the step's `STEP_ENTER`), per-item events carry
@@ -106,8 +106,8 @@ it by writing the design doc's version of reality into code comments or docs.
   is the release-management flow (see the Conventions section below).
 - `.changes/` — changie's fragment store: `unreleased/*.yaml` (one per PR), `vX.Y.Z.md` per
   release, `header.tpl.md`. `CHANGELOG.md` at the repo root is generated from these by `changie
-  merge` — never hand-edited. `scripts/release/` — the check scripts `changelog.yml`/`ci.yml`/
-  `release.yml` run; see `docs/releasing.md`.
+  merge` — never hand-edited. `scripts/release/` — the check and release scripts
+  `changelog.yml`/`ci.yml`/`release.yml` run; see `docs/releasing.md`.
 
 ### This repo is also a Claude Code plugin
 
@@ -120,13 +120,19 @@ it by writing the design doc's version of reality into code comments or docs.
 - **The plugin ships the binary.** Each release's workflow uploads a per-release plugin zip
   (`agent-pawl-plugin_<ver>.zip`) whose root is the plugin root: `.claude-plugin/plugin.json`,
   `hooks/`, `skills/pawl/`, `bin/`, and the platform binaries under
-  `libexec/<os>_<arch>/pawl` (darwin/linux × amd64/arm64), plus a release-hosted `marketplace.json`
-  whose entry points at that zip with its sha256. Users add that marketplace URL and enable
-  marketplace auto-update, so plugin and binary move together — see `docs/install.md`. (The older
+  `libexec/<os>_<arch>/pawl` (darwin/linux × amd64/arm64). The repo's own
+  `.claude-plugin/marketplace.json` lists the plugin with an `archive` source — the latest release's
+  zip URL pinned by sha256 (Claude Code rejects a mismatch), not `"./"` — and `release.yml` commits
+  the new URL + sha256 to `main` after each release (`scripts/release/update-repo-marketplace.sh`;
+  `check-version-consistency.sh` validates the entry). Users `/plugin marketplace add
+  dcferreira/agent-pawl` and enable marketplace auto-update, so plugin and binary move together — see
+  `docs/install.md`. A release-URL marketplace is not addable (github.com URLs are treated as git
+  repos). Contributors test local plugin changes with `claude --plugin-dir .`; adding the checkout as
+  a marketplace installs the release zip, not the working tree. (The older
   claim that "a plugin cannot ship a compiled Go binary" is wrong; don't reintroduce it.)
 - `bin/pawl` is a committed **launcher script**, not a build artifact: in an installed plugin it
   execs the bundled `libexec/<os>_<arch>/pawl`; in a source checkout (no `libexec/`, e.g. this repo
-  used via `--plugin-dir` or the in-repo marketplace) it falls back to a `pawl` off `PATH`. That
+  used via `--plugin-dir`) it falls back to a `pawl` off `PATH`. That
   fallback keeps its self-recursion guards (a plugin puts its `bin/` on `PATH`, so the script could
   otherwise find and re-exec itself). `pawl update` refuses on a plugin-managed binary (one whose
   symlink-resolved path is `<root>/libexec/<os>_<arch>/pawl` with `<root>/.claude-plugin/plugin.json`
