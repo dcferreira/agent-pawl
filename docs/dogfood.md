@@ -208,7 +208,7 @@ so it doesn't demonstrate the enforcement hooks in action — see the warning at
 doesn't exercise `wait` or `human` steps, `guards:`, `invariants:`, or a step's `retry:`, even
 though this build implements all of them — `invariants:` is engine-checked (see
 [guards-and-invariants.md](guards-and-invariants.md)) even though this walkthrough doesn't trigger
-one, and `retry:` is implemented (rule 19 — see the README's Status section and
+one, and `retry:` is implemented (rule 19 — see [status.md](status.md) and
 design/format-spec.md) even though this walkthrough's steps never hard-fail.
 
 ---

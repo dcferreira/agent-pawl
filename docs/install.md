@@ -183,7 +183,7 @@ to the Bash call — so a session may `cd` into another working copy and still s
 and fall back to the working-copy one otherwise.
 
 **The Claude Code plugin wires the hooks automatically.** Once installed (see the README's
-Installation section), the plugin's `hooks/hooks.json` binds `PreToolUse` (matcher `Bash`) and `Stop`
+Install section), the plugin's `hooks/hooks.json` binds `PreToolUse` (matcher `Bash`) and `Stop`
 to `${CLAUDE_PLUGIN_ROOT}/bin/pawl-hook pre|stop` — a fast-path wrapper that hands the payload to
 `pawl hook pre|stop` once anything is actually live, or once the payload itself mentions `pawl` (so a
 fresh heartbeat is written even before any run is live). Nothing further to configure; restart the

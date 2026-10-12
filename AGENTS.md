@@ -14,8 +14,9 @@ to do what `pawl run`/`pawl submit` tells it and report back exactly what's aske
 
 ## Status: read this before trusting any design doc
 
-**`README.md`'s "Status" section is the authority on what actually runs.** `docs/README.md`
-describes the target system (full distribution, `foreach:` fan-out), not this build.
+**`docs/status.md` is the authority on what actually runs** (`docs/roadmap.md` is the to-do list
+for v1). `docs/README.md` describes the target system in places — its "Not
+yet" list names what isn't built — and its sample output is illustrative, not captured.
 `DESIGN.md` is mostly current — it opens with its own up-to-date status line — but its distribution
 (§9) section describes what is not yet built. As of now:
 
@@ -69,7 +70,7 @@ describes the target system (full distribution, `foreach:` fan-out), not this bu
   the verified-runnable artefacts (all covered by `e2e/`; `foreach-agentic` drives its agentic body
   with canned `pawl submit` JSON, not a live session); the other `docs/examples/` are authoring exercises, not proven to run.
 
-If you're implementing something that DESIGN.md describes but the README's Status section doesn't
+If you're implementing something that DESIGN.md describes but `docs/status.md` doesn't
 list as built, that's a real gap to either build properly (with tests) or flag — don't paper over
 it by writing the design doc's version of reality into code comments or docs.
 
@@ -98,7 +99,10 @@ it by writing the design doc's version of reality into code comments or docs.
   distribution). Current through §5 (enforcement); §9 (distribution) is still the target system,
   not this build.
 - `docs/` — user-facing docs. `docs/install.md` and `docs/dogfood.md` describe this build
-  honestly; `docs/README.md` describes the finished system (says so explicitly); `docs/releasing.md`
+  honestly; `docs/status.md` is the authoritative what-runs-today list and `docs/roadmap.md` the to-do list
+  for v1 (both moved out of `README.md`, which is now a short newcomer intro with validated
+  examples); `docs/README.md` describes the finished
+  system in places; `docs/releasing.md`
   is the release-management flow (see the Conventions section below).
 - `.changes/` — changie's fragment store: `unreleased/*.yaml` (one per PR), `vX.Y.Z.md` per
   release, `header.tpl.md`. `CHANGELOG.md` at the repo root is generated from these by `changie
@@ -228,5 +232,5 @@ runtime either — see the next section.
 `design/format-spec.md` is normative for what an author writes (nouns, kinds, fields, validator
 rules, roadmap). `DESIGN.md` defines what the engine does with it. If the two ever seem to
 disagree, `design/format-spec.md` wins for authoring questions and `DESIGN.md` for engine-behavior
-questions — but check `README.md`'s Status section first, since either doc may be describing the
+questions — but check `docs/status.md` first, since either doc may be describing the
 target system rather than this build.

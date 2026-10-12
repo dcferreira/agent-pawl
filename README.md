@@ -1,153 +1,81 @@
 # agent-pawl
 
-`pawl`: a state-machine workflow engine for Claude Code. One YAML file per workflow, pure data,
-engine-owned attempt and visit counters, fix-forward semantics, crash-safe resume, and a validator
-that refuses dangling edges, undeclared state keys and uncapped cycles before anything runs.
-Sequencing lives only in `next:` / `outcomes:` / `catch:`; every step that does something declares
-a postcondition the engine — never the agent that did the work — evaluates.
+`pawl` ensures your agents follow the steps you want, in the order you want.
 
-## Status
+Write the steps as a YAML state machine. `pawl` drives the agent through it and won't move on
+until a step's check passes.
 
-**It executes.** `pawl run` / `pawl submit` / `pawl status` / `pawl abandon` / `pawl validate` / `pawl list` /
-`pawl version` / `pawl update` are real, working code with unit and end-to-end test coverage (`go test ./...`), and
-`docs/examples/green-tests` runs against `testdata/fixture` — see [docs/dogfood.md](docs/dogfood.md)
-for a real, captured transcript of that run.
+Built for Claude Code; other harnesses coming soon.
 
-This is a milestone-1 build, and it is deliberately narrower than the design documents below
-describe:
+## Example
 
-- All five step kinds are implemented: `deterministic`, `agentic`, `wait`, `human`, and `parallel`
-  (single-group, all-or-nothing `branches:` join — [design/format-spec.md](design/format-spec.md)
-  §B.15), plus `foreach:` fan-out over a runtime-discovered json list with per-item postconditions
-  and a `success`/`partial`/`failure` join, over `deterministic` or `agentic` bodies. An agentic body's items are dispatched together in one
-  `DISPATCH_PARALLEL` and answered with `pawl submit --item N`, with a per-item `attempts:` budget that
-  re-dispatches only the failed item; concurrent *execution* of deterministic items
-  (`concurrency:`) remains a later slice. The examples are `docs/examples/foreach-fanout`
-  (deterministic) and `docs/examples/foreach-agentic` (agentic).
-- Top-level `guards:` is now parsed and validated (id required+unique, `match:` required, must
-  compile as a Go RE2 regexp, and must not be able to match zero characters; `only_in:` required —
-  rule 15 checks every entry names a declared step; `only_in: []` denies everywhere — see
-  [internal/guard](internal/guard)), and is now enforced by the `PreToolUse` hook, advisory and
-  pattern-matched: `pawl run`'s banner prints `guards: N advisory (pattern-matched)` when the hooks
-  are on, or `guards: N declared, NOT enforced (enforcement off)` when enforcement is off, and
-  `pawl validate` (which has no run) prints `guards: N declared (enforced only when a run starts
-  with the pawl hooks installed)`. A step's `retry:` (deterministic and wait only) is implemented: it retries a
-  hard-failed body — a non-zero exit, the wall-clock timeout, or unintelligible stdout — before any
-  outcome is resolved, and is distinct from `attempts:`, which re-runs a step on a postcondition
-  failure (see [design/format-spec.md](design/format-spec.md) §B.16).
-- **The enforcement layer is built.** `pawl hook pre|stop` (`internal/hook`, wired by the plugin's
-  `hooks/hooks.json` → `bin/pawl-hook`) backs a `PreToolUse`/`Stop` pair. `pawl run` refuses to
-  start (exit 4) unless a fresh PreToolUse heartbeat (≤5 minutes old) exists for the session (`CLAUDE_CODE_SESSION_ID`) or, failing that, the working copy, unless
-  `--no-enforcement` or `PAWL_ENFORCEMENT=off` is passed; a resume needs no heartbeat and keeps the
-  mode bound at run start. The `Stop` hook refuses to end the driving
-  session's turn while its run's cursor is at an `agentic`/`parallel` step awaiting `pawl submit`
-  (`wait`/`human` cursors and `BLOCKED` runs are exempt); a subagent may not mutate VCS while any run
-  is live. See [docs/dogfood.md](docs/dogfood.md) for what that means in practice.
-- Top-level `invariants:` IS engine-checked now: the engine evaluates every declared invariant, in
-  order, after every step completion and after every `pawl submit`/`pawl poll`, stopping at the
-  first violated one; a violation blocks the run with the invariant's `message:` as the reason
-  (`pawl run`'s banner prints a separate `invariants: N (engine-checked after every step)` line
-  whenever a workflow declares any). For a `kind: parallel` step, invariants are evaluated once at
-  the group join rather than after each branch's own submit.
-- `install.sh` and the release pipeline behind it exist (`.goreleaser.yaml`,
-  `.github/workflows/release.yml`, cross-compiling `pawl` for linux/darwin × amd64/arm64), and
-  tagged releases are published on GitHub for `install.sh` to fetch — see
-  [docs/install.md](docs/install.md). There is also a Claude Code plugin (see Installation below)
-  that ships the `/agent-pawl:pawl` skill, the enforcement hooks and the `pawl` binary itself:
-  each release publishes a plugin zip with platform binaries under `libexec/` and a
-  release-hosted `marketplace.json`, so the plugin installed from that marketplace needs no
-  separate binary install.
-- Releases are cut through a bot-opened **Release PR**: per-PR fragments under `.changes/` are
-  batched into `CHANGELOG.md` and a `.claude-plugin/plugin.json` version bump, then a merge to
-  `main` tags and publishes via goreleaser in the same run — see
-  [docs/releasing.md](docs/releasing.md).
-- `pawl poll --run … --step …` drives a `wait` step; `pawl hook pre|stop` is the `PreToolUse`/`Stop`
-  hook entry point (see above).
+Run the tests; if they fail, have a subagent fix the code, then run them again:
 
-The workflows under `docs/examples/` beyond `green-tests`, `foreach-fanout` and `foreach-agentic` (all covered by
-`e2e/`; the last with canned submits, not a live session) remain authoring exercises rather than verified-runnable artefacts.
+```yaml
+workflow: green-tests
+start: run_tests
+state:
+  failures: {type: string, default: ""}
+  fix_summary: {type: string, default: ""}
+steps:
+  - id: run_tests
+    kind: deterministic                 # pawl runs this itself
+    run: scripts/run-tests.sh 'go test ./...'   # prints PASS, or FAIL {"failures": "..."}
+    writes: [failures]
+    max_visits: 4
+    outcomes: {PASS: done, FAIL: fix_tests, exhausted: gave_up}
+  - id: fix_tests
+    kind: agentic                       # handed to a subagent
+    description: |
+      The tests fail. Fix the code, not the tests:
+      ${failures}
+    writes: {fix_summary: {type: string}}
+    attempts: 3
+    postcondition: go build ./...       # pawl checks this, not the agent
+    next: run_tests
+terminal:
+  done:    {status: ok, message: "Tests pass."}
+  gave_up: {status: blocked, message: "${blocked_reason}"}
+```
 
-## Installation
+The subagent can't declare the job done. `pawl` re-runs the tests itself, and the loop ends only
+when they pass. After 4 test runs it stops as `blocked` (the last failures stay in the `failures`
+state key). The full version
+is [`docs/examples/green-tests`](docs/examples/green-tests/workflow.yaml).
 
-### The Claude Code plugin (recommended)
+## Install
 
-Each release publishes a plugin that bundles the `pawl` binary for linux/darwin × amd64/arm64.
-Add the release marketplace, install the plugin, and enable marketplace auto-update:
+In Claude Code:
 
 ```
 /plugin marketplace add https://github.com/dcferreira/agent-pawl/releases/latest/download/marketplace.json
 /plugin install agent-pawl@agent-pawl
 ```
 
-The release marketplace is available from v0.6.0 on; v0.5.0 and earlier releases did not publish the
-plugin assets. For those older versions, the only route is the GitHub-repo marketplace
-(`/plugin marketplace add dcferreira/agent-pawl`) plus a separately installed binary.
+The plugin bundles the `pawl` binary, the skill and the enforcement hooks. Restart Claude Code
+afterwards. To use `pawl` in a terminal outside Claude Code, see
+[docs/install.md](docs/install.md#using-pawl-in-a-terminal-outside-claude-code).
 
-Then `/plugin` > Marketplaces > Enable auto-update (off by default for third-party marketplaces), so
-the plugin and its binary move together. See [docs/install.md](docs/install.md) for the details,
-migrating from the older install, and using `pawl` from a terminal outside Claude Code. This
-repo's own `.claude-plugin/marketplace.json` stays for contributors and `--plugin-dir`; that
-checkout has no bundled binary, so its `bin/pawl` launcher falls back to a `pawl` on your `PATH`.
+## Usage
 
-### The CLI on its own
-
-For terminal use outside Claude Code (the plugin's bundled binary is not on your shell's `PATH`),
-`install.sh` fetches a prebuilt `pawl` binary from GitHub Releases — no Go toolchain required:
+Save the workflow as `.claude/workflows/green-tests.yaml` in your repo and copy
+[`docs/examples/green-tests/scripts/run-tests.sh`](docs/examples/green-tests/scripts/run-tests.sh)
+to `.claude/workflows/scripts/` (`scripts/` paths resolve next to the workflow file; the script
+needs `jq`). Make it executable, since `pawl` runs it directly:
 
 ```
-curl -fsSL https://raw.githubusercontent.com/dcferreira/agent-pawl/main/install.sh | sh
+chmod +x .claude/workflows/scripts/run-tests.sh
 ```
 
-It installs to `$HOME/.local/bin` by default (override with `INSTALL_DIR`), verifies the download
-against the release's `checksums.txt`, and prints a `PATH` reminder if needed. See
-[docs/install.md](docs/install.md) for the full walkthrough, including pinning a version with
-`PAWL_VERSION`. Keep in mind that a standalone copy and the plugin's bundled copy are separate
-and can drift apart.
-
-If you'd rather build from source, the `pawl` binary is also a normal Go build:
+Then in Claude Code:
 
 ```
-go install github.com/dcferreira/agent-pawl/cmd/pawl@latest
+/agent-pawl:pawl run green-tests
 ```
 
-or, from a clone of this repo:
+## Learn more
 
-```
-make install
-```
-
-Either way, make sure `$(go env GOPATH)/bin` is on your `PATH`. See
-[docs/install.md](docs/install.md) for the full walkthrough, including `make build`'s
-`./dist/pawl` for a build that doesn't touch `$GOPATH/bin`.
-
-### Working in this repo itself
-
-A Claude Code session opened in a checkout of this repo picks up the skill via
-`.claude/skills/pawl`, a relative symlink to `skills/pawl` — no plugin install needed for local
-development.
-
-## Reading order
-
-1. **[docs/install.md](docs/install.md)** — build and install the binary that actually exists
-   today.
-2. **[docs/dogfood.md](docs/dogfood.md)** — run `docs/examples/green-tests` end to end, with a real
-   captured transcript and the two traps an author will actually hit.
-3. **[skills/pawl/SKILL.md](skills/pawl/SKILL.md)** — the `/agent-pawl:pawl` skill a Claude Code
-   session follows to drive a run.
-4. **`docs/README.md`** — the user guide written during design; describes the finished system
-   (full distribution, `foreach:` fan-out) rather than this build — read it for the
-   target shape, not for what runs today.
-5. **`DESIGN.md`** — the engine design: handshake, execution, journal and resume, enforcement,
-   testing, distribution, open questions.
-6. **`design/format-spec.md`** — the normative format: nouns, kinds, fields, validator, roadmap.
-
-## Implementation
-
-Go, module `github.com/dcferreira/agent-pawl`, single binary built from `cmd/pawl`, stdlib
-plus `gopkg.in/yaml.v3` only. Package layout: `internal/spec` (YAML types, loader, validator),
-`internal/render` (`${key}` substitution), `internal/emit` (stdout grammar), `internal/journal`
-(run directory, event log, replay), `internal/engine` (cursor, outcomes, counters), `internal/cli`
-(the commands above). DESIGN.md §9's fuller distribution story (self-installing pinned release
-binaries via two static hooks) is not built; what exists is the plugin described in Installation
-above, which now bundles the `pawl` binary (standalone `install.sh`/`go install` remain for use
-outside Claude Code) — see the Status section above.
+- [Writing workflows](docs/writing-workflows.md) and the [step types](docs/step-types.md)
+- [A full captured run](docs/dogfood.md) of `green-tests`
+- [CLI reference](docs/cli.md)
+- [Roadmap to v1](docs/roadmap.md) and [what runs today](docs/status.md)

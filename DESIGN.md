@@ -2,8 +2,8 @@
 
 **Status:** implemented through Milestone 1 — all five kinds, state and resume, `pawl validate`, and
 the enforcement hooks (§5: `pawl hook pre|stop`, `PreToolUse`/`Stop`). The fuller distribution story
-(§9: self-installing pinned release binaries via the hooks) is not built. See README.md's Status
-section for the authoritative list of what runs today.
+(§9: self-installing pinned release binaries via the hooks) is not built. See docs/status.md for
+the authoritative list of what runs today.
 
 `design/format-spec.md` is authoritative for what an author writes — the nouns, the fields, the
 validator, the roadmap. This document defines the engine: the handshake between `pawl` and the model,
