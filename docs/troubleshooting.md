@@ -22,7 +22,8 @@ session id in `CLAUDE_CODE_SESSION_ID`, then the one for this working copy; each
 - `the PreToolUse hook has not recorded a pawl command for session <id>` — the variable is set but no
   session heartbeat exists. Either the hook is not installed or enabled for this session (install the
   plugin and restart the session), or it runs a pawl older than 0.4.0, which never writes one: run
-  `pawl update` (and restart the session if the plugin was updated).
+  `pawl update` for a standalone binary, or `claude plugin update agent-pawl@agent-pawl` if the binary
+  is the plugin's bundled one (`pawl update` refuses there), and restart the session.
 - `the heartbeat for session <id> is … old; the limit is 5m0s` (or the same for the working copy) — the
   hook did fire, but not within the last 5 minutes.
 - `no heartbeat for working copy <path>` — nothing was ever recorded for this directory.
@@ -92,13 +93,20 @@ The run holds a digest of the compiled graph; resuming against an edited file is
 changed steps. `git stash`/restore and resume, or `pawl run <name> --fresh`. Steps that already ran are
 not undone either way, and `pawl validate` on the edited file is free.
 
-## A hook error: "pawl-hook: … exited 2; failing open"
+## A hook error: "pawl-hook: … exited N; failing open"
 
-The plugin (`bin/pawl-hook`) is newer than the `pawl` binary on your `PATH`: a binary built before
-`pawl hook` existed prints its usage and exits 2 for the unknown subcommand. The wrapper treats that —
-and any other non-zero exit — as a non-blocking error, so nothing is denied or blocked, but nothing is
-enforced either and `pawl run` refuses to start for lack of a heartbeat. Update the binary (`pawl
-update`, or `go install github.com/dcferreira/agent-pawl/cmd/pawl@latest`).
+The wrapper treats any non-zero exit from the binary as a non-blocking error, so nothing is denied or
+blocked, but nothing is enforced either and `pawl run` refuses to start for lack of a heartbeat. With the
+release-marketplace plugin the binary is bundled (`libexec/<os>_<arch>/pawl`) and always matches the
+plugin. A missing or non-executable bundled binary, or an unsupported platform, shows as `exited 1`
+(with an "unsupported platform" or "no usable bundled binary" message above it): reinstall the plugin
+from the release marketplace. `exited 2` is the usage error of an older `pawl` on `PATH`, which you only
+get in a checkout, with `--plugin-dir`, or with the older GitHub-repo marketplace install
+(`/plugin marketplace add dcferreira/agent-pawl`), none of which has a `libexec/`, where the plugin
+(`bin/pawl-hook`) can be newer than that binary: one built before `pawl hook` existed prints its usage
+and exits 2 for the unknown subcommand. Update that binary (`pawl update`, or `go install
+github.com/dcferreira/agent-pawl/cmd/pawl@latest`), or, for the older install, migrate to the release
+marketplace (see "Migrating from the older install" in [install.md](install.md)).
 
 ## The run is fine but the session ended
 
@@ -136,9 +144,10 @@ payload carries `agent_id` (a subagent call), not the main session's own command
 A forgotten live run — including a `BLOCKED` one, which is still live — or a dangling `live/` link
 left behind by a deleted checkout makes `bin/pawl-hook`'s fast path think a run is live in every
 session, so it hands every Bash call's payload to the real `pawl` binary instead of exiting 0
-immediately. If `pawl` itself isn't installed (only the plugin's wrapper scripts are), this also
-surfaces as a non-blocking "the `pawl` binary is not installed" error on Bash calls that have nothing
-to do with `pawl`. Fix it with `pawl abandon --run <id>` in the checkout that started the run, or by
+immediately. If `pawl` itself isn't available, this surfaces as a non-blocking error on Bash calls that
+have nothing to do with `pawl`: "the `pawl` binary was not found" (a checkout or older GitHub-repo marketplace
+install with no `libexec/` bundled binary and no `pawl` on `PATH`), or "unsupported platform" / "the agent-pawl plugin has no usable bundled
+binary" (an installed release plugin; see the "exited N; failing open" section above). Fix it with `pawl abandon --run <id>` in the checkout that started the run, or by
 removing the stale entries directly under `~/.claude/pawl/live/`.
 
 ## `pawl run` refuses to start from a different directory than the session is "in"

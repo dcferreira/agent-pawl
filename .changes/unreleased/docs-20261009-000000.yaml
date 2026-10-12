@@ -1,0 +1,3 @@
+kind: changed
+body: 'Docs now describe the plugin as shipping the `pawl` binary: install from the release marketplace URL with marketplace auto-update, how to migrate from the older GitHub-marketplace install, terminal use outside Claude Code, and that `pawl update` refuses on a plugin-managed binary.'
+time: 2026-10-09T00:00:00.000000000+02:00
