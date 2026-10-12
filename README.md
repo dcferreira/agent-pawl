@@ -61,7 +61,13 @@ afterwards. To use `pawl` in a terminal outside Claude Code, see
 Save the workflow as `.claude/workflows/green-tests.yaml` in your repo and copy
 [`docs/examples/green-tests/scripts/run-tests.sh`](docs/examples/green-tests/scripts/run-tests.sh)
 to `.claude/workflows/scripts/` (`scripts/` paths resolve next to the workflow file; the script
-needs `jq`), then in Claude Code:
+needs `jq`). Make it executable, since `pawl` runs it directly:
+
+```
+chmod +x .claude/workflows/scripts/run-tests.sh
+```
+
+Then in Claude Code:
 
 ```
 /agent-pawl:pawl run green-tests
