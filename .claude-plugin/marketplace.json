@@ -9,8 +9,8 @@
       "name": "agent-pawl",
       "source": {
         "source": "archive",
-        "url": "https://github.com/dcferreira/agent-pawl/releases/download/v0.6.0/agent-pawl-plugin_0.6.0.zip",
-        "sha256": "1d61b40641b1d81b677635686b62194ec03de24041047a273f84607897625604"
+        "url": "https://github.com/dcferreira/agent-pawl/releases/download/v0.6.1/agent-pawl-plugin_0.6.1.zip",
+        "sha256": "a67ecb320a8a3d2c9c6efa1af3023fd237f92292123452c5562ac896f01c4024"
       },
       "description": "Drive pawl workflow runs from Claude Code; bundles the pawl binary for darwin and linux (amd64, arm64)."
     }
