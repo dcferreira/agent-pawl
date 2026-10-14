@@ -94,7 +94,7 @@ What each line means:
   without one, `pawl run` refuses to start rather than print this line at all (see
   [install.md#hooks](install.md#hooks)).
 - **`✔ greet → count`** — step done, postcondition passed, transition taken.
-- **`TERMINAL 4b17 ok`** — the run is over. `ok` or `blocked`, nothing else.
+- **`TERMINAL 4b17 ok`** — the run is over. The status is `ok` or `blocked`; `ok` ends the run, while `blocked` pauses it and prints `resume:` and `abandon:` commands.
 - **the last line** — the soft census; `soft: true` postconditions are counted every run so a
   workflow can't quietly stop checking itself.
 

@@ -14,7 +14,7 @@ yourself; you only do what the machine tells you to do next.
 It only ever hands control back to you at an `agentic` step (`DISPATCH`), a group of one or more
 `agentic` branches — or, for a `foreach:` step, per-item bodies — inside a `parallel` step
 (`DISPATCH_PARALLEL`), a `wait` step (`WAIT`), a
-`human` step (`ASK`), or when the run ends (`TERMINAL`).
+`human` step (`ASK`), or when the run reaches a terminal (`TERMINAL`: `ok` ends it, `blocked` pauses it).
 
 **The enforcement hooks are live.** `pawl run` will refuse to start at all (exit 4) unless its
 `PreToolUse` hook has fired for this session (or, failing that, this working copy) recently — if you see
@@ -364,6 +364,6 @@ entirely on its own — there is nothing extra for this skill to do. When a work
 `pawl run`'s start banner prints an extra line, `invariants: N (engine-checked after every step)`.
 For a `kind: parallel` step, invariants are checked once when the whole group joins, not after each
 branch's own submit — so a DISPATCH_PARALLEL's branches all land normally even if the group as a
-whole later blocks. If an invariant is violated, the run ends (or re-ends, on resume) TERMINAL
-`blocked` exactly like any other blocked run — its `message:` names the invariant and the `message:`
+whole later blocks. If an invariant is violated, the run pauses (or re-pauses, on resume) with a TERMINAL
+`blocked` block exactly like any other blocked run — its `message:` names the invariant and the `message:`
 it declared; report it to the user the same way you would any other blocked reason.
