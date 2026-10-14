@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/dcferreira/agent-pawl/internal/journal"
 )
 
 // objectKeys returns the top-level keys of the JSON object in s, in the
@@ -194,5 +196,33 @@ func TestStatusText_MultiRunStillRefuses(t *testing.T) {
 	stdout, stderr, code := runCLI(t, []string{"pawl", "status"})
 	if code != 1 || stdout != "" || !strings.Contains(stderr, "--run") {
 		t.Errorf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+}
+
+func TestStatusJSON_BrokenRunDoesNotHideHealthyOnes(t *testing.T) {
+	root := setupWorkingCopy(t)
+	writeWorkflow(t, root, "sample", sampleWorkflow)
+	writeWorkflow(t, root, "sample2", strings.Replace(sampleWorkflow, "workflow: sample\n", "workflow: sample2\n", 1))
+	writeContextFile(t, root, "notes.txt", "x\n")
+	good := startStatusRun(t, "sample", "name=Ada")
+	bad := startStatusRun(t, "sample2", "name=Bea")
+	ref, err := journal.FindRun(root, bad)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ref.Dir, "plan.json"), []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, errOut, code := runCLI(t, []string{"pawl", "status", "--json"})
+	if code != 5 {
+		t.Fatalf("exit %d, want 5; stderr %q", code, errOut)
+	}
+	if !strings.Contains(errOut, bad) {
+		t.Errorf("stderr %q does not name broken run %s", errOut, bad)
+	}
+	runs := statusRuns(t, out)
+	if len(runs) != 1 || runs[0]["run_id"] != good {
+		t.Errorf("runs = %v, want only %s", runs, good)
 	}
 }

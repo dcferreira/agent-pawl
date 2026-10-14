@@ -199,7 +199,9 @@ The JSON contract:
   string, `[]` or `{}` rather than an omitted key when there is nothing to say.
 - `runs` is always an array: `[]` when no run is live, one element for one run. With `--json` and
   several live runs and no `--run`, every live run is listed (in run-id order) and the exit is 0;
-  text mode prints nothing for them and exits 1 instead.
+  text mode prints nothing for them and exits 1 instead. A run whose `plan.json` is unreadable or
+  whose pinned workflow fails validation does not hide the others: it is left out of `runs`, one
+  stderr line names its run id and the error, and the exit is 5.
 - `workflow` is the name `pawl run` accepts to start that workflow (for example `manage-mr/foo` for
   `.claude/workflows/manage-mr/foo.yaml`), or `""` when the run's pinned file no longer resolves to
   that name (moved, deleted, or shadowed by a different file of the same name). `workflow_path` is the
@@ -212,7 +214,7 @@ The JSON contract:
   when the workflow file has changed since a still-live run started.
 
 `pawl status` is deliberately exempt from the exit-code table's row 3 (`BLOCKED` → exit 3): it exits 0
-on every successful lookup, a digest mismatch included (the `warning` field says so),, `BLOCKED`, `abandoned` or otherwise, because it's a reporting command —
+on every successful lookup (`BLOCKED`, `abandoned`, a changed workflow file flagged in `warning`, or otherwise), because it's a reporting command —
 the run's status is in its own output (plain text and `--json` alike), not something a non-zero exit
 would add to. This is a design choice, not a gap to fill in later.
 [running.md#pawl-status](running.md#pawl-status) has more on reading the output.
@@ -223,7 +225,7 @@ would add to. This is a design choice, not a gap to fill in later.
 pawl list
 ```
 
-Every workflow `pawl run` can resolve, and where it's from. Output is TSV, one line per workflow,
+Every top-level workflow `pawl run` can resolve, and where it's from. Output is TSV, one line per workflow,
 with no header, sorted by name:
 
 ```
@@ -232,6 +234,9 @@ name<TAB>repo-local|user<TAB>absolute-path
 
 A repo-local workflow wins over a user-level one of the same name, and the user-level one is not
 printed. The TSV is the documented machine format; there is no `--json`.
+
+Only top-level `<name>.yaml` files are listed. Nested workflows (for example `manage-mr/foo`) are
+not, even though `pawl run manage-mr/foo` resolves them.
 
 ```
 › pawl list

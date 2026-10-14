@@ -83,7 +83,7 @@ func cmdStatus(args []string, cwd string, stdout, stderr io.Writer) int {
 	}
 
 	var jsonRuns []statusRunJSON
-	exit := exitOK
+	broken := 0
 	for i := range refs {
 		ref := &refs[i]
 		if ref.Opaque != nil {
@@ -95,7 +95,7 @@ func cmdStatus(args []string, cwd string, stdout, stderr io.Writer) int {
 			switch {
 			case len(refs) > 1:
 				printLine(stderr, "pawl status:", ref.RunID+":", opaqueSentence(ref))
-				exit = exitInternal
+				broken++
 			case asJSON:
 				jsonRuns = append(jsonRuns, opaqueStatusRunJSON(ref))
 			default:
@@ -115,14 +115,18 @@ func cmdStatus(args []string, cwd string, stdout, stderr io.Writer) int {
 		// become unreadable, or a pinned workflow spec.Validate itself can't
 		// process, is a broken run directory (exit 5), not an unknown run.
 		pinned, err := loadPinnedWorkflow(ref.Dir)
+		// One broken run must not hide the healthy ones: note it on stderr,
+		// keep going, and exit 5 at the end.
 		if err != nil {
-			printLine(stderr, err.Error())
-			return exitInternal
+			printLine(stderr, fmt.Sprintf("pawl status: run %s: %s", ref.RunID, err.Error()))
+			broken++
+			continue
 		}
 		report, err := spec.Validate(pinned.Workflow)
 		if err != nil {
-			printLine(stderr, err.Error())
-			return exitInternal
+			printLine(stderr, fmt.Sprintf("pawl status: run %s: %s", ref.RunID, err.Error()))
+			broken++
+			continue
 		}
 
 		warning := ""
@@ -158,8 +162,8 @@ func cmdStatus(args []string, cwd string, stdout, stderr io.Writer) int {
 	if asJSON {
 		fmt.Fprint(stdout, formatStatusJSON(root, jsonRuns))
 	}
-	if exit != exitOK {
-		return exit
+	if broken > 0 {
+		return exitInternal
 	}
 	// pawl status is a reporting command, deliberately exempt from the rest
 	// of the exit-code table's exit-3 row (run/submit/poll's BLOCKED
