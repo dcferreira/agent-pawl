@@ -58,7 +58,7 @@ case — `Success` isn't `SUCCESS`); the poller exits non-zero (that's `failure`
 the step declares `retry:`, in which case a non-zero exit is instead a hard failure retried in-place
 first, per `docs/steps/wait.md`'s `retry:` section — not "keep waiting" either way; exit 0, print
 nothing instead). If the poll process died, `pawl run <name>` re-enters the step and restarts it; the
-`timeout:` deadline restarts too.
+`timeout:` deadline is kept (a crash resume is the same visit), not restarted.
 
 ## Lock held
 
@@ -89,7 +89,7 @@ pawl: ship-change.yaml changed since run 7f3a started (steps fix_issues, assign)
     Use --fresh to start over, or restore the file.
 ```
 
-The run holds a digest of the compiled graph; resuming against an edited file is refused, naming the
+Resume compares a digest of the edited file against a digest of the workflow the run pinned (both computed by the running pawl); resuming against an edited file is refused, naming the
 changed steps. `git stash`/restore and resume, or `pawl run <name> --fresh`. Steps that already ran are
 not undone either way, and `pawl validate` on the edited file is free.
 

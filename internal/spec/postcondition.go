@@ -17,20 +17,20 @@ import (
 // was actually found. UnknownKeys records any map key other than
 // command/all_set/equals/soft, for the same rule.
 type Postcondition struct {
-	Command string
-	AllSet  []string
-	Equals  map[string]any
+	Command string         `json:"command"`
+	AllSet  []string       `json:"all_set"`
+	Equals  map[string]any `json:"equals"`
 
-	HasCommand bool
-	HasAllSet  bool
-	HasEquals  bool
+	HasCommand bool `json:"has_command"`
+	HasAllSet  bool `json:"has_all_set"`
+	HasEquals  bool `json:"has_equals"`
 
 	// Soft is set either by a top-level soft: key nested in the map form.
 	// Load merges the step's own top-level soft: field into this.
-	Soft    bool
-	SoftSet bool
+	Soft    bool `json:"soft"`
+	SoftSet bool `json:"soft_set"`
 
-	UnknownKeys []string
+	UnknownKeys []string `json:"unknown_keys"`
 }
 
 // UnmarshalYAML implements the postcondition: polymorphism. It does not

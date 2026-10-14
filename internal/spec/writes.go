@@ -13,15 +13,15 @@ import (
 // schema).
 type Writes struct {
 	// Keys lists the written key names, in declaration order.
-	Keys []string
+	Keys []string `json:"keys"`
 	// Types maps a key to its declared type, present only when writes: was
 	// authored as a typed map. Empty/nil when IsTyped is false.
-	Types map[string]string
+	Types map[string]string `json:"types"`
 	// MaxLength maps a key to its writes-entry max_length (Unicode code
 	// points), present only for keys that declared one. See MaxLengthFor.
-	MaxLength map[string]int
+	MaxLength map[string]int `json:"max_length"`
 	// IsTyped is true when writes: was authored as a map.
-	IsTyped bool
+	IsTyped bool `json:"is_typed"`
 }
 
 // writesEntryKnownFields is the set of keys a typed writes: entry may carry.

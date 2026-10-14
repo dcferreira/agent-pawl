@@ -134,6 +134,9 @@ and ends the loop as a `failure` only once `retry:`'s attempts are exhausted (fo
 It exits early, doing nothing, if the run directory has gone or the run's
 current step is no longer this step. **The model never runs `pawl submit` for a `wait` result.** On
 resume the model simply runs `pawl poll` again — a wait asks about the present state of the world.
+The deadline is tied to the visit: a crash resume (`RESUME` without `intervention`) is the same visit and
+keeps the original deadline, while a blocked resume (`RESUME{intervention: true}`) is a fresh visit and
+anchors a new deadline at that `RESUME`'s time.
 
 **`human`.** `pawl run` prints `ASK`; the session puts the question to the user with `AskUserQuestion`
 and submits the answer. The question and its deadline are journal records, so an unanswered question
@@ -206,8 +209,8 @@ A run directory, keyed `(working_copy_root, workflow_id, run_id)`:
 
 ```
 <state_base>/<slug>/<workflow_id>/<run_id>/
-    plan.json      parsed graph + definition digest (immutable for the run) — the hooks read
-                   guards and step kinds off this, not a separate guards.json
+    plan.json      parsed graph + definition digest + `format` (immutable for the run) — the hooks
+                   read guards and step kinds off this, not a separate guards.json
     events.jsonl   append-only journal        ← the truth
     status.json    a human-readable summary   ← cosmetic, rebuilt after every transition
     driver.json    {"session_id", "updated"}: the session currently driving this run, used by
@@ -236,7 +239,7 @@ session id is recorded as provenance only. The lock is an `O_EXCL` file holding 
 pid is not alive is taken, a live one is refused with the holder printed, and `--force` steals it.
 
 Eight event kinds, each carrying run id, sequence number, wall clock, step and attempt: `RUN_START`
-(args, digest, resumed flag, the enforcement mode `pawl run` actually decided — `on (PreToolUse
+(args, digest, `format`, resumed flag, the enforcement mode `pawl run` actually decided — `on (PreToolUse
 heartbeat)`, `off (--no-enforcement)`, or `off (PAWL_ENFORCEMENT=off)` — recorded verbatim, never a
 placeholder), `RESUME` (a crash resume, or a user intervention
 on a `BLOCKED` run, which carries `intervention: true` and resets the step's attempt counter to 1 in
@@ -247,12 +250,25 @@ guard denial that ended the run; status `blocked` does not mean the run is over)
 C0 already escaped, so the journal is `grep`-able and `jq`-able and cannot be corrupted by data
 arriving through a step's stdout. `status.json` is a projection and can be deleted at any time.
 
+**Run-directory format.** `journal.Format` (currently `2`) is the version of the on-disk shape — the
+event kinds and `plan.json`'s layout — stamped as `format` in `RUN_START` and as a top-level `format`
+in `plan.json`. A run directory with no stamp is format 1, the shape before versioning existed. A later
+binary reads every earlier format (a format-1 `plan.json`, which used Go field names rather than
+`plan.json`'s snake_case keys, goes through a legacy decode that renames only struct field keys, never
+user-authored map keys); downgrade is not promised, so an older binary may not read a newer run.
+Adding an event kind or changing `plan.json`'s shape bumps `Format`. `Replay` and `ReadPlan` return a
+typed error for a run whose format is newer than the binary knows; a user-facing refusal for that case
+is not built yet.
+
 **Resume.** `pawl run <name>` resumes a non-terminal run — `BLOCKED` included — when exactly one
 resolves for this working copy; `--run <id>` is only needed to disambiguate several.
 
 1. Acquire the lock; if a live pid holds it, refuse and print the holder.
-2. Recompile the workflow file and compare its digest with `plan.json`'s. A mismatch names the steps
-   that changed and refuses, offering `--fresh`.
+2. Recompile the workflow file and compare its digest with the digest of the workflow pinned in
+   `plan.json`, both recomputed by the running binary — the digest stored in `plan.json`/`RUN_START` is
+   a record only, never compared, so a digest-function change in a pawl upgrade cannot falsely refuse an
+   in-flight run. A mismatch names the steps that changed and refuses, offering `--fresh`. `pawl submit`
+   and `pawl poll`'s pinned-workflow check compare the same way.
 3. Replay `events.jsonl` into memory — state keys, args, attempt counters and their keys, visit counts
    — purely, with no side effects.
 4. Set the cursor:

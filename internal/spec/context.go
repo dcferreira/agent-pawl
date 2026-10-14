@@ -24,9 +24,9 @@ import (
 // the tag is silently discarded by node.Decode and the entry is
 // indistinguishable from a plain file path named "diff main".
 type ContextEntry struct {
-	IsCmd bool
-	Value string
-	Tag   string
+	IsCmd bool   `json:"is_cmd"`
+	Value string `json:"value"`
+	Tag   string `json:"tag"`
 }
 
 // UnmarshalYAML records node's tag before decoding its scalar value, the

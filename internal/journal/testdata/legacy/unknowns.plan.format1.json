@@ -1,0 +1,126 @@
+{
+  "workflow": {
+    "Workflow": "unknowns",
+    "Description": "",
+    "Start": "a",
+    "MaxStepsRaw": 9,
+    "MaxSteps": 9,
+    "Args": null,
+    "State": null,
+    "Guards": null,
+    "Invariants": null,
+    "Steps": [
+      {
+        "ID": "a",
+        "Kind": "parallel",
+        "Run": "",
+        "Emits": "json",
+        "Description": "",
+        "Context": null,
+        "SubagentArgs": null,
+        "Poll": "",
+        "Every": "",
+        "Timeout": "",
+        "Question": "",
+        "Options": null,
+        "OptionsFrom": "",
+        "Multi": false,
+        "Writes": {
+          "Keys": null,
+          "Types": null,
+          "MaxLength": null,
+          "IsTyped": false
+        },
+        "Postcondition": null,
+        "AttemptsRaw": null,
+        "Attempts": 1,
+        "AttemptKey": "",
+        "MaxVisitsRaw": null,
+        "MaxVisits": 10,
+        "Retry": null,
+        "Catch": null,
+        "Next": "",
+        "Outcomes": null,
+        "Branches": null,
+        "Foreach": {
+          "Over": "xs",
+          "Body": "b",
+          "Collect": "ys",
+          "MaxItems": 0,
+          "MaxItemsSet": false,
+          "UnknownKeys": [
+            "bogus",
+            "extra"
+          ]
+        },
+        "UnknownFields": [
+          "mystery",
+          "other"
+        ]
+      },
+      {
+        "ID": "b",
+        "Kind": "deterministic",
+        "Run": "true",
+        "Emits": "json",
+        "Description": "",
+        "Context": null,
+        "SubagentArgs": null,
+        "Poll": "",
+        "Every": "",
+        "Timeout": "",
+        "Question": "",
+        "Options": null,
+        "OptionsFrom": "",
+        "Multi": false,
+        "Writes": {
+          "Keys": null,
+          "Types": null,
+          "MaxLength": null,
+          "IsTyped": false
+        },
+        "Postcondition": {
+          "Command": "true",
+          "AllSet": null,
+          "Equals": null,
+          "HasCommand": true,
+          "HasAllSet": false,
+          "HasEquals": false,
+          "Soft": false,
+          "SoftSet": false,
+          "UnknownKeys": [
+            "odd",
+            "weird"
+          ]
+        },
+        "AttemptsRaw": null,
+        "Attempts": 1,
+        "AttemptKey": "",
+        "MaxVisitsRaw": null,
+        "MaxVisits": 10,
+        "Retry": {
+          "MaxAttempts": 2,
+          "Backoff": "1s",
+          "UnknownKeys": [
+            "jitter",
+            "spread"
+          ]
+        },
+        "Catch": null,
+        "Next": "done",
+        "Outcomes": null,
+        "Branches": null,
+        "Foreach": null,
+        "UnknownFields": null
+      }
+    ],
+    "Terminal": {
+      "done": {
+        "Status": "ok",
+        "Message": "ok"
+      }
+    },
+    "Path": "/legacy/unknowns.yaml"
+  },
+  "digest": "1600f08c952cd11bdd6b6635a9c6f9c6754ba5cee147c0934c358bad5fbcbae7"
+}

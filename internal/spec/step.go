@@ -17,69 +17,69 @@ import (
 // name this build does not recognise (a likely typo, e.g. nxt: for next:)
 // in UnknownFields rather than silently dropping it (Global Constraint 5).
 type Step struct {
-	ID   string
-	Kind string
+	ID   string `json:"id"`
+	Kind string `json:"kind"`
 
 	// deterministic
-	Run   string
-	Emits string
+	Run   string `json:"run"`
+	Emits string `json:"emits"`
 
 	// agentic
-	Description  string
-	Context      []ContextEntry
-	SubagentArgs any
+	Description  string         `json:"description"`
+	Context      []ContextEntry `json:"context"`
+	SubagentArgs any            `json:"subagent_args"`
 
 	// wait
-	Poll  string
-	Every string
+	Poll  string `json:"poll"`
+	Every string `json:"every"`
 
 	// wait, human
-	Timeout string
+	Timeout string `json:"timeout"`
 
 	// human
-	Question    string
-	Options     []string
-	OptionsFrom string
-	Multi       bool
+	Question    string   `json:"question"`
+	Options     []string `json:"options"`
+	OptionsFrom string   `json:"options_from"`
+	Multi       bool     `json:"multi"`
 
 	// all
-	Writes        Writes
-	Postcondition *Postcondition
+	Writes        Writes         `json:"writes"`
+	Postcondition *Postcondition `json:"postcondition"`
 
 	// AttemptsRaw is the value as authored, nil if omitted; Attempts is the
 	// defaulted value that engine code should use, set by applyDefaults
 	// (Load calls it; Validate calls it defensively too).
-	AttemptsRaw *int
-	Attempts    int
-	AttemptKey  string
+	AttemptsRaw *int   `json:"attempts_raw"`
+	Attempts    int    `json:"attempts"`
+	AttemptKey  string `json:"attempt_key"`
 
 	// MaxVisitsRaw is the value as authored, nil if omitted; MaxVisits is
 	// the defaulted value that engine code should use, set the same way.
-	MaxVisitsRaw *int
-	MaxVisits    int
+	MaxVisitsRaw *int `json:"max_visits_raw"`
+	MaxVisits    int  `json:"max_visits"`
 
 	// Retry is the step's retry: block (design/format-spec.md §D, §B.16),
 	// nil when not declared. Validate (rule 19) restricts it to
 	// deterministic and wait steps and checks its fields; the engine
 	// (internal/engine) reads it to retry a hard-failed body before
 	// resolving any outcome.
-	Retry *RetryDecl
+	Retry *RetryDecl `json:"retry"`
 
-	Catch []CatchRule
+	Catch []CatchRule `json:"catch"`
 
-	Next     string
-	Outcomes map[string]string
+	Next     string            `json:"next"`
+	Outcomes map[string]string `json:"outcomes"`
 
 	// parallel
-	Branches []string
+	Branches []string `json:"branches"`
 	// Foreach is the alternative to Branches on kind: parallel
 	// (design/format-spec.md §B.15): nil when not declared.
-	Foreach *Foreach
+	Foreach *Foreach `json:"foreach"`
 
 	// UnknownFields lists, sorted, any YAML key under this step that is not
 	// part of the authoring format — reported by Validate rather than
 	// silently ignored.
-	UnknownFields []string
+	UnknownFields []string `json:"unknown_fields"`
 }
 
 // stepShadow mirrors Step's YAML-facing fields for the one decode pass

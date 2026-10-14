@@ -19,12 +19,12 @@ import (
 // (a negative integer, an unparseable duration) rather than a
 // silently-defaulted value. There is no default: both fields are required.
 type RetryDecl struct {
-	MaxAttempts int
-	Backoff     string
+	MaxAttempts int    `json:"max_attempts"`
+	Backoff     string `json:"backoff"`
 
 	// UnknownKeys records any map key other than max_attempts/backoff, for
 	// Validate (mirrors Postcondition.UnknownKeys).
-	UnknownKeys []string
+	UnknownKeys []string `json:"unknown_keys"`
 }
 
 // retryDeclShadow mirrors RetryDecl's YAML-facing fields for the one decode

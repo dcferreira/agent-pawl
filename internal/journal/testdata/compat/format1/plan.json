@@ -1,0 +1,182 @@
+{
+  "workflow": {
+    "Workflow": "wait-for-build",
+    "Description": "redacted",
+    "Start": "kick_off_build",
+    "MaxStepsRaw": 20,
+    "MaxSteps": 20,
+    "Args": {
+      "force_result": {
+        "Type": "string",
+        "Default": "redacted",
+        "Required": false
+      }
+    },
+    "State": {
+      "build_started_at": {
+        "Type": "string",
+        "Default": "",
+        "MaxLength": 0
+      },
+      "build_status": {
+        "Type": "string",
+        "Default": "",
+        "MaxLength": 0
+      },
+      "summary": {
+        "Type": "string",
+        "Default": "",
+        "MaxLength": 0
+      }
+    },
+    "Guards": null,
+    "Invariants": null,
+    "Steps": [
+      {
+        "ID": "kick_off_build",
+        "Kind": "deterministic",
+        "Run": "true",
+        "Emits": "json",
+        "Description": "",
+        "Context": null,
+        "SubagentArgs": null,
+        "Poll": "",
+        "Every": "",
+        "Timeout": "",
+        "Question": "",
+        "Options": null,
+        "OptionsFrom": "",
+        "Multi": false,
+        "Writes": {
+          "Keys": [
+            "build_started_at"
+          ],
+          "Types": null,
+          "IsTyped": false
+        },
+        "Postcondition": {
+          "Command": "true",
+          "AllSet": null,
+          "Equals": null,
+          "HasCommand": true,
+          "HasAllSet": false,
+          "HasEquals": false,
+          "Soft": false,
+          "SoftSet": false,
+          "UnknownKeys": null
+        },
+        "AttemptsRaw": null,
+        "Attempts": 1,
+        "AttemptKey": "",
+        "MaxVisitsRaw": null,
+        "MaxVisits": 10,
+        "Retry": null,
+        "Catch": null,
+        "Next": "wait_for_build",
+        "Outcomes": null,
+        "Branches": null,
+        "UnknownFields": null
+      },
+      {
+        "ID": "wait_for_build",
+        "Kind": "wait",
+        "Run": "",
+        "Emits": "pairs",
+        "Description": "",
+        "Context": null,
+        "SubagentArgs": null,
+        "Poll": "true",
+        "Every": "5s",
+        "Timeout": "5m",
+        "Question": "",
+        "Options": null,
+        "OptionsFrom": "",
+        "Multi": false,
+        "Writes": {
+          "Keys": [
+            "build_status"
+          ],
+          "Types": {
+            "build_status": "string"
+          },
+          "IsTyped": true
+        },
+        "Postcondition": null,
+        "AttemptsRaw": null,
+        "Attempts": 1,
+        "AttemptKey": "",
+        "MaxVisitsRaw": null,
+        "MaxVisits": 10,
+        "Retry": null,
+        "Catch": null,
+        "Next": "",
+        "Outcomes": {
+          "FAILED": "blocked",
+          "PASSED": "summarize_build",
+          "timeout": "blocked"
+        },
+        "Branches": null,
+        "UnknownFields": null
+      },
+      {
+        "ID": "summarize_build",
+        "Kind": "agentic",
+        "Run": "",
+        "Emits": "json",
+        "Description": "redacted",
+        "Context": null,
+        "SubagentArgs": null,
+        "Poll": "",
+        "Every": "",
+        "Timeout": "",
+        "Question": "",
+        "Options": null,
+        "OptionsFrom": "",
+        "Multi": false,
+        "Writes": {
+          "Keys": [
+            "summary"
+          ],
+          "Types": {
+            "summary": "string"
+          },
+          "IsTyped": true
+        },
+        "Postcondition": {
+          "Command": "true",
+          "AllSet": null,
+          "Equals": null,
+          "HasCommand": true,
+          "HasAllSet": false,
+          "HasEquals": false,
+          "Soft": false,
+          "SoftSet": false,
+          "UnknownKeys": null
+        },
+        "AttemptsRaw": 2,
+        "Attempts": 2,
+        "AttemptKey": "",
+        "MaxVisitsRaw": null,
+        "MaxVisits": 10,
+        "Retry": null,
+        "Catch": null,
+        "Next": "done",
+        "Outcomes": null,
+        "Branches": null,
+        "UnknownFields": null
+      }
+    ],
+    "Terminal": {
+      "blocked": {
+        "Status": "blocked",
+        "Message": "redacted"
+      },
+      "done": {
+        "Status": "ok",
+        "Message": "redacted"
+      }
+    },
+    "Path": "/redacted/workflow.yaml"
+  },
+  "digest": "redacted-format1-digest"
+}

@@ -12,7 +12,7 @@ Wait on something outside the run: CI, a review, a build, a person doing a thing
   case a non-zero exit is instead a hard failure retried in-place first (see `retry:` below); "not
   yet" is never a failure either way.
 - **`timeout:`** — required. On expiry the outcome is `timeout`, and you must route it — an unbounded
-  wait stalls forever with nobody to tell. After a resume the deadline restarts from zero. Any
+  wait stalls forever with nobody to tell. A resume after a crash keeps the original deadline; resuming a blocked run is a fresh visit and starts a new one. Any
   `retry:` backoff sleeps count against this same clock, so a flaky poller with a long `backoff:`
   eats into the budget you'd otherwise spend actually waiting.
 - **`max_visits:`** — bounds the *cycle* that keeps re-entering this step (wait → fix → push → wait),

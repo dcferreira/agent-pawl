@@ -1,6 +1,10 @@
 package engine
 
 import (
+	"errors"
+	"os"
+	"path/filepath"
+	"regexp"
 	"testing"
 
 	"github.com/dcferreira/agent-pawl/internal/journal"
@@ -88,6 +92,48 @@ terminal: {done: {status: ok}}
 
 	if _, err := e.Resume("run1", false); err == nil {
 		t.Fatal("Resume after a workflow change: want an error, got nil")
+	}
+}
+
+// TestResume_ComparesRecomputedDigestNotStoredOne: plan.json's recorded
+// digest is only a record; Resume re-digests plan.Workflow with the running
+// code and compares that to the current workflow's digest. So a plan whose
+// stored digest string is stale (e.g. written by a build whose digest
+// function differed) still resumes when the workflow itself is unchanged.
+func TestResume_ComparesRecomputedDigestNotStoredOne(t *testing.T) {
+	const yaml = `
+workflow: digest-recompute
+start: a
+steps:
+  - id: a
+    kind: deterministic
+    run: "true"
+    postcondition: "false"
+    attempts: 1
+    next: done
+terminal: {done: {status: ok}}
+`
+	e := newTestEngine(t, yaml)
+	if _, err := e.Start("run1", nil); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	planPath := filepath.Join(journal.RunDir(e.Root, e.Workflow.Workflow, "run1"), "plan.json")
+	data, err := os.ReadFile(planPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	re := regexp.MustCompile(`"digest": "[0-9a-f]+"`)
+	if !re.Match(data) {
+		t.Fatalf("plan.json has no digest field: %s", data)
+	}
+	data = re.ReplaceAll(data, []byte(`"digest": "recorded-by-another-build"`))
+	if err := os.WriteFile(planPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Resume("run1", false); errors.Is(err, ErrDigestMismatch) {
+		t.Fatalf("Resume compared the stored digest string: %v", err)
+	} else if err != nil {
+		t.Fatalf("Resume: %v", err)
 	}
 }
 

@@ -1,0 +1,5 @@
+kind: fixed
+body: Resuming a run after a crash no longer restarts a `wait` step's `timeout:`; resuming a blocked run still starts a fresh one.
+time: 2026-10-14T16:47:12.874566282+02:00
+custom:
+  PR: "56"

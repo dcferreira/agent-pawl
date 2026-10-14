@@ -141,10 +141,17 @@ type Event struct {
 	Items []any `json:"items,omitempty"`
 
 	// RUN_START
-	Args         map[string]any `json:"args,omitempty"`
-	Digest       string         `json:"digest,omitempty"`
-	Resumed      bool           `json:"resumed,omitempty"`
-	HookSelfTest string         `json:"hook_self_test,omitempty"`
+	//
+	// Format is the journal format the writing binary used (see Format);
+	// set on RUN_START only, absent (0, meaning format 1) on every other
+	// event and on journals written before stamping existed.
+	Format int            `json:"format,omitempty"`
+	Args   map[string]any `json:"args,omitempty"`
+	// Digest is a record of the workflow digest at run start; resume does
+	// not compare against it (see Digest).
+	Digest       string `json:"digest,omitempty"`
+	Resumed      bool   `json:"resumed,omitempty"`
+	HookSelfTest string `json:"hook_self_test,omitempty"`
 
 	// RESUME: a crash resume, or a user intervention on a BLOCKED run
 	// (Intervention true), which resets the step's attempt counter to 1

@@ -87,6 +87,10 @@ type PollIteration struct {
 //     model re-read an old WAIT line) must not silently restart an hours-long
 //     deadline every time; the journal is the run's only memory across
 //     processes (DESIGN.md §4), so it is the only honest origin for it.
+//     The deadline is tied to the *visit*: a crash resume (RESUME with
+//     intervention false) is the same visit and does not re-anchor, while a
+//     blocked resume (RESUME with intervention true) is a fresh visit and
+//     anchors a new deadline at that RESUME's timestamp.
 //
 //  3. **No lock is held between iterations.** A wait is hours long, and
 //     taking the run lock for its duration would turn every other command
@@ -236,7 +240,10 @@ func (e *Engine) Poll(runID, stepID string, observe func(PollIteration)) (Instru
 // different thing entirely: a caller mistake, and a hard error.
 //
 // It returns the step and the wall-clock time the run parked here: the
-// timestamp of the last STEP_ENTER (or RESUME) recorded for this step.
+// timestamp of the last STEP_ENTER recorded for this step or of the last
+// RESUME{intervention: true} (a blocked resume, a fresh visit), whichever is
+// later. A crash RESUME (intervention false) is the same visit and never
+// re-anchors, so the original deadline stands.
 func (e *Engine) pollPrecheck(dir, runID, stepID string) (*spec.Step, time.Time, error) {
 	events, err := journal.ReadEvents(dir)
 	if err != nil {
@@ -273,7 +280,10 @@ func (e *Engine) pollPrecheck(dir, runID, stepID string) (*spec.Step, time.Time,
 	parkedAt := time.Time{}
 	for i := len(events) - 1; i >= 0; i-- {
 		ev := events[i]
-		if ev.Step == stepID && (ev.Kind == journal.KindStepEnter || ev.Kind == journal.KindResume) {
+		if ev.Step != stepID {
+			continue
+		}
+		if ev.Kind == journal.KindStepEnter || (ev.Kind == journal.KindResume && ev.Intervention) {
 			parkedAt = ev.Time
 			break
 		}
