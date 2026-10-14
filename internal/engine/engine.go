@@ -154,6 +154,7 @@ func (e *Engine) Start(runID string, args map[string]any) (Instruction, error) {
 		Kind:         journal.KindRunStart,
 		RunID:        runID,
 		Args:         finalArgs,
+		Format:       journal.Format,
 		Digest:       plan.Digest,
 		HookSelfTest: e.hookSelfTest(),
 	}); err != nil {
@@ -185,11 +186,20 @@ func (e *Engine) Resume(runID string, force bool) (Instruction, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Compare two digests both computed by THIS build: the current workflow
+	// against the pinned plan.Workflow. plan.Digest (and RUN_START.digest)
+	// are records of what the writing build computed; comparing against them
+	// would make every change to the digest's serialisation a spurious
+	// "workflow changed" refusal for a mid-flight run.
 	digest, err := journal.Digest(e.Workflow)
 	if err != nil {
 		return nil, err
 	}
-	if digest != plan.Digest {
+	pinned, err := journal.Digest(plan.Workflow)
+	if err != nil {
+		return nil, err
+	}
+	if digest != pinned {
 		return nil, fmt.Errorf("%w", ErrDigestMismatch)
 	}
 

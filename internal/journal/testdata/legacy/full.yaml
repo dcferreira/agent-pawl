@@ -1,0 +1,142 @@
+# Golden fixture: exercises every field of every json-tagged spec type, so
+# plan.golden.json / digest.golden.txt pin the plan.json shape and the digest.
+workflow: golden
+description: >
+  A fixture touching every field of every type serialised into plan.json.
+start: prepare
+max_steps: 50
+args:
+  target: {type: string, default: main, required: true}
+  retries: {type: int, default: 3}
+  verbose: {type: bool, default: false}
+state:
+  items:   {type: json, default: []}
+  results: {type: json, default: []}
+  note:    {type: string, default: "", max_length: 200}
+  status:  {type: string, default: ""}
+  item_out: {type: string, default: ""}
+  answer:  {type: string, default: ""}
+  count:   {type: int, default: 0}
+  ready:   {type: bool, default: false}
+  cfg:     {type: json, default: {nested: [1, 2.5, "x", null, true]}}
+guards:
+  - id: no-force-push
+    match: "git push .*--force"
+    only_in: [prepare]
+  - id: merge-only-in-join
+    match: "gh pr merge"
+    only_in: [join_step, finish]
+invariants:
+  - id: status-sane
+    check: "true"
+    message: the status key must stay sane
+steps:
+  - id: prepare
+    kind: deterministic
+    run: scripts/prepare.sh ${target}
+    emits: pairs
+    writes: [status, items]
+    postcondition:
+      command: "true"
+      soft: true
+    attempts: 2
+    attempt_key: ${last_error}
+    max_visits: 5
+    retry: {max_attempts: 3, backoff: 10s}
+    catch:
+      - {on: failure, next: blocked}
+      - {on: timeout, next: blocked}
+    outcomes:
+      success: draft
+      failure: blocked
+
+  - id: draft
+    kind: agentic
+    description: |
+      Draft something for ${target}.
+    context:
+      - ${target}
+      - !cmd "echo context"
+      - plain text
+    subagent_args:
+      model: haiku
+      tools: [Read, Bash]
+      nested: {depth: 2, ratio: 0.5, on: true, none: null}
+    writes:
+      note: {type: string, max_length: 100}
+      count: {type: int}
+    postcondition: "true"
+    soft: true
+    next: wait_it
+
+  - id: wait_it
+    kind: wait
+    poll: scripts/poll.sh
+    every: 5s
+    timeout: 5m
+    emits: pairs
+    writes: [status]
+    retry: {max_attempts: 2, backoff: 1s}
+    outcomes:
+      PASSED: ask
+      timeout: blocked
+
+  - id: ask
+    kind: human
+    question: |
+      Approve ${target}?
+    options: [yes, no]
+    timeout: 1h
+    writes: [answer]
+    outcomes:
+      "yes": fan
+      "no": blocked
+      timeout: blocked
+
+  - id: fan
+    kind: parallel
+    branches: [br_a, br_b]
+    next: each
+
+  - id: br_a
+    kind: deterministic
+    run: scripts/a.sh
+    emits: json
+    writes: [ready]
+    postcondition: {all_set: [ready]}
+
+  - id: br_b
+    kind: deterministic
+    run: scripts/b.sh
+    emits: json
+    writes: [count]
+
+  - id: each
+    kind: parallel
+    foreach: {over: items, body: item_step, collect: results, max_items: 7}
+    outcomes: {success: join_step, partial: finish, failure: blocked}
+
+  - id: item_step
+    kind: deterministic
+    run: scripts/item.sh ${item} ${item_index}
+    emits: json
+    writes: [item_out]
+
+  - id: join_step
+    kind: human
+    question: Pick one
+    timeout: 30m
+    options_from: items
+    multi: true
+    writes: [answer]
+    next: finish
+
+  - id: finish
+    kind: deterministic
+    run: "true"
+    postcondition: {equals: {ready: true, status: ready, items: [1, 2]}}
+    next: done
+
+terminal:
+  done:    {status: ok, message: "Finished ${target}"}
+  blocked: {status: blocked, message: "Stopped: ${blocked_reason}"}

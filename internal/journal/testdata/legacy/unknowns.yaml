@@ -1,0 +1,20 @@
+# Loads (Load does not validate) but would not validate: populates the
+# UnknownFields / UnknownKeys fields of Step, Postcondition, RetryDecl and
+# Foreach so the legacy-plan decode test covers them.
+workflow: unknowns
+start: a
+max_steps: 9
+steps:
+  - id: a
+    kind: parallel
+    mystery: 1
+    other: 2
+    foreach: {over: xs, body: b, collect: ys, bogus: 1, extra: 2}
+  - id: b
+    kind: deterministic
+    run: "true"
+    postcondition: {command: "true", weird: 1, odd: 2}
+    retry: {max_attempts: 2, backoff: 1s, jitter: 3, spread: 4}
+    next: done
+terminal:
+  done: {status: ok, message: ok}

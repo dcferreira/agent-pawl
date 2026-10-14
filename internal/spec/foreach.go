@@ -37,17 +37,17 @@ func isForeachItemKey(key string) bool {
 // deliberately indistinguishable here (an explicit max_items: 0 is also
 // rejected at validate time through MaxItemsSet).
 type Foreach struct {
-	Over     string `yaml:"over"`      // a declared json state key holding an array
-	Body     string `yaml:"body"`      // id of the single step run once per item
-	Collect  string `yaml:"collect"`   // a declared json state key receiving per-item results
-	MaxItems int    `yaml:"max_items"` // default 20 when 0/omitted
+	Over     string `yaml:"over" json:"over"`           // a declared json state key holding an array
+	Body     string `yaml:"body" json:"body"`           // id of the single step run once per item
+	Collect  string `yaml:"collect" json:"collect"`     // a declared json state key receiving per-item results
+	MaxItems int    `yaml:"max_items" json:"max_items"` // default 20 when 0/omitted
 
 	// MaxItemsSet records whether max_items: was authored at all, so
 	// Validate can reject an explicit 0 or negative rather than treating it
 	// as the default. UnknownKeys records any map key outside the four
 	// above (mirrors RetryDecl.UnknownKeys).
-	MaxItemsSet bool     `yaml:"-"`
-	UnknownKeys []string `yaml:"-"`
+	MaxItemsSet bool     `yaml:"-" json:"max_items_set"`
+	UnknownKeys []string `yaml:"-" json:"unknown_keys"`
 }
 
 // MaxItemsOrDefault returns the effective list-length cap: MaxItems, or

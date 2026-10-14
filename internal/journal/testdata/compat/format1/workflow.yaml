@@ -1,0 +1,44 @@
+# The redacted equivalent of the workflow in plan.json (a format-1 plan, Go
+# field names): same graph, with free text, commands and defaults replaced by
+# placeholders. The compat test checks Digest(decoded plan) == Digest(this).
+workflow: wait-for-build
+description: redacted
+start: kick_off_build
+max_steps: 20
+args:
+  force_result: {type: string, default: redacted, required: false}
+state:
+  build_started_at: {type: string, default: ""}
+  build_status:     {type: string, default: ""}
+  summary:          {type: string, default: ""}
+steps:
+  - id: kick_off_build
+    kind: deterministic
+    run: "true"
+    writes: [build_started_at]
+    postcondition: "true"
+    next: wait_for_build
+
+  - id: wait_for_build
+    kind: wait
+    poll: "true"
+    every: 5s
+    timeout: 5m
+    emits: pairs
+    writes: {build_status: {type: string}}
+    outcomes:
+      PASSED: summarize_build
+      FAILED: blocked
+      timeout: blocked
+
+  - id: summarize_build
+    kind: agentic
+    description: redacted
+    writes: {summary: {type: string}}
+    postcondition: "true"
+    attempts: 2
+    next: done
+
+terminal:
+  done:    {status: ok, message: redacted}
+  blocked: {status: blocked, message: redacted}

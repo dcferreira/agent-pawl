@@ -117,7 +117,8 @@ type pinnedWorkflow struct {
 //
 // Finding C2: pawl submit is a separate process for every agentic step, so it
 // must never silently adopt a mid-run edit of that file. This reloads
-// plan.Workflow.Path and compares its digest to plan.Digest, exactly the
+// plan.Workflow.Path and compares its digest to the digest of plan.Workflow (both
+// recomputed by this build, never the stored plan.Digest string), exactly the
 // check Engine.Resume already performs for pawl run, and reports the result
 // via Changed/Detail rather than ever returning the newer content: the
 // pinned copy is always what Workflow holds. A file that has since become
@@ -139,11 +140,17 @@ func loadPinnedWorkflow(dir string) (*pinnedWorkflow, error) {
 	if cerr != nil {
 		return pw, nil
 	}
+	// Both digests are recomputed by this build; plan.Digest is only a record
+	// of what the writing build computed (see Engine.Resume).
 	digest, derr := journal.Digest(current)
 	if derr != nil {
 		return pw, nil
 	}
-	if digest != plan.Digest {
+	pinned, perr := journal.Digest(plan.Workflow)
+	if perr != nil {
+		return pw, nil
+	}
+	if digest != pinned {
 		pw.Changed = true
 		pw.Detail = diffSteps(plan.Workflow, current)
 	}

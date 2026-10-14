@@ -1,0 +1,6 @@
+{"kind":"RUN_START","run_id":"064a","seq":0,"time":"2026-09-21T15:18:31.323289807Z","args":{"force_result":"redacted"},"digest":"redacted-format1-digest","hook_self_test":"off (milestone 1)"}
+{"kind":"STEP_ENTER","run_id":"064a","seq":1,"time":"2026-09-21T15:18:31.325398944Z","step":"kick_off_build","attempt":1}
+{"kind":"WRITES","run_id":"064a","seq":2,"time":"2026-09-21T15:18:31.335009516Z","step":"kick_off_build","attempt":1,"writes":{"build_started_at":"redacted"}}
+{"kind":"POSTCONDITION","run_id":"064a","seq":3,"time":"2026-09-21T15:18:31.338419182Z","step":"kick_off_build","attempt":1,"ok":true}
+{"kind":"TRANSITION","run_id":"064a","seq":4,"time":"2026-09-21T15:18:31.340383296Z","step":"kick_off_build","attempt":1,"target":"wait_for_build","outcome":"success"}
+{"kind":"STEP_ENTER","run_id":"064a","seq":5,"time":"2026-09-21T15:18:31.342342459Z","step":"wait_for_build","attempt":1}

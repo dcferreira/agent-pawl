@@ -394,3 +394,91 @@ func TestPoll_NonZeroExitIsFailure(t *testing.T) {
 		t.Errorf("terminal = %+v, want blocked/failure", term)
 	}
 }
+
+// backdateJournal shifts every journalled timestamp of runID back by d, so a
+// test can make already-written events look old without sleeping. Events
+// appended afterwards (e.g. by Engine.Resume) keep their real, recent time.
+func backdateJournal(t *testing.T, e *Engine, runID string, d time.Duration) {
+	t.Helper()
+	dir := journal.RunDir(e.Root, e.Workflow.Workflow, runID)
+	events, err := journal.ReadEvents(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf []byte
+	for _, ev := range events {
+		ev.Time = ev.Time.Add(-d)
+		line, err := json.Marshal(ev)
+		if err != nil {
+			t.Fatal(err)
+		}
+		buf = append(append(buf, line...), '\n')
+	}
+	if err := os.WriteFile(filepath.Join(dir, "events.jsonl"), buf, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestPoll_CrashResumeKeepsOriginalDeadline: a crash resume (RESUME with
+// Intervention false) is the same visit, so it must not restart the wait's
+// timeout clock; the deadline stays anchored on the STEP_ENTER. Built with
+// the real Engine.Resume over a journal whose earlier events are backdated.
+func TestPoll_CrashResumeKeepsOriginalDeadline(t *testing.T) {
+	e := newTestEngine(t, pollWorkflow)
+	clock := newFakeClock()
+	clock.install(e)
+	writeStatus(t, e, "PENDING")
+	startParked(t, e, "run1")
+	backdateJournal(t, e, "run1", 11*time.Second) // STEP_ENTER is past the 10s timeout
+
+	if _, err := e.Resume("run1", false); err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+
+	instr, err := e.Poll("run1", "wait_for_build", func(PollIteration) {})
+	if err != nil {
+		t.Fatalf("Poll: %v", err)
+	}
+	if term, ok := instr.(Terminal); !ok || term.Outcome != "timeout" {
+		t.Fatalf("Poll returned %#v, want a timeout Terminal (the original deadline holds across a crash resume)", instr)
+	}
+	if len(clock.slept) != 0 {
+		t.Errorf("slept %v; the original deadline had already passed", clock.slept)
+	}
+}
+
+// TestPoll_BlockedResumeGetsFreshDeadline: a blocked resume (RESUME with
+// Intervention true) is a fresh visit, so the deadline re-anchors at the
+// RESUME even though the earlier STEP_ENTER is long past the timeout.
+func TestPoll_BlockedResumeGetsFreshDeadline(t *testing.T) {
+	e := newTestEngine(t, pollWorkflow)
+	clock := newFakeClock()
+	clock.install(e)
+	writeStatus(t, e, "FAILED build_status=FAILED")
+	startParked(t, e, "run1")
+	instr, err := e.Poll("run1", "wait_for_build", func(PollIteration) {})
+	if err != nil {
+		t.Fatalf("first Poll: %v", err)
+	}
+	if term, ok := instr.(Terminal); !ok || term.Status != "blocked" {
+		t.Fatalf("first Poll returned %#v, want blocked", instr)
+	}
+	backdateJournal(t, e, "run1", 11*time.Second)
+
+	if _, err := e.Resume("run1", false); err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	writeStatus(t, e, "PENDING")
+
+	var iters []PollIteration
+	_, err = e.Poll("run1", "wait_for_build", func(it PollIteration) { iters = append(iters, it) })
+	if err != nil {
+		t.Fatalf("second Poll: %v", err)
+	}
+	if len(clock.slept) < 5 {
+		t.Errorf("slept %d times; a blocked resume must grant a fresh ~10s deadline, not time out at once", len(clock.slept))
+	}
+	if len(iters) == 0 || iters[0].TimedOut {
+		t.Errorf("first iteration after a blocked resume timed out: %+v", iters)
+	}
+}

@@ -53,7 +53,14 @@ func CreateRunDir(root, workflowID, runID string) (string, error) {
 
 // Plan is the immutable, parsed-graph-plus-digest content of a run's
 // plan.json (DESIGN.md §4).
+//
+// Format is the journal format that wrote it (see Format); a plan.json
+// without the key is format 1, whose workflow object used Go field names and
+// is decoded by decodeLegacyPlan. Digest is a record of the digest at run
+// start; resume and submit compare Digest(plan.Workflow) recomputed by the
+// running code, never this stored string.
 type Plan struct {
+	Format   int            `json:"format"`
 	Workflow *spec.Workflow `json:"workflow"`
 	Digest   string         `json:"digest"`
 }
@@ -77,48 +84,48 @@ type Plan struct {
 //     when the workflow file itself did not change; digesting only the
 //     *Raw fields keeps Digest a function of exactly what was authored.
 type digestWorkflow struct {
-	Workflow    string
-	Description string
-	Start       string
-	MaxStepsRaw *int
-	Args        map[string]spec.ArgDecl
-	State       map[string]spec.StateDecl
-	Guards      []spec.GuardDecl
-	Invariants  []spec.InvariantDecl
-	Steps       []digestStep
-	Terminal    map[string]spec.Terminal
+	Workflow    string                    `json:"workflow"`
+	Description string                    `json:"description"`
+	Start       string                    `json:"start"`
+	MaxStepsRaw *int                      `json:"max_steps_raw"`
+	Args        map[string]spec.ArgDecl   `json:"args"`
+	State       map[string]spec.StateDecl `json:"state"`
+	Guards      []spec.GuardDecl          `json:"guards"`
+	Invariants  []spec.InvariantDecl      `json:"invariants"`
+	Steps       []digestStep              `json:"steps"`
+	Terminal    map[string]spec.Terminal  `json:"terminal"`
 }
 
 type digestStep struct {
-	ID            string
-	Kind          string
-	Run           string
-	Emits         string
-	Description   string
-	Context       []spec.ContextEntry
-	SubagentArgs  any
-	Poll          string
-	Every         string
-	Timeout       string
-	Question      string
-	Options       []string
-	OptionsFrom   string
-	Multi         bool
-	Writes        spec.Writes
-	Postcondition *spec.Postcondition
-	AttemptsRaw   *int
-	AttemptKey    string
-	MaxVisitsRaw  *int
-	Retry         any
-	Catch         []spec.CatchRule
-	Next          string
-	Outcomes      map[string]string
-	Branches      []string
+	ID            string              `json:"id"`
+	Kind          string              `json:"kind"`
+	Run           string              `json:"run"`
+	Emits         string              `json:"emits"`
+	Description   string              `json:"description"`
+	Context       []spec.ContextEntry `json:"context"`
+	SubagentArgs  any                 `json:"subagent_args"`
+	Poll          string              `json:"poll"`
+	Every         string              `json:"every"`
+	Timeout       string              `json:"timeout"`
+	Question      string              `json:"question"`
+	Options       []string            `json:"options"`
+	OptionsFrom   string              `json:"options_from"`
+	Multi         bool                `json:"multi"`
+	Writes        spec.Writes         `json:"writes"`
+	Postcondition *spec.Postcondition `json:"postcondition"`
+	AttemptsRaw   *int                `json:"attempts_raw"`
+	AttemptKey    string              `json:"attempt_key"`
+	MaxVisitsRaw  *int                `json:"max_visits_raw"`
+	Retry         any                 `json:"retry"`
+	Catch         []spec.CatchRule    `json:"catch"`
+	Next          string              `json:"next"`
+	Outcomes      map[string]string   `json:"outcomes"`
+	Branches      []string            `json:"branches"`
 	// Foreach is omitempty so a workflow without foreach: digests exactly as
 	// it did before the field existed (a mid-flight run must not see its
 	// digest change under it).
-	Foreach       *spec.Foreach `json:",omitempty"`
-	UnknownFields []string
+	Foreach       *spec.Foreach `json:"foreach,omitempty"`
+	UnknownFields []string      `json:"unknown_fields"`
 }
 
 func newDigestWorkflow(w *spec.Workflow) *digestWorkflow {
@@ -168,9 +175,11 @@ func newDigestWorkflow(w *spec.Workflow) *digestWorkflow {
 
 // Digest returns a hex-encoded sha256 digest of w's authored content (see
 // digestWorkflow), stable across processes and invocation directories for
-// the same authored content: the value plan.json records and that a later
-// `pawl run` recompiles and compares to detect a changed workflow file out
-// from under a resumed run.
+// the same authored content. plan.json and RUN_START record it as a note of
+// what the writing build computed; a changed workflow file is detected by
+// comparing Digest(current) with Digest(plan.Workflow), both computed by the
+// running code, never with that recorded string (whose serialisation may
+// predate the running build).
 func Digest(w *spec.Workflow) (string, error) {
 	data, err := json.Marshal(newDigestWorkflow(w))
 	if err != nil {
@@ -186,7 +195,7 @@ func WritePlan(dir string, w *spec.Workflow) (*Plan, error) {
 	if err != nil {
 		return nil, err
 	}
-	plan := &Plan{Workflow: w, Digest: digest}
+	plan := &Plan{Format: Format, Workflow: w, Digest: digest}
 	data, err := json.MarshalIndent(plan, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("journal: marshalling plan.json: %w", err)
@@ -197,17 +206,14 @@ func WritePlan(dir string, w *spec.Workflow) (*Plan, error) {
 	return plan, nil
 }
 
-// ReadPlan reads and parses dir's plan.json.
+// ReadPlan reads and parses dir's plan.json, whatever format wrote it (a
+// plan stamped newer than Format is a *FormatError).
 func ReadPlan(dir string) (*Plan, error) {
 	data, err := os.ReadFile(filepath.Join(dir, "plan.json"))
 	if err != nil {
 		return nil, fmt.Errorf("journal: reading plan.json: %w", err)
 	}
-	var plan Plan
-	if err := json.Unmarshal(data, &plan); err != nil {
-		return nil, fmt.Errorf("journal: parsing plan.json: %w", err)
-	}
-	return &plan, nil
+	return decodePlan(data)
 }
 
 // Status is the cosmetic, human-readable projection written to status.json

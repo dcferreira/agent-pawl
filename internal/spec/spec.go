@@ -25,16 +25,16 @@ func isPseudoKey(key string) bool {
 // ArgDecl declares a workflow argument, typed like a state key, bound on the
 // command line as key=value and entering run state read-only.
 type ArgDecl struct {
-	Type     string `yaml:"type"`
-	Default  *any   `yaml:"default"`
-	Required bool   `yaml:"required"`
+	Type     string `yaml:"type" json:"type"`
+	Default  *any   `yaml:"default" json:"default"`
+	Required bool   `yaml:"required" json:"required"`
 }
 
 // StateDecl declares a state key the run may carry.
 type StateDecl struct {
-	Type      string `yaml:"type"`
-	Default   *any   `yaml:"default"`
-	MaxLength int    `yaml:"max_length"`
+	Type      string `yaml:"type" json:"type"`
+	Default   *any   `yaml:"default" json:"default"`
+	MaxLength int    `yaml:"max_length" json:"max_length"`
 }
 
 // GuardDecl is a guard declaration: {id, match, only_in}
@@ -73,21 +73,21 @@ type GuardDecl struct {
 // invariant and carries message:, reusing the same mechanism an
 // author-routed `blocked` transition already uses — no new event kind.
 type InvariantDecl struct {
-	ID      string `yaml:"id"`
-	Check   string `yaml:"check"`
-	Message string `yaml:"message"`
+	ID      string `yaml:"id" json:"id"`
+	Check   string `yaml:"check" json:"check"`
+	Message string `yaml:"message" json:"message"`
 }
 
 // Terminal names the message shown on reaching a terminal outcome.
 type Terminal struct {
-	Status  string `yaml:"status"`
-	Message string `yaml:"message"`
+	Status  string `yaml:"status" json:"status"`
+	Message string `yaml:"message" json:"message"`
 }
 
 // CatchRule routes a step's exhausted outcome (design/format-spec.md §D).
 type CatchRule struct {
-	On   string `yaml:"on"`
-	Next string `yaml:"next"`
+	On   string `yaml:"on" json:"on"`
+	Next string `yaml:"next" json:"next"`
 }
 
 // Step is defined in step.go: it has a custom UnmarshalYAML, so it is kept
@@ -95,26 +95,26 @@ type CatchRule struct {
 
 // Workflow is the parsed and defaulted contents of one workflow file.
 type Workflow struct {
-	Workflow    string `yaml:"workflow"`
-	Description string `yaml:"description"`
-	Start       string `yaml:"start"`
+	Workflow    string `yaml:"workflow" json:"workflow"`
+	Description string `yaml:"description" json:"description"`
+	Start       string `yaml:"start" json:"start"`
 
 	// MaxStepsRaw is the value as authored, nil if omitted; MaxSteps is the
 	// defaulted value (200 if MaxStepsRaw is nil) that engine code should
 	// use.
-	MaxStepsRaw *int `yaml:"max_steps"`
-	MaxSteps    int  `yaml:"-"`
+	MaxStepsRaw *int `yaml:"max_steps" json:"max_steps_raw"`
+	MaxSteps    int  `yaml:"-" json:"max_steps"`
 
-	Args       map[string]ArgDecl   `yaml:"args"`
-	State      map[string]StateDecl `yaml:"state"`
-	Guards     []GuardDecl          `yaml:"guards"`
-	Invariants []InvariantDecl      `yaml:"invariants"`
-	Steps      []Step               `yaml:"steps"`
-	Terminal   map[string]Terminal  `yaml:"terminal"`
+	Args       map[string]ArgDecl   `yaml:"args" json:"args"`
+	State      map[string]StateDecl `yaml:"state" json:"state"`
+	Guards     []GuardDecl          `yaml:"guards" json:"guards"`
+	Invariants []InvariantDecl      `yaml:"invariants" json:"invariants"`
+	Steps      []Step               `yaml:"steps" json:"steps"`
+	Terminal   map[string]Terminal  `yaml:"terminal" json:"terminal"`
 
 	// Path is the source file path, set by Load and used in validator
 	// messages.
-	Path string `yaml:"-"`
+	Path string `yaml:"-" json:"path"`
 }
 
 // StepByID returns the step with the given id, or nil if none exists.

@@ -1,0 +1,648 @@
+{
+  "workflow": {
+    "Workflow": "golden",
+    "Description": "A fixture touching every field of every type serialised into plan.json.\n",
+    "Start": "prepare",
+    "MaxStepsRaw": 50,
+    "MaxSteps": 50,
+    "Args": {
+      "retries": {
+        "Type": "int",
+        "Default": 3,
+        "Required": false
+      },
+      "target": {
+        "Type": "string",
+        "Default": "main",
+        "Required": true
+      },
+      "verbose": {
+        "Type": "bool",
+        "Default": false,
+        "Required": false
+      }
+    },
+    "State": {
+      "answer": {
+        "Type": "string",
+        "Default": "",
+        "MaxLength": 0
+      },
+      "cfg": {
+        "Type": "json",
+        "Default": {
+          "nested": [
+            1,
+            2.5,
+            "x",
+            null,
+            true
+          ]
+        },
+        "MaxLength": 0
+      },
+      "count": {
+        "Type": "int",
+        "Default": 0,
+        "MaxLength": 0
+      },
+      "item_out": {
+        "Type": "string",
+        "Default": "",
+        "MaxLength": 0
+      },
+      "items": {
+        "Type": "json",
+        "Default": [],
+        "MaxLength": 0
+      },
+      "note": {
+        "Type": "string",
+        "Default": "",
+        "MaxLength": 200
+      },
+      "ready": {
+        "Type": "bool",
+        "Default": false,
+        "MaxLength": 0
+      },
+      "results": {
+        "Type": "json",
+        "Default": [],
+        "MaxLength": 0
+      },
+      "status": {
+        "Type": "string",
+        "Default": "",
+        "MaxLength": 0
+      }
+    },
+    "Guards": [
+      {
+        "id": "no-force-push",
+        "match": "git push .*--force",
+        "only_in": [
+          "prepare"
+        ]
+      },
+      {
+        "id": "merge-only-in-join",
+        "match": "gh pr merge",
+        "only_in": [
+          "join_step",
+          "finish"
+        ]
+      }
+    ],
+    "Invariants": [
+      {
+        "ID": "status-sane",
+        "Check": "true",
+        "Message": "the status key must stay sane"
+      }
+    ],
+    "Steps": [
+      {
+        "ID": "prepare",
+        "Kind": "deterministic",
+        "Run": "scripts/prepare.sh ${target}",
+        "Emits": "pairs",
+        "Description": "",
+        "Context": null,
+        "SubagentArgs": null,
+        "Poll": "",
+        "Every": "",
+        "Timeout": "",
+        "Question": "",
+        "Options": null,
+        "OptionsFrom": "",
+        "Multi": false,
+        "Writes": {
+          "Keys": [
+            "status",
+            "items"
+          ],
+          "Types": null,
+          "MaxLength": null,
+          "IsTyped": false
+        },
+        "Postcondition": {
+          "Command": "true",
+          "AllSet": null,
+          "Equals": null,
+          "HasCommand": true,
+          "HasAllSet": false,
+          "HasEquals": false,
+          "Soft": true,
+          "SoftSet": true,
+          "UnknownKeys": null
+        },
+        "AttemptsRaw": 2,
+        "Attempts": 2,
+        "AttemptKey": "${last_error}",
+        "MaxVisitsRaw": 5,
+        "MaxVisits": 5,
+        "Retry": {
+          "MaxAttempts": 3,
+          "Backoff": "10s",
+          "UnknownKeys": null
+        },
+        "Catch": [
+          {
+            "On": "failure",
+            "Next": "blocked"
+          },
+          {
+            "On": "timeout",
+            "Next": "blocked"
+          }
+        ],
+        "Next": "",
+        "Outcomes": {
+          "failure": "blocked",
+          "success": "draft"
+        },
+        "Branches": null,
+        "Foreach": null,
+        "UnknownFields": null
+      },
+      {
+        "ID": "draft",
+        "Kind": "agentic",
+        "Run": "",
+        "Emits": "json",
+        "Description": "Draft something for ${target}.\n",
+        "Context": [
+          {
+            "IsCmd": false,
+            "Value": "${target}",
+            "Tag": "!!str"
+          },
+          {
+            "IsCmd": true,
+            "Value": "echo context",
+            "Tag": "!cmd"
+          },
+          {
+            "IsCmd": false,
+            "Value": "plain text",
+            "Tag": "!!str"
+          }
+        ],
+        "SubagentArgs": {
+          "model": "haiku",
+          "nested": {
+            "depth": 2,
+            "none": null,
+            "on": true,
+            "ratio": 0.5
+          },
+          "tools": [
+            "Read",
+            "Bash"
+          ]
+        },
+        "Poll": "",
+        "Every": "",
+        "Timeout": "",
+        "Question": "",
+        "Options": null,
+        "OptionsFrom": "",
+        "Multi": false,
+        "Writes": {
+          "Keys": [
+            "count",
+            "note"
+          ],
+          "Types": {
+            "count": "int",
+            "note": "string"
+          },
+          "MaxLength": {
+            "note": 100
+          },
+          "IsTyped": true
+        },
+        "Postcondition": {
+          "Command": "true",
+          "AllSet": null,
+          "Equals": null,
+          "HasCommand": true,
+          "HasAllSet": false,
+          "HasEquals": false,
+          "Soft": true,
+          "SoftSet": false,
+          "UnknownKeys": null
+        },
+        "AttemptsRaw": null,
+        "Attempts": 1,
+        "AttemptKey": "",
+        "MaxVisitsRaw": null,
+        "MaxVisits": 10,
+        "Retry": null,
+        "Catch": null,
+        "Next": "wait_it",
+        "Outcomes": null,
+        "Branches": null,
+        "Foreach": null,
+        "UnknownFields": null
+      },
+      {
+        "ID": "wait_it",
+        "Kind": "wait",
+        "Run": "",
+        "Emits": "pairs",
+        "Description": "",
+        "Context": null,
+        "SubagentArgs": null,
+        "Poll": "scripts/poll.sh",
+        "Every": "5s",
+        "Timeout": "5m",
+        "Question": "",
+        "Options": null,
+        "OptionsFrom": "",
+        "Multi": false,
+        "Writes": {
+          "Keys": [
+            "status"
+          ],
+          "Types": null,
+          "MaxLength": null,
+          "IsTyped": false
+        },
+        "Postcondition": null,
+        "AttemptsRaw": null,
+        "Attempts": 1,
+        "AttemptKey": "",
+        "MaxVisitsRaw": null,
+        "MaxVisits": 10,
+        "Retry": {
+          "MaxAttempts": 2,
+          "Backoff": "1s",
+          "UnknownKeys": null
+        },
+        "Catch": null,
+        "Next": "",
+        "Outcomes": {
+          "PASSED": "ask",
+          "timeout": "blocked"
+        },
+        "Branches": null,
+        "Foreach": null,
+        "UnknownFields": null
+      },
+      {
+        "ID": "ask",
+        "Kind": "human",
+        "Run": "",
+        "Emits": "json",
+        "Description": "",
+        "Context": null,
+        "SubagentArgs": null,
+        "Poll": "",
+        "Every": "",
+        "Timeout": "1h",
+        "Question": "Approve ${target}?\n",
+        "Options": [
+          "yes",
+          "no"
+        ],
+        "OptionsFrom": "",
+        "Multi": false,
+        "Writes": {
+          "Keys": [
+            "answer"
+          ],
+          "Types": null,
+          "MaxLength": null,
+          "IsTyped": false
+        },
+        "Postcondition": null,
+        "AttemptsRaw": null,
+        "Attempts": 1,
+        "AttemptKey": "",
+        "MaxVisitsRaw": null,
+        "MaxVisits": 10,
+        "Retry": null,
+        "Catch": null,
+        "Next": "",
+        "Outcomes": {
+          "no": "blocked",
+          "timeout": "blocked",
+          "yes": "fan"
+        },
+        "Branches": null,
+        "Foreach": null,
+        "UnknownFields": null
+      },
+      {
+        "ID": "fan",
+        "Kind": "parallel",
+        "Run": "",
+        "Emits": "json",
+        "Description": "",
+        "Context": null,
+        "SubagentArgs": null,
+        "Poll": "",
+        "Every": "",
+        "Timeout": "",
+        "Question": "",
+        "Options": null,
+        "OptionsFrom": "",
+        "Multi": false,
+        "Writes": {
+          "Keys": null,
+          "Types": null,
+          "MaxLength": null,
+          "IsTyped": false
+        },
+        "Postcondition": null,
+        "AttemptsRaw": null,
+        "Attempts": 1,
+        "AttemptKey": "",
+        "MaxVisitsRaw": null,
+        "MaxVisits": 10,
+        "Retry": null,
+        "Catch": null,
+        "Next": "each",
+        "Outcomes": null,
+        "Branches": [
+          "br_a",
+          "br_b"
+        ],
+        "Foreach": null,
+        "UnknownFields": null
+      },
+      {
+        "ID": "br_a",
+        "Kind": "deterministic",
+        "Run": "scripts/a.sh",
+        "Emits": "json",
+        "Description": "",
+        "Context": null,
+        "SubagentArgs": null,
+        "Poll": "",
+        "Every": "",
+        "Timeout": "",
+        "Question": "",
+        "Options": null,
+        "OptionsFrom": "",
+        "Multi": false,
+        "Writes": {
+          "Keys": [
+            "ready"
+          ],
+          "Types": null,
+          "MaxLength": null,
+          "IsTyped": false
+        },
+        "Postcondition": {
+          "Command": "",
+          "AllSet": [
+            "ready"
+          ],
+          "Equals": null,
+          "HasCommand": false,
+          "HasAllSet": true,
+          "HasEquals": false,
+          "Soft": false,
+          "SoftSet": false,
+          "UnknownKeys": null
+        },
+        "AttemptsRaw": null,
+        "Attempts": 1,
+        "AttemptKey": "",
+        "MaxVisitsRaw": null,
+        "MaxVisits": 10,
+        "Retry": null,
+        "Catch": null,
+        "Next": "",
+        "Outcomes": null,
+        "Branches": null,
+        "Foreach": null,
+        "UnknownFields": null
+      },
+      {
+        "ID": "br_b",
+        "Kind": "deterministic",
+        "Run": "scripts/b.sh",
+        "Emits": "json",
+        "Description": "",
+        "Context": null,
+        "SubagentArgs": null,
+        "Poll": "",
+        "Every": "",
+        "Timeout": "",
+        "Question": "",
+        "Options": null,
+        "OptionsFrom": "",
+        "Multi": false,
+        "Writes": {
+          "Keys": [
+            "count"
+          ],
+          "Types": null,
+          "MaxLength": null,
+          "IsTyped": false
+        },
+        "Postcondition": null,
+        "AttemptsRaw": null,
+        "Attempts": 1,
+        "AttemptKey": "",
+        "MaxVisitsRaw": null,
+        "MaxVisits": 10,
+        "Retry": null,
+        "Catch": null,
+        "Next": "",
+        "Outcomes": null,
+        "Branches": null,
+        "Foreach": null,
+        "UnknownFields": null
+      },
+      {
+        "ID": "each",
+        "Kind": "parallel",
+        "Run": "",
+        "Emits": "json",
+        "Description": "",
+        "Context": null,
+        "SubagentArgs": null,
+        "Poll": "",
+        "Every": "",
+        "Timeout": "",
+        "Question": "",
+        "Options": null,
+        "OptionsFrom": "",
+        "Multi": false,
+        "Writes": {
+          "Keys": null,
+          "Types": null,
+          "MaxLength": null,
+          "IsTyped": false
+        },
+        "Postcondition": null,
+        "AttemptsRaw": null,
+        "Attempts": 1,
+        "AttemptKey": "",
+        "MaxVisitsRaw": null,
+        "MaxVisits": 10,
+        "Retry": null,
+        "Catch": null,
+        "Next": "",
+        "Outcomes": {
+          "failure": "blocked",
+          "partial": "finish",
+          "success": "join_step"
+        },
+        "Branches": null,
+        "Foreach": {
+          "Over": "items",
+          "Body": "item_step",
+          "Collect": "results",
+          "MaxItems": 7,
+          "MaxItemsSet": true,
+          "UnknownKeys": null
+        },
+        "UnknownFields": null
+      },
+      {
+        "ID": "item_step",
+        "Kind": "deterministic",
+        "Run": "scripts/item.sh ${item} ${item_index}",
+        "Emits": "json",
+        "Description": "",
+        "Context": null,
+        "SubagentArgs": null,
+        "Poll": "",
+        "Every": "",
+        "Timeout": "",
+        "Question": "",
+        "Options": null,
+        "OptionsFrom": "",
+        "Multi": false,
+        "Writes": {
+          "Keys": [
+            "item_out"
+          ],
+          "Types": null,
+          "MaxLength": null,
+          "IsTyped": false
+        },
+        "Postcondition": null,
+        "AttemptsRaw": null,
+        "Attempts": 1,
+        "AttemptKey": "",
+        "MaxVisitsRaw": null,
+        "MaxVisits": 10,
+        "Retry": null,
+        "Catch": null,
+        "Next": "",
+        "Outcomes": null,
+        "Branches": null,
+        "Foreach": null,
+        "UnknownFields": null
+      },
+      {
+        "ID": "join_step",
+        "Kind": "human",
+        "Run": "",
+        "Emits": "json",
+        "Description": "",
+        "Context": null,
+        "SubagentArgs": null,
+        "Poll": "",
+        "Every": "",
+        "Timeout": "30m",
+        "Question": "Pick one",
+        "Options": null,
+        "OptionsFrom": "items",
+        "Multi": true,
+        "Writes": {
+          "Keys": [
+            "answer"
+          ],
+          "Types": null,
+          "MaxLength": null,
+          "IsTyped": false
+        },
+        "Postcondition": null,
+        "AttemptsRaw": null,
+        "Attempts": 1,
+        "AttemptKey": "",
+        "MaxVisitsRaw": null,
+        "MaxVisits": 10,
+        "Retry": null,
+        "Catch": null,
+        "Next": "finish",
+        "Outcomes": null,
+        "Branches": null,
+        "Foreach": null,
+        "UnknownFields": null
+      },
+      {
+        "ID": "finish",
+        "Kind": "deterministic",
+        "Run": "true",
+        "Emits": "json",
+        "Description": "",
+        "Context": null,
+        "SubagentArgs": null,
+        "Poll": "",
+        "Every": "",
+        "Timeout": "",
+        "Question": "",
+        "Options": null,
+        "OptionsFrom": "",
+        "Multi": false,
+        "Writes": {
+          "Keys": null,
+          "Types": null,
+          "MaxLength": null,
+          "IsTyped": false
+        },
+        "Postcondition": {
+          "Command": "",
+          "AllSet": null,
+          "Equals": {
+            "items": [
+              1,
+              2
+            ],
+            "ready": true,
+            "status": "ready"
+          },
+          "HasCommand": false,
+          "HasAllSet": false,
+          "HasEquals": true,
+          "Soft": false,
+          "SoftSet": false,
+          "UnknownKeys": null
+        },
+        "AttemptsRaw": null,
+        "Attempts": 1,
+        "AttemptKey": "",
+        "MaxVisitsRaw": null,
+        "MaxVisits": 10,
+        "Retry": null,
+        "Catch": null,
+        "Next": "done",
+        "Outcomes": null,
+        "Branches": null,
+        "Foreach": null,
+        "UnknownFields": null
+      }
+    ],
+    "Terminal": {
+      "blocked": {
+        "Status": "blocked",
+        "Message": "Stopped: ${blocked_reason}"
+      },
+      "done": {
+        "Status": "ok",
+        "Message": "Finished ${target}"
+      }
+    },
+    "Path": "/legacy/full.yaml"
+  },
+  "digest": "f987dc0215151ed686a9b591e7c627c4909bdd302143e3ea1443bd937e3fca2d"
+}

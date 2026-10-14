@@ -210,6 +210,14 @@ func (rs *RunState) Terminal() bool {
 // not honoured as un-ending it, so a stray or duplicated RESUME can never
 // resurrect a finished run into a Live() listing.
 func Replay(events []Event) (*RunState, error) {
+	// A journal stamped by a newer pawl is refused before anything else is
+	// interpreted: its later records may carry kinds or fields this build
+	// would silently mis-replay.
+	if len(events) > 0 && events[0].Kind == KindRunStart {
+		if err := checkFormat(events[0].Format); err != nil {
+			return nil, err
+		}
+	}
 	rs := &RunState{
 		Args:            map[string]any{},
 		State:           map[string]any{},
