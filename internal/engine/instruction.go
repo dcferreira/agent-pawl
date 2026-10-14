@@ -18,6 +18,12 @@ type ContextItem struct {
 	// contents; engine does not execute arbitrary commands for context
 	// entries in this build (see the engine package doc for why).
 	Value string
+	// Status is empty when the command exited 0 or the entry is a plain
+	// file; otherwise an engine-written note (e.g. "context command exited
+	// 3", "context command timed out"). Value stays exactly the captured
+	// stdout, so a failed command's partial output is still shown and its
+	// byte count stays honest.
+	Status string
 }
 
 // Instruction is what the engine hands back to its caller: exactly one of

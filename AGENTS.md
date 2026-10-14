@@ -233,10 +233,11 @@ runtime either — see the next section.
   that's expected, not a broken build — only release binaries carry the goreleaser-stamped
   version (see the Status bullet above).
 - Engine execution detail worth knowing before touching `internal/engine/exec.go`: the wall-clock
-  timeout is enforced by an independent `time.AfterFunc` killing the whole process group
-  (`Setpgid` + negative-pid `SIGKILL`), not `exec.CommandContext`/`cmd.Cancel` — `sh -c 'cmd &'`
-  makes `sh` exit before the ceiling would fire, so `cmd.Cancel` has nothing left to cancel by
-  then.
+  timeout is enforced by an independent `time.AfterFunc` signalling the whole process group
+  (`Setpgid` + negative pid), not `exec.CommandContext`/`cmd.Cancel` — `sh -c 'cmd &'` makes `sh`
+  exit before the ceiling would fire, so `cmd.Cancel` has nothing left to cancel by then. The
+  sequence is `SIGTERM` to the group, a `killGrace` (5s) wait for it to exit, then `SIGKILL` of
+  whatever remains; worst case a timed-out command takes timeout + 5s.
 
 ## Where format questions are settled
 

@@ -1,0 +1,5 @@
+kind: breaking
+body: 'A command that hits the wall-clock timeout now gets SIGTERM to its process group and up to 5 seconds to exit before SIGKILL (worst case: timeout + 5s), instead of an immediate SIGKILL.'
+time: 2026-10-14T17:32:58.577960058+02:00
+custom:
+    PR: "63"

@@ -1,7 +1,10 @@
 package engine
 
 import (
+	"encoding/json"
 	"fmt"
+	"math"
+	"strconv"
 
 	"github.com/dcferreira/agent-pawl/internal/journal"
 	"github.com/dcferreira/agent-pawl/internal/render"
@@ -34,7 +37,37 @@ func renderValue(declType string, v any) render.Value {
 	if s, ok := v.(string); ok {
 		return render.StringValue(s)
 	}
-	return render.StringValue(fmt.Sprint(v))
+	return render.StringValue(formatScalar(declType, v))
+}
+
+// formatScalar renders a non-string, non-json state/arg value as text by its
+// declared type, never in exponent form: journal replay hands numbers back
+// as float64, whose fmt.Sprint form is "1e+06" for 1000000. An integer
+// renders as a plain decimal integer; a number as the shortest exact decimal.
+func formatScalar(declType string, v any) string {
+	switch x := v.(type) {
+	case int:
+		return strconv.FormatInt(int64(x), 10)
+	case int64:
+		return strconv.FormatInt(x, 10)
+	case json.Number:
+		if declType == "number" {
+			if f, err := x.Float64(); err == nil {
+				return strconv.FormatFloat(f, 'f', -1, 64)
+			}
+			return x.String()
+		}
+		if i, err := x.Int64(); err == nil {
+			return strconv.FormatInt(i, 10)
+		}
+		return x.String()
+	case float64:
+		if declType == "integer" && x == math.Trunc(x) && math.Abs(x) < 1<<63 {
+			return strconv.FormatInt(int64(x), 10)
+		}
+		return strconv.FormatFloat(x, 'f', -1, 64)
+	}
+	return fmt.Sprint(v)
 }
 
 // buildValues assembles the render.Values available at cur: every declared

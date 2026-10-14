@@ -11,7 +11,9 @@ Eight words. Learn these and the YAML reads itself.
 
 **Outcome** — a named result that picks the next step. `deterministic`/`wait` steps print their own
 token; `human` steps use the chosen option; `agentic` steps only ever produce `success`/`failure`.
-Reserved everywhere: `success`, `failure`, `timeout`, `exhausted`, `chosen`.
+Reserved everywhere: `success`, `failure`, `timeout`, `exhausted`, `partial`, `chosen`. A script may print
+only its own `outcomes:` names, `failure`, or `success` if declared; the engine-owned `exhausted`,
+`timeout`, `partial` and `chosen` can never be printed (`design/format-spec.md` §A).
 
 **State key** — a value the run carries, typed `string`/`integer`/`number`/`boolean`/`json`. Steps
 write keys; others read them as `${key}`. `args:` are state keys passed on the command line that no
