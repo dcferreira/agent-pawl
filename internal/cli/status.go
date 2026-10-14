@@ -88,16 +88,12 @@ func cmdStatus(args []string, cwd string, stdout, stderr io.Writer) int {
 		ref := &refs[i]
 		if ref.Opaque != nil {
 			// A run this build cannot replay: read-only, show the run and
-			// why it cannot be driven, exit 0. Only the single-run path
-			// reports one; wiring opaque runs into the multi-run --json
-			// output is a separate follow-up, so there one is skipped
-			// with a stderr line (and exit 5) rather than crashing.
+			// why it cannot be driven. With --json it is a normal runs[]
+			// entry and does not count toward exit 5 (which is for runs
+			// that fail to load).
 			switch {
-			case len(refs) > 1:
-				printLine(stderr, "pawl status:", ref.RunID+":", opaqueSentence(ref))
-				broken++
 			case asJSON:
-				jsonRuns = append(jsonRuns, opaqueStatusRunJSON(ref))
+				jsonRuns = append(jsonRuns, opaqueStatusRunJSON(ref, cwd))
 			default:
 				w := &blockWriter{}
 				w.line(0, "root:", root)
@@ -193,11 +189,11 @@ func formatVisits(visits map[string]int) string {
 
 // opaqueStatusRunJSON is the runs[] entry for a run this build cannot replay:
 // the documented envelope, with empty values for what cannot be known.
-// workflow is the workflow-id directory name; workflow_path is the path
-// recorded in the run's own plan.json (decoded leniently, so a newer-format
-// plan still yields it), or "" when absent or unreadable. The workflow ID is
-// never re-resolved as a filename.
-func opaqueStatusRunJSON(ref *journal.RunRef) statusRunJSON {
+// workflow_path is the path recorded in the run's own plan.json (decoded
+// leniently, so a newer-format plan still yields it), or "" when absent or
+// unreadable; workflow is resumeName of that path (the name pawl run accepts)
+// or "". The workflow ID is never re-resolved as a filename.
+func opaqueStatusRunJSON(ref *journal.RunRef, cwd string) statusRunJSON {
 	workflowPath := ""
 	if data, err := os.ReadFile(filepath.Join(ref.Dir, "plan.json")); err == nil {
 		var plan struct {
@@ -211,7 +207,7 @@ func opaqueStatusRunJSON(ref *journal.RunRef) statusRunJSON {
 	}
 	return statusRunJSON{
 		RunID:        ref.RunID,
-		Workflow:     ref.WorkflowID,
+		Workflow:     resumeName(workflowPath, cwd),
 		WorkflowPath: workflowPath,
 		Status:       ref.StatusText(),
 		Visits:       map[string]int{},
