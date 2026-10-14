@@ -38,8 +38,8 @@ func TestSubmit_IntegerRejectsNonIntegral(t *testing.T) {
 }
 
 // TestCoerceAgenticValue_IntegerKeepsFullPrecision: an integer above 2^53 is
-// coerced exactly, not rounded through float64. (The journal's own replay
-// still decodes numbers as float64; that is outside submit's coercion.)
+// coerced exactly, not rounded through float64. (Journal replay now decodes
+// numbers as json.Number too, so the fresh and replayed paths agree.)
 func TestCoerceAgenticValue_IntegerKeepsFullPrecision(t *testing.T) {
 	got, err := coerceAgenticValue("k", json.Number("9007199254740993"), "integer")
 	if err != nil || got != int64(9007199254740993) {

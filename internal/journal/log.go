@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -155,7 +156,7 @@ func parseJournal(data []byte) (events []Event, validLen int, err error) {
 		}
 
 		var e Event
-		if uerr := json.Unmarshal(trimmed, &e); uerr != nil {
+		if uerr := decodeRecord(trimmed, &e); uerr != nil {
 			return nil, 0, fmt.Errorf("journal: events.jsonl: corrupt record at byte %d: %w", pos, uerr)
 		}
 		events = append(events, e)
@@ -163,4 +164,20 @@ func parseJournal(data []byte) (events []Event, validLen int, err error) {
 		validLen = pos
 	}
 	return events, validLen, nil
+}
+
+// decodeRecord decodes one events.jsonl record with UseNumber, so numbers in
+// Args/Writes/Items replay as json.Number (exact text) — the same type the
+// fresh submit/emit path produces — rather than a lossy float64. Like
+// json.Unmarshal it rejects trailing data after the record.
+func decodeRecord(line []byte, e *Event) error {
+	dec := json.NewDecoder(bytes.NewReader(line))
+	dec.UseNumber()
+	if err := dec.Decode(e); err != nil {
+		return err
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return fmt.Errorf("invalid character after top-level value")
+	}
+	return nil
 }
