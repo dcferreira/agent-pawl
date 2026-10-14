@@ -7,8 +7,8 @@ start: prepare
 max_steps: 50
 args:
   target: {type: string, default: main, required: true}
-  retries: {type: int, default: 3}
-  verbose: {type: bool, default: false}
+  retries: {type: integer, default: 3}
+  verbose: {type: boolean, default: false}
 state:
   items:   {type: json, default: []}
   results: {type: json, default: []}
@@ -16,8 +16,8 @@ state:
   status:  {type: string, default: ""}
   item_out: {type: string, default: ""}
   answer:  {type: string, default: ""}
-  count:   {type: int, default: 0}
-  ready:   {type: bool, default: false}
+  count:   {type: integer, default: 0}
+  ready:   {type: boolean, default: false}
   cfg:     {type: json, default: {nested: [1, 2.5, "x", null, true]}}
 guards:
   - id: no-force-push
@@ -44,8 +44,7 @@ steps:
     max_visits: 5
     retry: {max_attempts: 3, backoff: 10s}
     catch:
-      - {on: failure, next: blocked}
-      - {on: timeout, next: blocked}
+      - {on: exhausted, next: blocked}
     outcomes:
       success: draft
       failure: blocked
@@ -64,7 +63,7 @@ steps:
       nested: {depth: 2, ratio: 0.5, on: true, none: null}
     writes:
       note: {type: string, max_length: 100}
-      count: {type: int}
+      count: {type: integer}
     postcondition: "true"
     soft: true
     next: wait_it

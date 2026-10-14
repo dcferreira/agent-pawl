@@ -51,7 +51,8 @@ state:
 `max_length:` (`string` keys only, on `state:` or a typed `writes:` entry) caps the value in Unicode
 code points; a longer write is rejected like a type mismatch.
 
-Types are `string`, `integer`, `number`, `boolean`, `json`. A value that does not fit its type is
+Types are `string`, `integer`, `number`, `boolean`, `json`; `type:` is required on every `state:`
+and `args:` entry, and a `default:` must match it. A value that does not fit its type is
 rejected — the engine will not quietly stringify your integer.
 
 Read a key as `${key}`. Substitution works in `run:`, `poll:`, `check:`, `postcondition:`,
@@ -65,8 +66,14 @@ quotes survives an argument boundary intact. In prose contexts (`description:`, 
 `message:`) the raw value goes in, JSON pretty-printed.
 
 Six pseudo-keys are always readable and never declared: `run_id`, `step`, `attempt`, `visits`,
-`last_error`, `blocked_reason`. Scripts also get state through the environment: every key a step
-reads is exported as `PAWL_<KEY>`, upper-cased — `${branch}` is also `$PAWL_BRANCH`.
+`last_error`, `blocked_reason` (plus `item`/`item_index` inside a `foreach:` body). Scripts also get
+state through the environment: every key a step reads is exported as `PAWL_<KEY>`, upper-cased —
+`${branch}` is also `$PAWL_BRANCH`.
+
+Those names are reserved as `state:`/`args:` keys (case-insensitively), as are keys starting with `_`
+and keys that would export as `PAWL_ENFORCEMENT`, `PAWL_STATE_DIR` or `PAWL_WRAPPER_ACTIVE`; two keys equal
+case-insensitively collide on one variable. Promise: any environment variable `pawl` reads in future
+is named `PAWL__<NAME>` (double underscore), which no `state:`/`args:` key can collide with.
 
 ## Arguments
 
@@ -108,7 +115,10 @@ Three fields, in order of precedence:
 [an agentic step](steps/agentic.md).
 
 `catch:` fires when a step is *finished failing* — body failed, or postcondition failed with the
-`attempts:` budget spent. With no `catch:`, default is `failure → blocked`.
+`attempts:` budget spent. With no `catch:`, default is `failure → blocked`. Entries are `{on, next}`
+only, and `on:` must be a reserved non-success outcome the kind can produce (`failure`, `exhausted`,
+plus `timeout` on `wait`/`human`, `partial` on a `foreach:`); author-named outcomes go under
+`outcomes:`.
 
 **Every step needs `next:` or a complete `outcomes:` map.** There is no fall-through: omitting
 `next:` does not send you to the next step in the file, and the last step does not implicitly go to

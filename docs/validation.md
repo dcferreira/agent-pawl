@@ -32,21 +32,22 @@ routed, except `failure` (via `catch:`, default `failure → blocked`) and `exha
 `blocked`) — those already have an engine-wide default.
 
 **4 — unknown or misplaced `${key}`.** Not declared in `state:`/`args:` and not a pseudo-key
-(`run_id`, `step`, `attempt`, `visits`, `last_error`, `blocked_reason`); or used where substitution
+(`run_id`, `step`, `attempt`, `visits`, `last_error`, `blocked_reason`, or `item`/`item_index` in a
+`foreach:` body); or used where substitution
 doesn't apply (`next:`, `id:`, `kind:`, etc.).
 
 **5 — writing an argument.** `writes:` names an `args:` key. `args:` are read-only.
 
 **6 — missing postcondition.** Required only on `agentic`. Optional on `deterministic` (exit 0 is
 success unless you declare one — add one to check the command's effect, e.g. a push actually
-landed), `wait` and `human`. If an `agentic` step's real check is out of reach, write the weakest
+landed) and `wait`; `human` and `parallel` do not accept one (rule 30). If an `agentic` step's real check is out of reach, write the weakest
 real check and mark it `soft: true` — `postcondition: "true"` + `soft: true` is the floor.
 
-**7 — missing or unrouted timeout.** `wait` steps need `timeout:`; its `timeout` outcome must be
-routed.
+**7 — missing or unrouted timeout.** `wait` and `human` steps need `timeout:`; its `timeout` outcome
+must be routed (the duration itself is checked by rule 36).
 
 **8 — `human` step shape.** One message per fault: needs exactly one of `options:`/`options_from:`;
-every option must be routed or have a fall-through; `multi:` only valid on `human`; a `chosen:`
+every option must be routed or have a fall-through; a `chosen:`
 route needs exactly one `writes:` key; `options_from:` requires `writes:`.
 
 **9 — named outcomes on an agentic step.** Produces only `success`/`failure`. Route from a following
@@ -119,6 +120,42 @@ Anything else — a typo like `done`, or an omitted `status:` — is rejected.
 match `^[A-Za-z_][A-Za-z0-9_]*$` (letters, digits and `_`, not starting with a digit), because keys
 are exported to steps as `PAWL_<KEY>` environment variables. A `writes:` key is also checked
 against `state:` by rule 11; rule 21 reports it again against the step that wrote it.
+
+**30 — field not accepted by the step's kind.** Common to every kind: `id kind next outcomes catch
+max_visits attempt_key`. Beyond that, `deterministic`: `run emits writes postcondition soft attempts
+retry`; `agentic`: `description context subagent_args writes postcondition soft attempts`; `wait`: `poll every timeout emits writes postcondition soft retry`; `human`: `question
+options options_from multi timeout writes`; `parallel`: `branches foreach`. The error lists the
+offending fields and which kinds take each, and says to remove them. (This replaces the old
+`multi:`-off-`human`, `foreach:`-off-`parallel` and `retry:`-kind checks.)
+
+**31 — `soft:` without `postcondition:`.** The flag would be silently dropped; add a postcondition
+or remove it.
+
+**32 — missing or unknown `type:`.** Every `state:`/`args:` entry and typed `writes:` entry needs
+`type:` of `string`, `integer`, `number`, `boolean` or `json`; a near-miss gets a "did you mean".
+
+**33 — `default:` does not match `type:`.** E.g. `default: 5` on a `string` (quote it), a bool or float
+on an `integer`, `default: null` on anything but `json`.
+
+**34 — malformed `catch:` entry.** Only `on:` and `next:`; `on:` is required (a missing `next:` is
+rule 1).
+
+**35 — `catch[].on:` the kind cannot produce.** Allowed: `failure`, `exhausted`, plus `timeout` on
+`wait`/`human` and `partial` on a `parallel` `foreach:`. Author-named outcomes belong under
+`outcomes:`. Also rejects a duplicate `on:` (the later entry can never fire) and an `on:` already
+routed in `outcomes:` (which takes precedence).
+
+**36 — bad duration.** `timeout:` (`wait`, `human`) and an authored `every:` (`wait`) must be Go
+durations (`5m`, `1h`, `24h`) greater than zero.
+
+**37 — reserved step id.** `done`/`blocked`, or an id equal to a declared `terminal:` key. A declared
+`terminal: {done: …}`/`{blocked: …}` is allowed and overrides the implicit terminal.
+
+**38 — reserved key name.** In `state:`/`args:`: an engine pseudo-key (case-insensitive), a key
+starting with `_`, or one exporting as `PAWL_ENFORCEMENT`/`PAWL_STATE_DIR`/`PAWL_WRAPPER_ACTIVE`. Environment variables
+`pawl` reads in future are named `PAWL__<NAME>`, which a `_`-free key can never collide with.
+
+**39 — key collision.** The same key in `args:` and `state:`, or two keys equal case-insensitively.
 
 ## Warnings
 

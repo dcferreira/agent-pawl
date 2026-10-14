@@ -253,7 +253,6 @@ steps:
   - id: p
     kind: parallel
     branches: [b1, b2]
-    attempts: 2
     attempt_key: "k"
     outcomes:
       success: done
@@ -305,7 +304,6 @@ steps:
   - id: p
     kind: parallel
     branches: [b1, b2]
-    attempts: 2
     attempt_key: "k"
     outcomes:
       success: done

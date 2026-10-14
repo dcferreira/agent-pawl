@@ -16,8 +16,8 @@ Ask the person at the keyboard. One step, one question, mapped exactly onto Clau
   `chosen:` is routed. `string` for a single answer, `json` when the value can be a list.
 - **`timeout:`** — required, a reserved outcome you must route. Nothing is written on timeout. The
   idiom for "ask again later" is routing `timeout` back to a preceding `wait` step.
-- **No `postcondition:` needed** — the answer *is* the check; `human` is exempt from the validator's
-  requirement.
+- **No `postcondition:`** — the answer *is* the check; `human` does not accept `postcondition:` or
+  `soft:` (rule 30). `timeout:` must be a valid Go duration greater than zero.
 
 ## Example
 

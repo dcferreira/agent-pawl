@@ -514,59 +514,6 @@ terminal: {done: {status: ok}}
 	}
 }
 
-// TestI4_CatchOnlyOutcomeRoutesEndToEnd is finding I4's round-2 requirement:
-// a resolveTarget unit test alone was not evidence the scenario worked,
-// since emit.Parse rejected the token before resolveTarget was ever reached.
-// This runs the literal scenario from the finding end to end: a
-// deterministic step with outcomes: {good: done} and catch: [{on: bad,
-// next: fallback}], whose stdout carries "bad" — a token named only by
-// catch:, with no outcomes: entry of its own.
-func TestI4_CatchOnlyOutcomeRoutesEndToEnd(t *testing.T) {
-	const yaml = `
-workflow: i4-catch-only
-start: a
-steps:
-  - id: a
-    kind: deterministic
-    run: "echo bad"
-    emits: pairs
-    outcomes: {good: done}
-    catch: [{on: bad, next: fallback}]
-  - id: fallback
-    kind: deterministic
-    run: "true"
-    next: done
-terminal: {done: {status: ok}}
-`
-	e := newTestEngine(t, yaml)
-	instr, err := e.Start("run1", nil)
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	term, ok := instr.(Terminal)
-	if !ok || term.Status != "ok" {
-		t.Fatalf("got %+v, want Terminal{ok} via the catch-only \"bad\" route to fallback", instr)
-	}
-
-	dir := journal.RunDir(e.Root, e.Workflow.Workflow, "run1")
-	events, err := journal.ReadEvents(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var sawBadTransition bool
-	for _, ev := range events {
-		if ev.Kind == journal.KindTransition && ev.Step == "a" {
-			if ev.Outcome != "bad" || ev.Target != "fallback" {
-				t.Errorf("TRANSITION for step a = %+v, want outcome \"bad\" -> fallback", ev)
-			}
-			sawBadTransition = true
-		}
-	}
-	if !sawBadTransition {
-		t.Error("no TRANSITION recorded for step a")
-	}
-}
-
 // TestA1_ContextCmdEntryIsExecuted is finding A1's engine-level regression:
 // a "!cmd"-tagged context: entry must have ${key} substituted and then be
 // executed, with its captured stdout as the gathered value — not treated as

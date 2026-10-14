@@ -135,7 +135,7 @@ func TestForeach_Rule22_NeitherBranchesNorForeach(t *testing.T) {
 func TestForeach_Rule22_ForeachOnOtherKind(t *testing.T) {
 	src := mutate(t, "  - id: b\n    kind: deterministic\n", "  - id: b\n    kind: deterministic\n    foreach: {over: items, body: b, collect: out}\n")
 	wantErrs(t, validateYAML(t, src),
-		`step "b": rule 22: foreach: is only valid on kind: parallel, not kind: deterministic; remove the foreach: block`)
+		`step "b": rule 30: kind: deterministic does not accept foreach: (foreach: belongs to kind: parallel); remove it`)
 }
 
 func TestForeach_Rule22_RequiredFields(t *testing.T) {
@@ -327,12 +327,12 @@ func TestForeach_Rule27_ItemKeysScopedAndReserved(t *testing.T) {
 	t.Run("not declarable as state", func(t *testing.T) {
 		src := mutate(t, "  res: {type: string}", "  res: {type: string}\n  item: {type: string}")
 		wantErrs(t, validateYAML(t, src),
-			`rule 27: state: key "item" is reserved for foreach bodies; rename it`)
+			`rule 38: state: "item" is an engine pseudo-key name (exported as PAWL_ITEM); rename it`)
 	})
 	t.Run("not declarable as arg", func(t *testing.T) {
 		src := strings.Replace(foreachBase, "state:", "args:\n  item_index: {type: string}\nstate:", 1)
 		wantErrs(t, validateYAML(t, src),
-			`rule 27: args: key "item_index" is reserved for foreach bodies; rename it`)
+			`rule 38: args: "item_index" is an engine pseudo-key name (exported as PAWL_ITEM_INDEX); rename it`)
 	})
 }
 

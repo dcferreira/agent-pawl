@@ -206,7 +206,7 @@ func TestValidate_GoldenMessages(t *testing.T) {
 			name: "rule8: multi: on a non-human kind",
 			file: "rule8_multi_on_deterministic.yaml",
 			want: []string{
-				`testdata/rule8_multi_on_deterministic.yaml: step "a": rule 8: multi: is only valid on kind: human; remove it`,
+				`testdata/rule8_multi_on_deterministic.yaml: step "a": rule 30: kind: deterministic does not accept multi: (multi: belongs to kind: human); remove it`,
 			},
 		},
 		{
@@ -304,7 +304,7 @@ func TestValidate_GoldenMessages(t *testing.T) {
 			name: "rule19: retry: on an agentic step",
 			file: "rule19_retry_wrong_kind.yaml",
 			want: []string{
-				`testdata/rule19_retry_wrong_kind.yaml: step "a": rule 19: retry: is only valid on kind: deterministic or kind: wait, not kind: agentic; remove the retry: block`,
+				`testdata/rule19_retry_wrong_kind.yaml: step "a": rule 30: kind: agentic does not accept retry: (retry: belongs to kind: deterministic, wait); remove it`,
 			},
 		},
 		{
@@ -598,28 +598,28 @@ func TestValidate_GoldenMessages(t *testing.T) {
 			name: "F7: agentic step with no writes: at all",
 			file: "f7_agentic_missing_writes.yaml",
 			want: []string{
-				`testdata/f7_agentic_missing_writes.yaml: step "a": kind: agentic requires a typed writes: map — it is the subagent's return schema; add writes: {<key>: {type: string|integer|json}} declaring each key the subagent returns`,
+				`testdata/f7_agentic_missing_writes.yaml: step "a": kind: agentic requires a typed writes: map — it is the subagent's return schema; add writes: {<key>: {type: string|integer|number|boolean|json}} declaring each key the subagent returns`,
 			},
 		},
 		{
 			name: "F7: agentic step with an untyped list writes:",
 			file: "f7_agentic_untyped_list.yaml",
 			want: []string{
-				`testdata/f7_agentic_untyped_list.yaml: step "a": kind: agentic requires a typed writes: map — it is the subagent's return schema; add writes: {<key>: {type: string|integer|json}} declaring each key the subagent returns`,
+				`testdata/f7_agentic_untyped_list.yaml: step "a": kind: agentic requires a typed writes: map — it is the subagent's return schema; add writes: {<key>: {type: string|integer|number|boolean|json}} declaring each key the subagent returns`,
 			},
 		},
 		{
 			name: "F7: agentic step with an empty typed writes: map",
 			file: "f7_agentic_empty_typed_map.yaml",
 			want: []string{
-				`testdata/f7_agentic_empty_typed_map.yaml: step "a": kind: agentic requires a typed writes: map — it is the subagent's return schema; add writes: {<key>: {type: string|integer|json}} declaring each key the subagent returns`,
+				`testdata/f7_agentic_empty_typed_map.yaml: step "a": kind: agentic requires a typed writes: map — it is the subagent's return schema; add writes: {<key>: {type: string|integer|number|boolean|json}} declaring each key the subagent returns`,
 			},
 		},
 		{
 			name: "F7: agentic step with a writes: key that declares no type",
 			file: "f7_agentic_no_type_declared.yaml",
 			want: []string{
-				`testdata/f7_agentic_no_type_declared.yaml: step "a": kind: agentic requires a typed writes: map — it is the subagent's return schema; add writes: {<key>: {type: string|integer|json}} declaring each key the subagent returns`,
+				`testdata/f7_agentic_no_type_declared.yaml: step "a": kind: agentic requires a typed writes: map — it is the subagent's return schema; add writes: {<key>: {type: string|integer|number|boolean|json}} declaring each key the subagent returns`,
 			},
 		},
 		{
@@ -650,14 +650,14 @@ func TestValidate_GoldenMessages(t *testing.T) {
 			name: "wait: every: is not a valid duration",
 			file: "wait_bad_every.yaml",
 			want: []string{
-				`testdata/wait_bad_every.yaml: step "w": every: "soon" is not a valid duration; use Go duration syntax, e.g. "60s", "5m"`,
+				`testdata/wait_bad_every.yaml: step "w": rule 36: every: "soon" is not a valid duration; use Go duration syntax, e.g. "60s", "5m"`,
 			},
 		},
 		{
 			name: "wait: timeout: is not a valid duration",
 			file: "wait_bad_timeout.yaml",
 			want: []string{
-				`testdata/wait_bad_timeout.yaml: step "w": timeout: "forever" is not a valid duration; use Go duration syntax, e.g. "5m", "1h"`,
+				`testdata/wait_bad_timeout.yaml: step "w": rule 36: timeout: "forever" is not a valid duration; use Go duration syntax, e.g. "5m", "1h", "24h"`,
 			},
 		},
 	}

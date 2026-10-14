@@ -80,6 +80,13 @@ type Step struct {
 	// part of the authoring format — reported by Validate rather than
 	// silently ignored.
 	UnknownFields []string `json:"unknown_fields"`
+
+	// Fields lists, sorted, every YAML key the author actually wrote under
+	// this step, known or not (rule 30 reads it: defaulted fields such as
+	// emits:/every: must not count as authored). It is populated only by
+	// UnmarshalYAML; a Step built as a Go struct literal has no Fields, so
+	// rule 30 sees no authored keys on it and reports nothing.
+	Fields []string `json:"-"`
 }
 
 // stepShadow mirrors Step's YAML-facing fields for the one decode pass
@@ -127,16 +134,65 @@ type stepShadow struct {
 	Foreach  *Foreach `yaml:"foreach"`
 }
 
-// stepKnownFields is the set of step-level YAML keys this build understands.
-var stepKnownFields = map[string]bool{
-	"id": true, "kind": true, "run": true, "emits": true,
-	"description": true, "context": true, "subagent_args": true,
-	"poll": true, "every": true, "timeout": true,
-	"question": true, "options": true, "options_from": true, "multi": true,
-	"writes": true, "postcondition": true, "soft": true,
-	"attempts": true, "attempt_key": true, "max_visits": true,
-	"retry": true, "catch": true, "next": true, "outcomes": true,
-	"branches": true, "foreach": true,
+// commonStepFields are the step-level keys every kind accepts (rule 30).
+// attempt_key is common because the engine's beginAttempt uses it as the
+// ${attempt} counter key on every kind; attempts: stays deterministic/agentic.
+var commonStepFields = []string{"id", "kind", "next", "outcomes", "catch", "max_visits", "attempt_key"}
+
+// kindFields is the single source of truth for which authored step keys each
+// kind accepts (design/format-spec.md §H rule 30). The keys in commonStepFields
+// are accepted by every kind and are not repeated here. stepKnownFields (the
+// set of keys the format knows at all, used for unknown-key detection) is
+// derived from this table.
+var kindFields = map[string][]string{
+	"deterministic": {"run", "emits", "writes", "postcondition", "soft", "attempts", "retry"},
+	"agentic":       {"description", "context", "subagent_args", "writes", "postcondition", "soft", "attempts"},
+	"wait":          {"poll", "every", "timeout", "emits", "writes", "postcondition", "soft", "retry"},
+	"human":         {"question", "options", "options_from", "multi", "timeout", "writes"},
+	"parallel":      {"branches", "foreach"},
+}
+
+// stepKnownFields is the set of step-level YAML keys this build understands:
+// the union of commonStepFields and every kind's kindFields entry.
+var stepKnownFields = deriveStepKnownFields()
+
+func deriveStepKnownFields() map[string]bool {
+	m := map[string]bool{}
+	for _, k := range commonStepFields {
+		m[k] = true
+	}
+	for _, fields := range kindFields {
+		for _, k := range fields {
+			m[k] = true
+		}
+	}
+	return m
+}
+
+// kindAccepts reports whether kind accepts the authored key.
+func kindAccepts(kind, key string) bool {
+	for _, k := range commonStepFields {
+		if k == key {
+			return true
+		}
+	}
+	for _, k := range kindFields[kind] {
+		if k == key {
+			return true
+		}
+	}
+	return false
+}
+
+// kindsAccepting lists, in a fixed kind order, the kinds that accept key.
+func kindsAccepting(key string) []string {
+	var out []string
+	for _, kind := range []string{"deterministic", "agentic", "wait", "human", "parallel"} {
+		if kindAccepts(kind, key) {
+			out = append(out, kind)
+		}
+	}
+	return out
 }
 
 // UnmarshalYAML decodes node into a map first (which resolves YAML merge
@@ -164,13 +220,15 @@ func (s *Step) UnmarshalYAML(node *yaml.Node) error {
 		return fmt.Errorf("step: %w", err)
 	}
 
-	var unknown []string
+	var unknown, fields []string
 	for k := range raw {
+		fields = append(fields, k)
 		if !stepKnownFields[k] {
 			unknown = append(unknown, k)
 		}
 	}
 	sort.Strings(unknown)
+	sort.Strings(fields)
 
 	*s = Step{
 		ID:            sh.ID,
@@ -199,6 +257,7 @@ func (s *Step) UnmarshalYAML(node *yaml.Node) error {
 		Branches:      sh.Branches,
 		Foreach:       sh.Foreach,
 		UnknownFields: unknown,
+		Fields:        fields,
 	}
 
 	if s.Postcondition != nil && sh.Soft && !s.Postcondition.SoftSet {
