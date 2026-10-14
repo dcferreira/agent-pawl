@@ -283,37 +283,37 @@ func TestDecideStop_SubagentStopCredit(t *testing.T) {
 		p        Payload
 		markers  []StopMarker
 		allow    bool
-		consumed string // "" = nothing consumed
+		consumed string // comma-separated IDs, "" = nothing consumed
 	}{
 		{"fresh marker allows once and is consumed", []LiveRun{agentic}, stop("s1", false), []StopMarker{mk("m1", "s1", 3*time.Second)}, true, "m1"},
 		{"marker at exactly the TTL still counts", []LiveRun{agentic}, stop("s1", false), []StopMarker{mk("m1", "s1", SubagentStopCreditTTL)}, true, "m1"},
-		{"expired marker blocks", []LiveRun{agentic}, stop("s1", false), []StopMarker{mk("m1", "s1", SubagentStopCreditTTL+time.Second)}, false, ""},
+		{"expired marker blocks and is consumed", []LiveRun{agentic}, stop("s1", false), []StopMarker{mk("m1", "s1", SubagentStopCreditTTL+time.Second)}, false, "m1"},
 		{"another session's marker does not count", []LiveRun{agentic}, stop("s1", false), []StopMarker{mk("m1", "s2", time.Second)}, false, ""},
 		{"no markers blocks", []LiveRun{agentic}, stop("s1", false), nil, false, ""},
-		{"oldest fresh marker is consumed", []LiveRun{agentic}, stop("s1", false),
-			[]StopMarker{mk("new", "s1", 2*time.Second), mk("old", "s1", 20*time.Second), mk("stale", "s1", time.Hour)}, true, "old"},
-		{"stop_hook_active allows without consuming", []LiveRun{agentic}, stop("s1", true), []StopMarker{mk("m1", "s1", time.Second)}, true, ""},
-		{"background task allows without consuming", []LiveRun{agentic}, withBG(), []StopMarker{mk("m1", "s1", time.Second)}, true, ""},
-		{"no blocking run consumes nothing", []LiveRun{waitRun}, stop("s1", false), []StopMarker{mk("m1", "s1", time.Second)}, true, ""},
-		{"no runs consumes nothing", nil, stop("s1", false), []StopMarker{mk("m1", "s1", time.Second)}, true, ""},
+		{"every marker of the session is consumed", []LiveRun{agentic}, stop("s1", false),
+			[]StopMarker{mk("new", "s1", 2*time.Second), mk("old", "s1", 20*time.Second), mk("other", "s2", time.Second)}, true, "new,old"},
+		{"stop_hook_active allows and consumes", []LiveRun{agentic}, stop("s1", true), []StopMarker{mk("m1", "s1", time.Second)}, true, "m1"},
+		{"background task allows and consumes", []LiveRun{agentic}, withBG(), []StopMarker{mk("m1", "s1", time.Second)}, true, "m1"},
+		{"no blocking run allows and consumes", []LiveRun{waitRun}, stop("s1", false), []StopMarker{mk("m1", "s1", time.Second)}, true, "m1"},
+		{"no runs allows and consumes", nil, stop("s1", false), []StopMarker{mk("m1", "s1", time.Second)}, true, "m1"},
 	}
 	for _, c := range cases {
 		d := DecideStop(c.runs, c.p, c.markers, stopNow)
 		if d.Allow != c.allow {
 			t.Errorf("%s: got %+v, want allow=%v", c.name, d, c.allow)
 		}
-		got := ""
-		if d.Consumed != nil {
-			got = d.Consumed.ID
+		var ids []string
+		for _, m := range d.Consumed {
+			ids = append(ids, m.ID)
 		}
-		if got != c.consumed {
+		if got := strings.Join(ids, ","); got != c.consumed {
 			t.Errorf("%s: consumed %q, want %q", c.name, got, c.consumed)
 		}
 	}
 	// One marker, at most one allowed Stop: once the caller deletes it, the
 	// next Stop blocks again.
 	m := []StopMarker{mk("m1", "s1", time.Second)}
-	if d := DecideStop([]LiveRun{agentic}, stop("s1", false), m, stopNow); !d.Allow || d.Consumed == nil {
+	if d := DecideStop([]LiveRun{agentic}, stop("s1", false), m, stopNow); !d.Allow || len(d.Consumed) != 1 {
 		t.Fatalf("first stop: %+v", d)
 	}
 	if d := DecideStop([]LiveRun{agentic}, stop("s1", false), nil, stopNow); d.Allow {

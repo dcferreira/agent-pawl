@@ -348,8 +348,12 @@ case it always allows: the session dispatched a background subagent or is pollin
 will be woken back up. A Stop that would still block is also allowed, once, by a fresh (≤60s) marker
 that `subagent-stop` left for the same session when a subagent finished (Claude Code drops a finished
 subagent from `background_tasks` before its completion notification is delivered, so the Stop payload can
-already look idle); the marker is consumed by that allow. `subagent-stop` records that marker only when
-the session drives a live, enforced run, never writes stdout, never decides, and fails open with exit 0.
+already look idle). Every `stop` consumes all of the session's markers, whatever it decides, so a marker
+never outlives the next Stop; the one hole left is a foreground subagent's result delivered mid-turn,
+whose marker excuses that turn's Stop if the driver forgot `pawl submit` within 60s. `subagent-stop`
+records a marker only when the session drives a live, enforced run whose cursor is at an
+`agentic`/`parallel` step awaiting `pawl submit`, never writes stdout, never decides, and fails open
+with exit 0.
 Exit protocol: allow = exit 0 with no output; `pre` deny = exit 0 with
 `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"<reason>"}}`
 on stdout; `stop` block = exit 0 with `{"decision":"block","reason":"<reason>"}` on stdout;

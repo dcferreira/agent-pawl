@@ -51,10 +51,11 @@ func CompileGuards(decls []spec.GuardDecl) ([]Guard, error) {
 type Decision struct {
 	Allow  bool
 	Reason string
-	// Consumed is the SubagentStop marker a Stop allow used up, nil when the
-	// allow did not rest on one. The caller must delete it, so that one
-	// marker excuses at most one Stop.
-	Consumed *StopMarker
+	// Consumed are the SubagentStop markers a Stop evaluation used up: every
+	// marker for the payload's session that DecideStop was given, whatever
+	// the decision. The caller must delete them all, so that a marker never
+	// outlives the next Stop.
+	Consumed []StopMarker
 }
 
 var allow = Decision{Allow: true}
@@ -154,9 +155,9 @@ func decideGuards(runs []LiveRun, cmd string) Decision {
 // completed 0-5s before the blocked Stop: Claude Code fires SubagentStop and
 // drops the task from background_tasks, but the completion notification is
 // still queued and will wake the session. 60s is generous over that evidence.
-// The bound exists because a result delivered mid-turn never has its marker
-// consumed; without expiry that stale marker would later excuse a Stop where
-// the agent genuinely forgot to submit.
+// The bound exists because a marker no Stop has consumed yet (a result
+// delivered mid-turn) must not excuse a Stop long after; every Stop
+// evaluation consumes the session's markers in any case.
 const SubagentStopCreditTTL = 60 * time.Second
 
 // StopMarker is one recorded SubagentStop for a session. ID names it for
@@ -182,13 +183,29 @@ type StopMarker struct {
 // already omits it while its completion notification is still queued and
 // will wake the session. markers are the SubagentStops recorded for sessions
 // (by `pawl hook subagent-stop`); only if the Stop would otherwise be
-// refused, the oldest marker for p's session no older than
-// SubagentStopCreditTTL at now excuses it, and is reported in
-// Decision.Consumed. Residual hole: any subagent finishing in the session
-// grants one Stop within the TTL. DecideStop does no I/O and reads no clock.
+// refused, a marker for p's session no older than SubagentStopCreditTTL at
+// now excuses it. Every Stop evaluation — allowed by BackgroundTasks,
+// SessionCrons or StopHookActive, excused by a marker, or blocked — reports
+// all of p's session's markers in Decision.Consumed, so a marker never
+// outlives the next Stop and at most one Stop per turn-end is excused.
+// Residual hole: a foreground subagent's result delivered mid-turn leaves a
+// marker that excuses that turn's Stop if the driver forgot to submit within
+// SubagentStopCreditTTL. DecideStop does no I/O and reads no clock.
 func DecideStop(runs []LiveRun, p Payload, markers []StopMarker, now time.Time) Decision {
+	var consumed []StopMarker
+	credit := false
+	for _, m := range markers {
+		if m.SessionID != p.SessionID {
+			continue
+		}
+		consumed = append(consumed, m)
+		if age := now.Sub(m.Time); age >= 0 && age <= SubagentStopCreditTTL {
+			credit = true
+		}
+	}
+	allowed := Decision{Allow: true, Consumed: consumed}
 	if p.StopHookActive || p.BackgroundTasks > 0 || p.SessionCrons > 0 {
-		return allow
+		return allowed
 	}
 	for _, r := range runs {
 		if r.Blocked || r.DriverSession == "" || r.DriverSession != p.SessionID {
@@ -197,24 +214,12 @@ func DecideStop(runs []LiveRun, p Payload, markers []StopMarker, now time.Time) 
 		if r.CursorKind != "agentic" && r.CursorKind != "parallel" {
 			continue
 		}
-		var oldest *StopMarker
-		for i := range markers {
-			m := &markers[i]
-			age := now.Sub(m.Time)
-			if m.SessionID != p.SessionID || age < 0 || age > SubagentStopCreditTTL {
-				continue
-			}
-			if oldest == nil || m.Time.Before(oldest.Time) {
-				oldest = m
-			}
+		if credit {
+			return allowed
 		}
-		if oldest != nil {
-			c := *oldest
-			return Decision{Allow: true, Consumed: &c}
-		}
-		return Decision{Reason: fmt.Sprintf(
+		return Decision{Consumed: consumed, Reason: fmt.Sprintf(
 			"pawl run %s (%s) is at step %s awaiting `pawl submit`. Finish it, or: pawl abandon --run %s",
 			r.RunID, r.WorkflowID, r.CursorStep, r.RunID)}
 	}
-	return allow
+	return allowed
 }

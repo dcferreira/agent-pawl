@@ -439,17 +439,20 @@ the task from `background_tasks`, yet its completion notification is still queue
 session. The Stop payload then has `background_tasks: []` although nothing is being walked away from
 (7 of 7 captured occurrences: the last branch subagent finished 0–5s before the block). `pawl hook
 subagent-stop` therefore records a marker — `<pawl home>/subagent-stops/<session_id>/<agent_id>.json`,
-`{session_id, agent_id, time}` — but only when the session drives a live, enforced run (it cannot know
+`{session_id, agent_id, time}` — but only when the session drives a live, enforced run whose cursor is
+at an `agentic`/`parallel` step awaiting `pawl submit` (not `BLOCKED`, not `wait`/`human`; it cannot know
 which run the subagent belonged to, so the marker is keyed on the session alone); it never emits a
 decision, never writes stdout, and fails open with exit 0 on every error, since blocking a subagent from
 stopping is never its job. `DecideStop` stays pure: it is handed the session's markers and `now`, and
 only when the Stop would otherwise be refused (after `stop_hook_active`, `background_tasks` and
-`session_crons` have had their say, none of which consume anything) it allows against the **oldest**
-marker for that session no older than `hook.SubagentStopCreditTTL` (60s) and reports it as consumed;
-`pawl hook stop` then deletes that file (best-effort — a delete failure never changes the decision) and
-prunes expired markers. One marker excuses at most one Stop. The TTL exists because a result delivered
-mid-turn never has its marker consumed, and without expiry that stale marker would later excuse a Stop
-where the agent genuinely forgot to submit. The reason always names the way out:
+`session_crons` have had their say) it allows if the session has a marker no older than
+`hook.SubagentStopCreditTTL` (60s). Whatever the decision — allowed by `background_tasks`/`session_crons`,
+by `stop_hook_active`, by a marker, or blocked — every Stop evaluation reports **all** of the session's
+markers as consumed, and `pawl hook stop` deletes them all (best-effort — a delete failure never changes
+the decision) and prunes expired markers. A marker never outlives the next Stop, so at most one Stop per
+turn-end is excused, however many subagents finished. The worst case is a foreground subagent's result
+delivered mid-turn: its marker survives to that turn's own Stop and excuses it if the driver forgot
+`pawl submit` within 60s. The reason always names the way out:
 
 ```
 pawl run <id> (<workflow>) is at step <step> awaiting `pawl submit`. Finish it, or: pawl abandon --run <id>
@@ -473,7 +476,7 @@ submit`. A violation journals the reason into `RUN_END` and sets the run `BLOCKE
 | Subagent mutates VCS | `PreToolUse` deny on `agent_id` | invariant | — |
 | Well-formed but wrong agentic output | — | postcondition + maker ≠ checker | the core residual of any LLM step |
 | Loop forever | `max_visits:`, `max_steps:`, validator | — | — |
-| End the driving session's turn mid-dispatch | `Stop` blocks, names `pawl abandon` | — | a harness that drops the hook, or a session that isn't the recorded driver; also, a session that owes a `pawl submit` but has *any* unrelated `background_tasks`/`session_crons` entry in the Stop payload — the exemption doesn't check that the in-flight work is the dispatched step's, so it can be used to end the turn while genuinely walking away; likewise the `SubagentStop` credit is keyed on the session, not the run or the step: any subagent finishing in the session grants one blocked `Stop` an allow within the 60s TTL |
+| End the driving session's turn mid-dispatch | `Stop` blocks, names `pawl abandon` | — | a harness that drops the hook, or a session that isn't the recorded driver; also, a session that owes a `pawl submit` but has *any* unrelated `background_tasks`/`session_crons` entry in the Stop payload — the exemption doesn't check that the in-flight work is the dispatched step's, so it can be used to end the turn while genuinely walking away; likewise the `SubagentStop` credit is keyed on the session, not the run or the step, and every Stop consumes all of it: at most one excused `Stop` per turn-end, the worst case being a foreground subagent's result delivered mid-turn plus a forgotten `pawl submit` within the 60s TTL |
 | Half-edit the tree, then die | — | — | fix-forward: the next attempt is told and inspects |
 | Two live runs in one working copy edit the same files | — | — | not prevented; the author's own idempotency only |
 | Guarded or VCS-mutating command run from outside the working copy (`cd /elsewhere`, `git -C /repo push`) | — | invariant, if it changed observable state | guards and the subagent VCS rule apply to the payload cwd's working copy plus every run (in any working copy) whose `driver.json` names the calling session; a command aimed elsewhere (`git -C /repo push`) is checked against those runs' guards by its text only |

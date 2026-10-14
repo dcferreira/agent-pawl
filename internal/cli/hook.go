@@ -103,7 +103,10 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 		d = hook.DecidePre(runs, p)
 	case "subagent-stop":
 		for _, r := range runs {
-			if r.DriverSession != "" && r.DriverSession == p.SessionID {
+			// Only a run awaiting this session's `pawl submit` earns credit:
+			// a blocked run, or one at a wait/human cursor, never blocks a Stop.
+			if r.DriverSession != "" && r.DriverSession == p.SessionID && !r.Blocked &&
+				(r.CursorKind == "agentic" || r.CursorKind == "parallel") {
 				if err := journal.WriteSubagentStop(p.SessionID, p.AgentID, nowFunc(), hook.SubagentStopCreditTTL); err != nil {
 					printLine(stderr, "pawl hook subagent-stop: recording marker:", err.Error())
 				}
@@ -124,7 +127,8 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 }
 
 // stopDecision runs hook.DecideStop with the session's fresh SubagentStop
-// markers, then deletes the one it consumed and prunes expired ones. Marker
+// markers, then deletes every one it reports consumed (all of them, whatever
+// the decision) and prunes expired ones. Marker
 // I/O is best-effort: a read error means no markers (so no credit), and a
 // delete or prune failure never changes the decision.
 func stopDecision(runs []hook.LiveRun, p hook.Payload, stderr io.Writer) hook.Decision {
@@ -138,8 +142,8 @@ func stopDecision(runs []hook.LiveRun, p hook.Payload, stderr io.Writer) hook.De
 		markers = append(markers, hook.StopMarker{ID: m.ID, SessionID: m.SessionID, Time: m.Time})
 	}
 	d := hook.DecideStop(runs, p, markers, now)
-	if d.Consumed != nil {
-		if err := journal.DeleteSubagentStop(p.SessionID, d.Consumed.ID); err != nil {
+	for _, c := range d.Consumed {
+		if err := journal.DeleteSubagentStop(p.SessionID, c.ID); err != nil {
 			printLine(stderr, "pawl hook stop: consuming subagent-stop marker:", err.Error())
 		}
 	}

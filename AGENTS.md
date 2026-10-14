@@ -40,8 +40,9 @@ yet" list names what isn't built — and its sample output is illustrative, not 
   session (`CLAUDE_CODE_SESSION_ID`) or, failing that, the working copy is on disk and no older than 5 minutes, unless `--no-enforcement`/`PAWL_ENFORCEMENT=off` is
   passed. `Stop` refuses to end the driving session's turn while its run's cursor is at an
   `agentic`/`parallel` step awaiting `pawl submit` (`wait`/`human` cursors and `BLOCKED` runs are
-  exempt, at most once per turn; one fresh <=60s `SubagentStop` marker per session also excuses one
-  Stop, covering the background-subagent delivery race, `hook.SubagentStopCreditTTL`); a subagent (`agent_id` present) may not mutate VCS while any run
+  exempt, at most once per turn; a fresh <=60s `SubagentStop` marker for the session excuses a
+  Stop, covering the background-subagent delivery race, `hook.SubagentStopCreditTTL`, and every Stop
+  consumes all the session's markers, so at most one Stop per turn-end is excused); a subagent (`agent_id` present) may not mutate VCS while any run
   is live. See `docs/dogfood.md`.
 - Top-level `invariants:` IS engine-checked: `internal/engine` evaluates every declared invariant,
   in declaration order, after every step completion and after every `pawl submit`/`pawl poll` call
