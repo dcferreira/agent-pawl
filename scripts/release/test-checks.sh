@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Unit tests for scripts/release/check-fragment.sh,
-# check-no-version-bump.sh, check-version-consistency.sh and
-# build-plugin-archive.sh and update-repo-marketplace.sh — run with
-# `make test-release-checks` or `bash scripts/release/test-checks.sh`.
+# check-no-version-bump.sh, check-version-consistency.sh,
+# build-plugin-archive.sh, update-repo-marketplace.sh, is-prerelease.sh and
+# batch.sh — run with `make test-release-checks` or
+# `bash scripts/release/test-checks.sh`.
 #
 # Each script is SOURCED (not executed) with PAWL_RELEASE_CHECK_TEST=1, the
 # same pattern scripts/test-install.sh uses for install.sh, so their
@@ -14,6 +15,14 @@
 # bats — this repo's no-extra-tooling ethos, same as test-install.sh). No
 # network, no GitHub API: PR_LABELS/PR_HEAD_REF are plain env vars, base and
 # head are real commit shas in the fixture repo.
+#
+# batch.sh's argument validation is tested without changie (it validates
+# before invoking it); its end-to-end release-candidate proof drives a real
+# changie against a fixture repo, so it needs the pinned changie (v1.26.0) on
+# PATH. Without one the proof is skipped with a `skip:` line, unless
+# PAWL_REQUIRE_CHANGIE=1 (CI sets it, like PAWL_REQUIRE_VCS_TOOLS for git),
+# which turns a missing changie into a FAIL. This script never fetches
+# changie itself — no network.
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."
@@ -30,6 +39,10 @@ source ./scripts/release/check-version-consistency.sh
 source ./scripts/release/build-plugin-archive.sh
 # shellcheck source=/dev/null
 source ./scripts/release/update-repo-marketplace.sh
+# shellcheck source=/dev/null
+source ./scripts/release/is-prerelease.sh
+# shellcheck source=/dev/null
+source ./scripts/release/batch.sh
 
 failures=0
 tests_run=0
@@ -308,6 +321,7 @@ whatever
 EOF
 git add -A && git commit -q -m "release PR batches")
 assert_ok "release/v* head ref exempts touching CHANGELOG.md -> pass" bash -c "cd '$FIXTURE_DIR' && export PAWL_RELEASE_CHECK_TEST=1 PR_HEAD_REF='release/v0.2.0' && source '$REPO_ROOT/scripts/release/check-no-version-bump.sh' && check_no_version_bump \$(git rev-parse base) \$(git rev-parse HEAD)"
+assert_ok "release/v1.0.0-rc.1 head ref exempts touching CHANGELOG.md -> pass" bash -c "cd '$FIXTURE_DIR' && export PAWL_RELEASE_CHECK_TEST=1 PR_HEAD_REF='release/v1.0.0-rc.1' && source '$REPO_ROOT/scripts/release/check-no-version-bump.sh' && check_no_version_bump \$(git rev-parse base) \$(git rev-parse HEAD)"
 
 new_fixture
 (cd "$FIXTURE_DIR" && rm .changie.yaml && git add -A && git commit -q -m "no changie yet")
@@ -436,6 +450,30 @@ cat >.claude-plugin/plugin.json <<'EOF'
 EOF
 git add -A && git commit -q -m "two prereleases of the same base version")
 assert_ok "v1.0.0-rc2 sorts after v1.0.0-rc1, rc2 is latest -> pass" check_version_consistency "$FIXTURE_DIR"
+
+new_fixture
+(cd "$FIXTURE_DIR" && for v in 1.0.0-rc.2 1.0.0; do printf '## v%s - 2026-03-15\n' "$v" >".changes/v$v.md"; done
+cat >.claude-plugin/plugin.json <<'EOF'
+{
+  "name": "fixture",
+  "version": "1.0.0"
+}
+EOF
+git add -A && git commit -q -m "dotted prerelease next to its final release")
+assert_ok "dotted v1.0.0-rc.2 sorts before v1.0.0, v1.0.0 is latest -> pass" check_version_consistency "$FIXTURE_DIR"
+assert_ok "latest_version_from_changes picks v1.0.0 over v1.0.0-rc.2" test "$(latest_version_from_changes "$FIXTURE_DIR")" = "v1.0.0"
+
+new_fixture
+(cd "$FIXTURE_DIR" && for v in 1.0.0-rc.9 1.0.0-rc.10; do printf '## v%s - 2026-03-15\n' "$v" >".changes/v$v.md"; done
+cat >.claude-plugin/plugin.json <<'EOF'
+{
+  "name": "fixture",
+  "version": "1.0.0-rc.10"
+}
+EOF
+git add -A && git commit -q -m "rc.9 and rc.10")
+assert_ok "v1.0.0-rc.10 sorts after v1.0.0-rc.9 (numeric) -> pass" check_version_consistency "$FIXTURE_DIR"
+assert_ok "latest_version_from_changes picks v1.0.0-rc.10 over v1.0.0-rc.9" test "$(latest_version_from_changes "$FIXTURE_DIR")" = "v1.0.0-rc.10"
 
 # --- marketplace.json check (only when the file exists) -------------------
 SHA_A=1d61b40641b1d81b677635686b62194ec03de24041047a273f84607897625604
@@ -639,6 +677,20 @@ cp "$UM_TMP/repo3.json" "$UM_TMP/repo3.before"
 assert_ok "1.0.0-rc1 over 1.0.0 is a refused downgrade" run_um "$UM_TMP/rel_rc.json" "$UM_TMP/repo3.json"
 assert_ok "prerelease downgrade leaves the file byte-identical" cmp "$UM_TMP/repo3.json" "$UM_TMP/repo3.before"
 
+um_release "$UM_TMP/rel_pre.json" "$(archive_src 1.0.0-rc.1 $SHA_B)"
+um_repo "$(archive_src 0.6.0 $SHA_A)" "$UM_TMP/repo7.json"
+cp "$UM_TMP/repo7.json" "$UM_TMP/repo7.before"
+assert_ok "a prerelease source is refused without failing" run_um "$UM_TMP/rel_pre.json" "$UM_TMP/repo7.json"
+assert_ok "a prerelease source leaves the file byte-identical" cmp "$UM_TMP/repo7.json" "$UM_TMP/repo7.before"
+assert_ok "the prerelease refusal prints a notice" test "$(run_um "$UM_TMP/rel_pre.json" "$UM_TMP/repo7.json")" = "notice: v1.0.0-rc.1 is a prerelease — not pointing $UM_TMP/repo7.json at it"
+um_repo '"./"' "$UM_TMP/repo8.json"
+cp "$UM_TMP/repo8.json" "$UM_TMP/repo8.before"
+assert_ok "a prerelease source is refused even over a './' entry" run_um "$UM_TMP/rel_pre.json" "$UM_TMP/repo8.json"
+assert_ok "prerelease over './' leaves the file byte-identical" cmp "$UM_TMP/repo8.json" "$UM_TMP/repo8.before"
+um_release "$UM_TMP/rel_final.json" "$(archive_src 1.0.0 $SHA_B)"
+assert_ok "a normal newer release still updates after a refused prerelease" run_um "$UM_TMP/rel_final.json" "$UM_TMP/repo7.json"
+assert_ok "repo7 now points at 1.0.0" test "$(jq -r '.plugins[0].source.sha256' "$UM_TMP/repo7.json")" = "$SHA_B"
+
 um_release "$UM_TMP/rel_new.json" "$(archive_src 0.10.0 $SHA_B)"
 um_repo "$(archive_src 0.9.0 $SHA_A)" "$UM_TMP/repo4.json"
 assert_ok "0.10.0 is newer than 0.9.0 (numeric, not lexical)" run_um "$UM_TMP/rel_new.json" "$UM_TMP/repo4.json"
@@ -663,6 +715,215 @@ assert_fails "missing repo marketplace file fails" run_um "$UM_TMP/rel.json" "$U
 assert_fails "no arguments fails" run_um
 
 rm -rf "$UM_TMP"
+
+# --- is-prerelease.sh ---------------------------------------------------
+echo
+echo "== is-prerelease.sh =="
+
+assert_ok "v1.0.0-rc.1 is a prerelease" is_prerelease v1.0.0-rc.1
+assert_ok "1.0.0-rc.10 (no leading v) is a prerelease" is_prerelease 1.0.0-rc.10
+assert_fails "v1.0.0 is not a prerelease" is_prerelease v1.0.0
+assert_fails "0.7.0 is not a prerelease" is_prerelease 0.7.0
+assert_ok "main with a prerelease exits 0" bash -c "PAWL_RELEASE_CHECK_TEST=1; source '$REPO_ROOT/scripts/release/is-prerelease.sh'; main v1.0.0-rc.1"
+assert_fails "main with a plain version exits non-zero" bash -c "PAWL_RELEASE_CHECK_TEST=1; source '$REPO_ROOT/scripts/release/is-prerelease.sh'; main v1.0.0"
+# Executed (not sourced): the test harness exports PAWL_RELEASE_CHECK_TEST=1,
+# which would disable the script's main guard.
+assert_ok "executed: prints nothing, exits 0 for a prerelease" bash -c "test -z \"\$(env -u PAWL_RELEASE_CHECK_TEST bash '$REPO_ROOT/scripts/release/is-prerelease.sh' v1.0.0-rc.1)\""
+assert_ok "executed: exits 1 for a plain version" test "$(env -u PAWL_RELEASE_CHECK_TEST bash "$REPO_ROOT/scripts/release/is-prerelease.sh" v1.0.0 >/dev/null 2>&1; echo $?)" = 1
+assert_ok "executed with no argument exits 2" test "$(env -u PAWL_RELEASE_CHECK_TEST bash "$REPO_ROOT/scripts/release/is-prerelease.sh" >/dev/null 2>&1; echo $?)" = 2
+
+# --- batch.sh ------------------------------------------------------------
+echo
+echo "== batch.sh =="
+
+# new_batch_fixture [UNRELEASED_COUNT] [RC_COUNT]: a bare dir with just the
+# fragment directories batch.sh inspects (it runs from the repo root).
+BATCH_DIR=""
+new_batch_fixture() {
+  BATCH_DIR="$(mktemp -d)"
+  mkdir -p "$BATCH_DIR/.changes/unreleased"
+  local i
+  for ((i = 1; i <= ${1:-0}; i++)); do
+    printf 'kind: added\nbody: u%s\n' "$i" >"$BATCH_DIR/.changes/unreleased/added-$i.yaml"
+  done
+  if [ "${2:-0}" -gt 0 ]; then
+    mkdir -p "$BATCH_DIR/.changes/rc"
+    for ((i = 1; i <= ${2:-0}; i++)); do
+      printf 'kind: added\nbody: r%s\n' "$i" >"$BATCH_DIR/.changes/rc/added-r$i.yaml"
+    done
+    printf '## v1.0.0-rc.1\n' >"$BATCH_DIR/.changes/v1.0.0-rc.1.md"
+  fi
+}
+
+# A stub changie that records its argv, so the command line batch.sh builds
+# can be asserted without the real tool.
+STUB_DIR="$(mktemp -d)"
+cat >"$STUB_DIR/changie" <<'EOF'
+#!/bin/sh
+echo "$*" >>"$CHANGIE_STUB_LOG"
+EOF
+chmod +x "$STUB_DIR/changie"
+
+# run_batch ARGS... — in $BATCH_DIR, with the stub first on PATH; echoes the
+# recorded changie argv (nothing if changie was never invoked).
+run_batch() {
+  (
+    cd "$BATCH_DIR"
+    export CHANGIE_STUB_LOG="$BATCH_DIR/changie.log"
+    rm -f "$CHANGIE_STUB_LOG"
+    PATH="$STUB_DIR:$PATH"
+    release_batch "$@" >/dev/null 2>&1 || exit 1
+    cat "$CHANGIE_STUB_LOG"
+  )
+}
+batch_log_is() { # EXPECTED ARGS...
+  local expected="$1"
+  shift
+  [ "$(run_batch "$@")" = "$expected" ]
+}
+batch_refuses() { # ARGS...: fails and never invoked changie
+  ! run_batch "$@" >/dev/null && [ ! -e "$BATCH_DIR/changie.log" ]
+}
+
+new_batch_fixture 1 0
+assert_ok "plain: empty input -> changie batch auto" batch_log_is "batch auto" ""
+assert_ok "plain: minor passes through" batch_log_is "batch minor" minor
+assert_ok "plain: 1.2.3 is normalised to v1.2.3" batch_log_is "batch v1.2.3" 1.2.3
+assert_ok "plain: v1.2.3 passes through" batch_log_is "batch v1.2.3" v1.2.3
+assert_ok "prerelease: cut moves fragments to rc" batch_log_is "batch v1.0.0 --prerelease rc.1 --move-dir rc" v1.0.0 rc.1
+assert_ok "prerelease: 1.0.0 is normalised to v1.0.0" batch_log_is "batch v1.0.0 --prerelease rc.12 --move-dir rc" 1.0.0 rc.12
+assert_ok "prerelease: unreleased rc.9 style numbers accepted" batch_log_is "batch v1.0.0 --prerelease rc.9 --move-dir rc" v1.0.0 rc.9
+rm -rf "${BATCH_DIR:?}"
+
+new_batch_fixture 1 0
+for bad in rc1 beta.1 rc.0 rc.01 rc. RC.1 rc.1.2 "rc.1 "; do
+  assert_ok "bad prerelease '$bad' is refused" batch_refuses v1.0.0 "$bad"
+done
+assert_ok "prerelease with auto is refused" batch_refuses auto rc.1
+assert_ok "prerelease with an empty version (auto) is refused" batch_refuses "" rc.1
+assert_ok "prerelease with minor is refused" batch_refuses minor rc.1
+assert_ok "prerelease with major is refused" batch_refuses major rc.1
+assert_ok "prerelease with patch is refused" batch_refuses patch rc.1
+assert_ok "an explicit version with a prerelease suffix is refused" batch_refuses v1.0.0-rc.1 rc.1
+rm -rf "${BATCH_DIR:?}"
+
+new_batch_fixture 0 0
+assert_ok "plain: empty unreleased aborts" batch_refuses v1.0.0
+assert_ok "prerelease: empty unreleased aborts" batch_refuses v1.0.0 rc.1
+rm -rf "${BATCH_DIR:?}"
+
+new_batch_fixture 0 2
+assert_ok "rc pending: empty unreleased still aborts for a new rc cut" batch_refuses v1.0.0 rc.2
+assert_ok "rc pending: auto is refused" batch_refuses auto
+assert_ok "rc pending: empty input (auto) is refused" batch_refuses ""
+assert_ok "rc pending: minor is refused" batch_refuses minor
+assert_ok "rc pending: major is refused" batch_refuses major
+assert_ok "rc pending: patch is refused" batch_refuses patch
+assert_ok "rc pending: a final cut of a different version is refused" batch_refuses v0.7.1
+assert_ok "rc pending: an rc cut of a different base version is refused" batch_refuses v1.1.0 rc.2
+assert_ok "rc pending: final cut with an empty unreleased dir is allowed" batch_log_is "batch v1.0.0 --include rc --remove-prereleases" v1.0.0
+assert_ok "rc pending: 1.0.0 is normalised for the final cut" batch_log_is "batch v1.0.0 --include rc --remove-prereleases" 1.0.0
+rm -rf "${BATCH_DIR:?}"
+
+new_batch_fixture 1 1
+assert_ok "rc pending + new fragments: the next rc cut is allowed" batch_log_is "batch v1.0.0 --prerelease rc.2 --move-dir rc" v1.0.0 rc.2
+assert_ok "rc pending + new fragments: final cut includes the rc" batch_log_is "batch v1.0.0 --include rc --remove-prereleases" v1.0.0
+rm -rf "${BATCH_DIR:?}"
+rm -rf "${STUB_DIR:?}"
+
+# --- changie availability gate (mirrors PAWL_REQUIRE_VCS_TOOLS) ----------
+PINNED_CHANGIE=1.26.0
+changie_gate() {
+  if ! command -v changie >/dev/null 2>&1; then
+    if [ "${PAWL_REQUIRE_CHANGIE:-0}" = "1" ]; then
+      tests_run=$((tests_run + 1))
+      echo "FAIL: changie is not on PATH and PAWL_REQUIRE_CHANGIE=1 (install github.com/miniscruff/changie@v$PINNED_CHANGIE)"
+      failures=$((failures + 1))
+    else
+      echo "skip: changie is not on PATH — release-candidate end-to-end proof skipped (set PAWL_REQUIRE_CHANGIE=1 to make this a failure)"
+    fi
+    return 1
+  fi
+  # A release binary reports its version via --version, but a `go install
+  # ...@v1.26.0` build (what CI and release-pr.yml use) is not ldflag-stamped
+  # and prints "vdev"; its module version is in the embedded build info.
+  local got
+  got="$(changie --version 2>&1 | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)"
+  if [ -z "$got" ] && command -v go >/dev/null 2>&1; then
+    got="$(go version -m "$(command -v changie)" 2>/dev/null |
+      awk '$1 == "mod" && $2 == "github.com/miniscruff/changie" { sub(/^v/, "", $3); print $3 }' || true)"
+  fi
+  if [ "$got" != "$PINNED_CHANGIE" ]; then
+    tests_run=$((tests_run + 1))
+    echo "FAIL: changie on PATH is '${got:-unknown}', the release pipeline pins $PINNED_CHANGIE (the rc behaviour was verified against it)"
+    failures=$((failures + 1))
+    return 1
+  fi
+  return 0
+}
+
+# --- end-to-end release-candidate proof (real changie) -------------------
+#
+# 2 fragments -> rc.1 -> 1 fragment -> rc.2 -> final with nothing new. The
+# fixture copies the repo's real changie config, header and plugin.json so a
+# change to any of them (kinds, replacements) is exercised here.
+if changie_gate; then
+  echo
+  echo "== batch.sh end-to-end (changie $PINNED_CHANGIE) =="
+
+  E2E="$(mktemp -d)"
+  mkdir -p "$E2E/.changes/unreleased" "$E2E/.claude-plugin"
+  cp "$REPO_ROOT/.changie.yaml" "$E2E/"
+  cp "$REPO_ROOT/.changes/header.tpl.md" "$E2E/.changes/"
+  cp "$REPO_ROOT/.claude-plugin/plugin.json" "$E2E/.claude-plugin/"
+  sed -i.bak 's/^  "version": ".*",/  "version": "0.7.0",/' "$E2E/.claude-plugin/plugin.json" && rm -f "$E2E/.claude-plugin/plugin.json.bak"
+  printf '## v0.7.0 - 2026-01-01\n\n### Added\n\n* Seed.\n' >"$E2E/.changes/v0.7.0.md"
+  jq -n --arg s "$SHA_A" '{name:"agent-pawl",plugins:[{name:"agent-pawl",source:{source:"archive",url:"https://github.com/dcferreira/agent-pawl/releases/download/v0.7.0/agent-pawl-plugin_0.7.0.zip",sha256:$s}}]}' >"$E2E/.claude-plugin/marketplace.json"
+
+  e2e_fragment() { # NAME KIND BODY
+    printf 'kind: %s\nbody: %s\ntime: 2026-10-14T10:00:%s.000000+00:00\ncustom:\n  PR: "1"\n' "$2" "$3" "$(printf '%02d' $((++E2E_SEQ)))" >"$E2E/.changes/unreleased/$1.yaml"
+  }
+  E2E_SEQ=0
+  e2e_cut() { # ARGS... : batch + merge, in the fixture
+    (cd "$E2E" && release_batch "$@" && changie merge)
+  }
+  e2e_latest() { (cd "$E2E" && changie latest); }
+  e2e_plugin_version() { jq -r .version "$E2E/.claude-plugin/plugin.json"; }
+  e2e_state_is() { # LATEST PLUGIN_VERSION
+    [ "$(e2e_latest)" = "$1" ] && [ "$(e2e_plugin_version)" = "$2" ]
+  }
+
+  # rc.1
+  e2e_fragment a1 added "feat A"
+  e2e_fragment a2 fixed "fix B"
+  assert_ok "rc.1 cut succeeds" e2e_cut v1.0.0 rc.1
+  assert_ok "rc.1: changie latest is v1.0.0-rc.1, plugin.json is 1.0.0-rc.1" e2e_state_is v1.0.0-rc.1 1.0.0-rc.1
+  assert_ok "rc.1: version consistency passes" check_version_consistency "$E2E"
+  assert_ok "rc.1: fragments parked in .changes/rc" test "$(ls "$E2E/.changes/rc" | wc -l)" = 2
+  assert_ok "rc.1: unreleased is empty" test -z "$(ls "$E2E/.changes/unreleased"/*.yaml 2>/dev/null)"
+  assert_ok "rc.1 notes hold both fragments" bash -c "grep -q 'feat A' '$E2E/.changes/v1.0.0-rc.1.md' && grep -q 'fix B' '$E2E/.changes/v1.0.0-rc.1.md'"
+
+  # rc.2
+  e2e_fragment a3 added "feat C"
+  assert_ok "rc.2 cut succeeds" e2e_cut v1.0.0 rc.2
+  assert_ok "rc.2: changie latest is v1.0.0-rc.2, plugin.json is 1.0.0-rc.2" e2e_state_is v1.0.0-rc.2 1.0.0-rc.2
+  assert_ok "rc.2: version consistency passes" check_version_consistency "$E2E"
+  assert_ok "rc.2 notes contain only their own delta" bash -c "grep -q 'feat C' '$E2E/.changes/v1.0.0-rc.2.md' && ! grep -q 'feat A' '$E2E/.changes/v1.0.0-rc.2.md' && ! grep -q 'fix B' '$E2E/.changes/v1.0.0-rc.2.md'"
+  assert_ok "rc.2: all three fragments are parked in .changes/rc" test "$(ls "$E2E/.changes/rc" | wc -l)" = 3
+  assert_fails "rc pending: auto is refused against the real tree" bash -c "cd '$E2E' && PAWL_RELEASE_CHECK_TEST=1 && source '$REPO_ROOT/scripts/release/batch.sh' && release_batch auto"
+
+  # final
+  assert_ok "final cut (nothing new) succeeds" e2e_cut v1.0.0
+  assert_ok "final: changie latest is v1.0.0, plugin.json is 1.0.0" e2e_state_is v1.0.0 1.0.0
+  assert_ok "final: version consistency passes" check_version_consistency "$E2E"
+  assert_ok "final: .changes/rc is gone" test ! -e "$E2E/.changes/rc"
+  assert_ok "final: no v1.0.0-rc.*.md left" test -z "$(ls "$E2E/.changes"/v1.0.0-rc.*.md 2>/dev/null)"
+  assert_ok "final: v1.0.0.md holds all three bodies" bash -c "for b in 'feat A' 'fix B' 'feat C'; do grep -q \"\$b\" '$E2E/.changes/v1.0.0.md' || exit 1; done"
+  assert_ok "final: CHANGELOG.md has all three bodies" bash -c "for b in 'feat A' 'fix B' 'feat C'; do grep -q \"\$b\" '$E2E/CHANGELOG.md' || exit 1; done"
+  assert_ok "final: CHANGELOG.md has exactly one '## v1.0.0' heading" test "$(grep -c '^## v1.0.0 ' "$E2E/CHANGELOG.md")" = 1
+  assert_ok "final: CHANGELOG.md has no rc heading" test "$(grep -c '^## .*rc' "$E2E/CHANGELOG.md")" = 0
+  rm -rf "${E2E:?}"
+fi
 
 echo
 echo "$tests_run tests run, $failures failed"

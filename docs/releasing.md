@@ -95,7 +95,8 @@ main.
 
 1. Go to **Actions → Release PR → Run workflow**, with `main` selected as the branch. Leave the
    `version` input empty to let changie pick the bump automatically from the fragments' kinds, or
-   set it explicitly (`1.2.3`, `minor`, `major`, `patch`).
+   set it explicitly (`1.2.3`, `minor`, `major`, `patch`). To cut a release candidate instead, see
+   [Pre-releases](#pre-releases-release-candidates).
 2. The workflow batches every `.changes/unreleased/` fragment into a new `.changes/vX.Y.Z.md`,
    regenerates `CHANGELOG.md`, bumps `.claude-plugin/plugin.json`'s version, and opens a
    `release/vX.Y.Z` PR (via a GitHub App token — see below).
@@ -107,6 +108,67 @@ main.
    which reads the version from `.changes/`, tags `vX.Y.Z`, and runs goreleaser with that version's
    release notes in the same job — publishing the GitHub Release and its binaries — then builds and
    uploads the plugin assets (next section).
+
+## Pre-releases (release candidates)
+
+A release candidate (`v1.0.0-rc.1`) lets testers try a version before it is the one everybody gets.
+It is cut through the same Release PR workflow, with one extra input.
+
+### Cutting rc.N
+
+**Actions → Release PR → Run workflow**, `main` selected, with `version` set to the explicit target
+(`v1.0.0`) and `prerelease` set to `rc.N` (`rc.1`, `rc.2`, ...). `auto`/`major`/`minor`/`patch` are
+refused here: changie cannot compute the target of an rc line from the fragments. The workflow runs
+`scripts/release/batch.sh`, which:
+
+- writes `.changes/v1.0.0-rc.N.md` with only the fragments added since the previous cut, and moves
+  those fragments from `.changes/unreleased/` to `.changes/rc/` (parked, so the final release can
+  still include them);
+- bumps `.claude-plugin/plugin.json` to `1.0.0-rc.N` and opens a `release/v1.0.0-rc.N` PR.
+
+Review and merge it like any release PR. Merging triggers `release.yml`, which publishes a GitHub
+**prerelease**: goreleaser's `prerelease: auto` marks any tag with a semver prerelease suffix, and
+GitHub never marks a prerelease "latest". So everything that follows "latest" stays on the last
+stable version:
+
+- `install.sh` and `pawl update` resolve `/releases/latest`, so they never pick the rc;
+- the repo marketplace (`/plugin marketplace add dcferreira/agent-pawl`) is not pointed at it:
+  `release.yml` skips the marketplace steps for a prerelease (`scripts/release/is-prerelease.sh`), and
+  `update-repo-marketplace.sh` refuses a prerelease source on its own as a second guard.
+
+The plugin zip and `marketplace.json` are still uploaded to the prerelease as release assets, the
+same as for a stable release; they are just not what the repo marketplace points at.
+
+Testers opt in by naming the version:
+
+```
+curl -fsSL https://raw.githubusercontent.com/dcferreira/agent-pawl/main/install.sh | PAWL_VERSION=v1.0.0-rc.1 sh
+pawl update --version v1.0.0-rc.1   # an existing, non-plugin install
+```
+
+### Cutting the final release
+
+Run the workflow again with `version` set to the explicit `v1.0.0` and `prerelease` **empty**. While
+`.changes/rc/` holds parked fragments an explicit version is required (`auto` would be computed from
+the rc, not the version it targets), and an empty `.changes/unreleased/` is fine. The workflow runs
+`changie batch v1.0.0 --include rc --remove-prereleases`: a single `v1.0.0.md` and a single
+`## v1.0.0` section in `CHANGELOG.md` holding every fragment from all the rcs plus any new ones;
+`.changes/rc/` and the `v1.0.0-rc.*.md` files are deleted (the PR's `add-paths` covers `.changes/`, so
+the deletions are committed). The rc notes remain on their GitHub prereleases.
+
+While `.changes/rc/` holds parked fragments the workflow refuses any version other than the one the rc
+line targets (the base of the latest `v*-rc.*.md`), for both a new rc and the final cut, so a hotfix
+(e.g. `v0.7.1`) cannot be cut while an rc line is pending.
+
+### Checklist for 1.0.0
+
+- Right after 1.0.0 ships, open a one-line PR flipping `.changie.yaml`'s `breaking` kind to
+  `auto: major` (post-1.0.0 a breaking change must bump the major; see the comment there). It must
+  not land earlier, or it would change what `auto` computes for the pre-1.0.0 cuts.
+
+CI proves the rc flow end to end against a real, pinned changie (v1.26.0) in
+`scripts/release/test-checks.sh`; set `PAWL_REQUIRE_CHANGIE=1` to make a missing changie a failure
+rather than a skip (CI does).
 
 ## Plugin assets
 
@@ -125,7 +187,7 @@ after goreleaser, then `gh release upload ... --clobber`):
   repo); it records the zip's sha256 for the next step, and can be used for a version-pinned local
   install (see [install.md](install.md#migrating-from-an-earlier-install)).
 
-After the upload, `release.yml` commits the new zip URL and sha256 to `main`'s
+After the upload of a stable release, `release.yml` commits the new zip URL and sha256 to `main`'s
 `.claude-plugin/marketplace.json`, which is what `/plugin marketplace add dcferreira/agent-pawl`
 installs from. It copies the source block from the release's own `marketplace.json` asset
 (`scripts/release/update-repo-marketplace.sh`; idempotent, and it never downgrades an entry that

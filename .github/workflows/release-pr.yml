@@ -4,7 +4,8 @@ name: Release PR
 # .changes/unreleased/ fragments into a new version, regenerates
 # CHANGELOG.md, bumps .claude-plugin/plugin.json's version (via changie's
 # replacements:), and opens a release/vX.Y.Z PR for the owner to review and
-# merge. See docs/releasing.md.
+# merge. With the `prerelease` input it cuts a release candidate (vX.Y.Z-rc.N)
+# instead; see scripts/release/batch.sh and docs/releasing.md.
 on:
   workflow_dispatch:
     inputs:
@@ -13,7 +14,16 @@ on:
           Version to release (e.g. "v1.2.3" or "minor"/"major"/"patch"). Leave
           empty to let changie pick automatically from the fragments' kinds
           ("auto"). A leading-digit form like "1.2.3" is accepted too — it's
-          normalized to "v1.2.3" before being passed to changie.
+          normalized to "v1.2.3" before being passed to changie. Must be an
+          explicit "v1.2.3" when cutting a release candidate, or the final
+          release while release candidates are pending.
+        required: false
+        default: ""
+      prerelease:
+        description: >-
+          Release candidate to cut, e.g. "rc.1" (with version "v1.0.0" this
+          releases v1.0.0-rc.1). Leave empty for a normal release or the final
+          release after release candidates.
         required: false
         default: ""
 
@@ -59,30 +69,17 @@ jobs:
       - name: Install changie
         run: go install github.com/miniscruff/changie@v1.26.0
 
-      - name: Fail clearly if there's nothing to release
-        run: |
-          set -euo pipefail
-          if [ -z "$(ls -A .changes/unreleased/*.yaml 2>/dev/null)" ]; then
-            echo "::error::.changes/unreleased/ has no fragments — nothing to release. Every PR since the last release should have added one (see docs/releasing.md)." >&2
-            exit 1
-          fi
-
+      # batch.sh validates the inputs (and refuses an empty
+      # .changes/unreleased/, an auto version next to a prerelease, ...)
+      # before running changie. The inputs go through env, never interpolated
+      # into the script.
       - name: Batch and merge
         env:
           RELEASE_VERSION_INPUT: ${{ inputs.version }}
+          RELEASE_PRERELEASE_INPUT: ${{ inputs.prerelease }}
         run: |
           set -euo pipefail
-          version="${RELEASE_VERSION_INPUT:-auto}"
-          # changie preserves the version string as given: an explicit
-          # "1.2.3" (no leading v) would write .changes/1.2.3.md, which
-          # check-version-consistency.sh (only globs .changes/v*.md) and the
-          # release/v* branch-name exemption both miss. Normalize a
-          # leading-digit input to the v-prefixed form; "auto"/"major"/
-          # "minor"/"patch" and an already-prefixed "v1.2.3" pass through.
-          case "$version" in
-            [0-9]*) version="v$version" ;;
-          esac
-          changie batch "$version"
+          bash scripts/release/batch.sh "$RELEASE_VERSION_INPUT" "$RELEASE_PRERELEASE_INPUT"
           changie merge
           echo "RELEASE_VERSION=$(changie latest)" >>"$GITHUB_ENV"
 
