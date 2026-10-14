@@ -20,9 +20,23 @@ import (
 // conflate by mapping every Live/FindRun error to 1.
 var ErrIO = errors.New("journal: reading run directory tree")
 
+// ErrNoRun is wrapped by FindRun's zero-match error ("no run %q for this
+// working copy"), so a caller can tell "this working copy has no such run"
+// apart from an ambiguity or an I/O failure without matching message text.
+var ErrNoRun = errors.New("journal: no such run")
+
+// noRunError keeps FindRun's historical message text while matching ErrNoRun.
+type noRunError struct{ runID string }
+
+func (e noRunError) Error() string      { return fmt.Sprintf("no run %q for this working copy", e.runID) }
+func (noRunError) Is(target error) bool { return target == ErrNoRun }
+
 // RunRef identifies one run directory found under a working copy's slug,
 // together with its replayed state.
 type RunRef struct {
+	// Slug is the state-directory slug (see Slug) of the working copy the
+	// run lives under.
+	Slug       string
 	WorkflowID string
 	RunID      string
 	Dir        string
@@ -40,7 +54,11 @@ type RunRef struct {
 // must not hide every other live run for the working copy from `pawl run`'s
 // resume rule.
 func Live(root string) ([]RunRef, error) {
-	all, err := allRuns(root)
+	return liveSlug(Slug(root))
+}
+
+func liveSlug(slug string) ([]RunRef, error) {
+	all, err := allRunsSlug(slug)
 	if err != nil {
 		return nil, err
 	}
@@ -52,6 +70,45 @@ func Live(root string) ([]RunRef, error) {
 		live = append(live, ref)
 	}
 	return live, nil
+}
+
+// FindLiveRunElsewhere returns every non-terminal run (BLOCKED included)
+// whose run id is exactly runID under any working copy's slug in StateBase
+// except excludeSlug. It is `pawl abandon`'s fallback for a run whose
+// working copy is gone or elsewhere; FindRun's own-working-copy result always
+// takes precedence over it. Unreadable or corrupt slug/run directories are
+// skipped, as allRuns does; the result is sorted by slug, then workflow id.
+func FindLiveRunElsewhere(runID, excludeSlug string) ([]RunRef, error) {
+	base := StateBase()
+	slugs, err := os.ReadDir(base)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("%w: listing working copies under %s: %w", ErrIO, base, err)
+	}
+	var found []RunRef
+	for _, sd := range slugs {
+		if !sd.IsDir() || sd.Name() == excludeSlug {
+			continue
+		}
+		runs, err := allRunsSlug(sd.Name())
+		if err != nil {
+			continue
+		}
+		for _, r := range runs {
+			if r.RunID == runID && !r.State.Terminal() {
+				found = append(found, r)
+			}
+		}
+	}
+	sort.Slice(found, func(i, j int) bool {
+		if found[i].Slug != found[j].Slug {
+			return found[i].Slug < found[j].Slug
+		}
+		return found[i].WorkflowID < found[j].WorkflowID
+	})
+	return found, nil
 }
 
 // FindRun locates runID among every run directory for this working copy —
@@ -73,7 +130,9 @@ func Live(root string) ([]RunRef, error) {
 // means, and the only one an action like abandon could still affect
 // anyway); with zero or with more than one live candidate for the same id,
 // it refuses rather than guess, naming every candidate's workflow id and
-// status.
+// status. A zero-match error wraps ErrNoRun (message text unchanged);
+// FindRun only ever searches this working copy's slug — `pawl abandon`
+// alone falls back to other working copies, via FindLiveRunElsewhere.
 func FindRun(root, runID string) (*RunRef, error) {
 	all, err := allRuns(root)
 	if err != nil {
@@ -87,7 +146,7 @@ func FindRun(root, runID string) (*RunRef, error) {
 	}
 	switch len(matches) {
 	case 0:
-		return nil, fmt.Errorf("no run %q for this working copy", runID)
+		return nil, noRunError{runID}
 	case 1:
 		return &matches[0], nil
 	}
@@ -117,13 +176,19 @@ func FindRun(root, runID string) (*RunRef, error) {
 // workflow-id directory, is skipped rather than aborting the whole scan —
 // one bad run must not hide every other run for the working copy.
 func allRuns(root string) ([]RunRef, error) {
-	base := filepath.Join(StateBase(), Slug(root))
+	return allRunsSlug(Slug(root))
+}
+
+// allRunsSlug is allRuns keyed by slug, so a run found under a slug whose
+// working copy is no longer known can be listed too.
+func allRunsSlug(slug string) ([]RunRef, error) {
+	base := filepath.Join(StateBase(), slug)
 	workflowDirs, err := os.ReadDir(base)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("%w: listing runs for %s: %w", ErrIO, root, err)
+		return nil, fmt.Errorf("%w: listing runs for %s: %w", ErrIO, slug, err)
 	}
 
 	var all []RunRef
@@ -150,7 +215,7 @@ func allRuns(root string) ([]RunRef, error) {
 			if err != nil {
 				continue
 			}
-			all = append(all, RunRef{WorkflowID: workflowID, RunID: runID, Dir: dir, State: rs})
+			all = append(all, RunRef{Slug: slug, WorkflowID: workflowID, RunID: runID, Dir: dir, State: rs})
 		}
 	}
 	return all, nil

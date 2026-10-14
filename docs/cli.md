@@ -207,6 +207,13 @@ pawl abandon --run <id> [--reason <text>]
 Ends a run. Always available, always terminal, never prompts. `--reason` is journalled and shown in
 `pawl status`. Undoes nothing a step did; releases `Stop` so the session can end.
 
+The run is looked up in the current working copy first. Only if it has no run with that exact id does
+`pawl abandon` fall back to a live (including `BLOCKED`) run with that id in another working copy —
+e.g. one whose checkout was deleted — printing a one-line note on stderr naming it. Several live
+matches elsewhere are refused (exit 1, nothing abandoned); a non-blocked run that looks actively
+driven (live lock holder, or a fresh heartbeat from its driving session) is refused with exit 4 —
+run `pawl abandon` from its working copy.
+
 ## `pawl version` — human
 
 ```

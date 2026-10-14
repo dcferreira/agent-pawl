@@ -125,7 +125,14 @@ func ReadDriver(runDir string) (Driver, bool, error) {
 // checkout — is pruned: no sync for that slug may ever run again, and a
 // dangling link keeps bin/pawl-hook's fast path invoking pawl for nothing.
 func SyncLiveIndex(root string) error {
-	live, err := Live(root)
+	return SyncLiveIndexSlug(Slug(root))
+}
+
+// SyncLiveIndexSlug is SyncLiveIndex keyed by slug: it reconciles the entries
+// of a working copy that is known only by its state-directory slug (e.g. one
+// whose checkout was deleted, after `pawl abandon` ended a run there).
+func SyncLiveIndexSlug(slug string) error {
+	live, err := liveSlug(slug)
 	if err != nil {
 		return err
 	}
@@ -133,7 +140,7 @@ func SyncLiveIndex(root string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("journal: creating live index: %w", err)
 	}
-	prefix := Slug(root) + "__"
+	prefix := slug + "__"
 	want := map[string]string{}
 	for _, r := range live {
 		if r.State.EnforcementOff() {
