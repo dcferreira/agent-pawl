@@ -60,6 +60,19 @@ release_batch() {
   compgen -G ".changes/unreleased/*.yaml" >/dev/null && have_unreleased=1
   compgen -G ".changes/rc/*.yaml" >/dev/null && have_rc=1
 
+  # While rc fragments are parked, the only version either path may target is
+  # the one the rc line targets (base of the latest .changes/v*-rc.*.md);
+  # anything else (e.g. a hotfix) would swallow or strand the parked fragments.
+  local target=""
+  if [ "$have_rc" -eq 1 ] && [ "$explicit" -eq 1 ]; then
+    target="$(ls .changes/v*-rc.*.md 2>/dev/null | sed 's|^\.changes/||; s|\.md$||' | sort -V | tail -n 1)"
+    target="${target%%-rc.*}"
+    if [ -n "$target" ] && [ "$version" != "$target" ]; then
+      echo "::error::.changes/rc/ holds fragments for the pending $target release, so $version can't be cut until $target is released (a hotfix can't be cut while an rc line is pending)." >&2
+      return 1
+    fi
+  fi
+
   if [ -n "$pre" ]; then
     if [ "$explicit" -ne 1 ]; then
       echo "::error::a release candidate needs an explicit version (vX.Y.Z), got '$version': changie can't compute the target version of an rc line from the fragments." >&2

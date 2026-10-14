@@ -156,6 +156,10 @@ the rc, not the version it targets), and an empty `.changes/unreleased/` is fine
 `.changes/rc/` and the `v1.0.0-rc.*.md` files are deleted (the PR's `add-paths` covers `.changes/`, so
 the deletions are committed). The rc notes remain on their GitHub prereleases.
 
+While `.changes/rc/` holds parked fragments the workflow refuses any version other than the one the rc
+line targets (the base of the latest `v*-rc.*.md`), for both a new rc and the final cut, so a hotfix
+(e.g. `v0.7.1`) cannot be cut while an rc line is pending.
+
 ### Checklist for 1.0.0
 
 - Right after 1.0.0 ships, open a one-line PR flipping `.changie.yaml`'s `breaking` kind to

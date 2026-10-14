@@ -751,6 +751,7 @@ new_batch_fixture() {
     for ((i = 1; i <= ${2:-0}; i++)); do
       printf 'kind: added\nbody: r%s\n' "$i" >"$BATCH_DIR/.changes/rc/added-r$i.yaml"
     done
+    printf '## v1.0.0-rc.1\n' >"$BATCH_DIR/.changes/v1.0.0-rc.1.md"
   fi
 }
 
@@ -818,6 +819,8 @@ assert_ok "rc pending: empty input (auto) is refused" batch_refuses ""
 assert_ok "rc pending: minor is refused" batch_refuses minor
 assert_ok "rc pending: major is refused" batch_refuses major
 assert_ok "rc pending: patch is refused" batch_refuses patch
+assert_ok "rc pending: a final cut of a different version is refused" batch_refuses v0.7.1
+assert_ok "rc pending: an rc cut of a different base version is refused" batch_refuses v1.1.0 rc.2
 assert_ok "rc pending: final cut with an empty unreleased dir is allowed" batch_log_is "batch v1.0.0 --include rc --remove-prereleases" v1.0.0
 assert_ok "rc pending: 1.0.0 is normalised for the final cut" batch_log_is "batch v1.0.0 --include rc --remove-prereleases" 1.0.0
 rm -rf "${BATCH_DIR:?}"
