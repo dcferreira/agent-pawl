@@ -297,19 +297,27 @@ func TestOpaque_StatusJSONEnvelope(t *testing.T) {
 		t.Fatalf("exit=%d stderr=%q", code, stderr)
 	}
 	var got struct {
-		Root string
-		Runs []struct {
-			RunID    string `json:"run_id"`
-			Workflow string
-			Status   string
-			Reason   string
+		SchemaVersion int `json:"schema_version"`
+		Root          string
+		Runs          []struct {
+			RunID        string `json:"run_id"`
+			Workflow     string
+			WorkflowPath string `json:"workflow_path"`
+			Status       string
+			Reason       string
 		}
 	}
 	if err := json.Unmarshal([]byte(stdout), &got); err != nil || len(got.Runs) != 1 {
 		t.Fatalf("stdout=%q err=%v", stdout, err)
 	}
-	if got.Runs[0].Workflow != wfPath {
-		t.Errorf("workflow = %q, want %q", got.Runs[0].Workflow, wfPath)
+	if got.SchemaVersion != 1 {
+		t.Errorf("schema_version = %d, want 1", got.SchemaVersion)
+	}
+	if got.Runs[0].Workflow != "sample" {
+		t.Errorf("workflow = %q, want the workflow-id dir name %q", got.Runs[0].Workflow, "sample")
+	}
+	if got.Runs[0].WorkflowPath != wfPath {
+		t.Errorf("workflow_path = %q, want %q", got.Runs[0].WorkflowPath, wfPath)
 	}
 	if r := got.Runs[0]; r.RunID != "ab99" || r.Status != "newer-format" || !strings.Contains(r.Reason, "newer pawl") {
 		t.Errorf("run = %+v", r)

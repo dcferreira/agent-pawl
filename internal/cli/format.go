@@ -769,20 +769,28 @@ func formatStatus(root, workflowPath, warning, runID, status, step string, attem
 }
 
 // statusJSON is pawl status --json's machine-readable shape (task B2):
-// snake_case keys, one object with a runs: array so the zero-runs and
-// one-run cases share a shape — pawl status never actually prints more than
-// one run at a time (ambiguity without --run is a plain-text usage refusal,
-// not JSON output), but "runs" being a list rather than a single object
-// keeps the shape honest about that possibility instead of overpromising a
-// singular result.
+// snake_case keys, one object with a runs: array so the zero-, one- and
+// many-run cases share a shape.
+//
+// schema_version is emitted first and bumps on any breaking change to this
+// shape. With several live runs and no --run, runs holds all of them (run-id
+// order); the text mode still refuses to guess.
 type statusJSON struct {
-	Root string          `json:"root"`
-	Runs []statusRunJSON `json:"runs"`
+	SchemaVersion int             `json:"schema_version"`
+	Root          string          `json:"root"`
+	Runs          []statusRunJSON `json:"runs"`
 }
 
+// statusSchemaVersion is pawl status --json's schema_version.
+const statusSchemaVersion = 1
+
 type statusRunJSON struct {
-	RunID    string `json:"run_id"`
-	Workflow string `json:"workflow"`
+	RunID string `json:"run_id"`
+	// Workflow is the resolvable name — exactly what `pawl run <name>`
+	// accepts (resumeName); "" when no name round-trips to the file.
+	// WorkflowPath is the absolute pinned path.
+	Workflow     string `json:"workflow"`
+	WorkflowPath string `json:"workflow_path"`
 	// Warning and Reason are always present as "", never omitted (no
 	// omitempty): docs/cli.md's JSON contract promises every key is always
 	// there with the right type, so a consumer can read status.warning
@@ -808,7 +816,7 @@ type statusSoftJSON struct {
 // formatStatusJSONEmpty is the --json counterpart of pawl status's "no live
 // runs for this working copy" line: same root, an empty runs: array.
 func formatStatusJSONEmpty(root string) string {
-	return mustJSONLine(statusJSON{Root: root, Runs: []statusRunJSON{}})
+	return mustJSONLine(statusJSON{SchemaVersion: statusSchemaVersion, Root: root, Runs: []statusRunJSON{}})
 }
 
 // formatStatusJSON is --json's counterpart to formatStatus, carrying the
@@ -816,7 +824,16 @@ func formatStatusJSONEmpty(root string) string {
 // blockWriter's guarded human text — json.Marshal itself is the escaping
 // here, so none of formatStatus's singleLine/blockWriter guarding applies
 // or is needed.
-func formatStatusJSON(root, workflowPath, warning, runID, status, step string, attempt int, visits map[string]int, state map[string]any, reason string, report *spec.Report) string {
+func formatStatusJSON(root string, runs []statusRunJSON) string {
+	if runs == nil {
+		runs = []statusRunJSON{}
+	}
+	return mustJSONLine(statusJSON{SchemaVersion: statusSchemaVersion, Root: root, Runs: runs})
+}
+
+// newStatusRunJSON builds one run's entry; workflowName is resumeName's
+// result ("" when nothing round-trips).
+func newStatusRunJSON(workflowName, workflowPath, warning, runID, status, step string, attempt int, visits map[string]int, state map[string]any, reason string, report *spec.Report) statusRunJSON {
 	stateKeys := make([]string, 0, len(state))
 	for k := range state {
 		stateKeys = append(stateKeys, k)
@@ -835,26 +852,24 @@ func formatStatusJSON(root, workflowPath, warning, runID, status, step string, a
 		visitsCopy[k] = v
 	}
 
-	return mustJSONLine(statusJSON{
-		Root: root,
-		Runs: []statusRunJSON{{
-			RunID:     runID,
-			Workflow:  workflowPath,
-			Warning:   warning,
-			Status:    status,
-			Step:      step,
-			Attempt:   attempt,
-			Visits:    visitsCopy,
-			StateKeys: stateKeys,
-			Reason:    reason,
-			Soft: statusSoftJSON{
-				Count:   report.SoftCount,
-				Total:   report.TotalSteps,
-				Percent: report.SoftPercent(),
-				StepIDs: softIDs,
-			},
-		}},
-	})
+	return statusRunJSON{
+		RunID:        runID,
+		Workflow:     workflowName,
+		WorkflowPath: workflowPath,
+		Warning:      warning,
+		Status:       status,
+		Step:         step,
+		Attempt:      attempt,
+		Visits:       visitsCopy,
+		StateKeys:    stateKeys,
+		Reason:       reason,
+		Soft: statusSoftJSON{
+			Count:   report.SoftCount,
+			Total:   report.TotalSteps,
+			Percent: report.SoftPercent(),
+			StepIDs: softIDs,
+		},
+	}
 }
 
 // mustJSONLine marshals v and appends a trailing newline, matching the
