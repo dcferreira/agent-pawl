@@ -401,7 +401,7 @@ invocation) is only a cache: `bin/pawl-hook`'s "is anything live at all" check, 
 runs in other working copies. The actual decision always comes from the run directories themselves —
 `ResolveRoot` + `journal.Live`, and for a `live/` entry `journal.LiveIndexed`, which accepts it only
 if its target is `<state_base>/<slug>/<workflow_id>/<run_id>` spelling the entry's own name and
-replays as non-terminal — never from the symlink's presence alone (deviation 4). Hooks read stdin for *data*, never for identity: one algorithm run
+replays as non-terminal (or is an opaque run, see above, whose last event is not an ending RUN_END) — never from the symlink's presence alone (deviation 4). Hooks read stdin for *data*, never for identity: one algorithm run
 independently by both sides against the same disk state is the only structural way to stop the two
 layers disagreeing about which run is live. `pawl status` prints the resolved root and run id.
 
