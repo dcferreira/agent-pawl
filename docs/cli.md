@@ -31,7 +31,7 @@ Every command uses the same table (`pawl status` is the one deliberate exception
 | 1 | resolution error: unknown workflow, or another non-flag problem hit while resolving it |
 | 2 | usage error: bad/unrecognised flag, missing a flag's value, missing required arg, or validation failed |
 | 3 | run is `BLOCKED` — paused, resumable, not an error (`pawl run`/`pawl submit`/`pawl poll` only) |
-| 4 | refused: `pawl run` with no fresh `PreToolUse` heartbeat and enforcement not opted out, lock held, file changed, submit for a non-current step or kind, a poll of a current step that is not `kind: wait`, or a run that has already finished (the last one is `pawl submit`/`pawl abandon` only — `pawl poll` exits 0 quietly instead for the same case, see below); separately, `pawl update` refusing to overwrite a source/`go install` build without `--force`, and refusing outright (even with `--force`) when the running binary is the one shipped by the agent-pawl Claude Code plugin |
+| 4 | refused: `pawl run` with no fresh `PreToolUse` heartbeat and enforcement not opted out, lock held, file changed, submit for a non-current step or kind, a poll of a current step that is not `kind: wait`, or a run that has already finished (the last one is `pawl submit`/`pawl abandon` only — `pawl poll` exits 0 quietly instead for the same case, see below), or `pawl abandon` of a non-blocked run in another working copy that another active session is driving; separately, `pawl update` refusing to overwrite a source/`go install` build without `--force`, and refusing outright (even with `--force`) when the running binary is the one shipped by the agent-pawl Claude Code plugin |
 | 5 | engine error — a bug, or a broken/unreadable run directory or journal; for `pawl update`, any failure resolving, downloading, verifying or installing the release |
 
 ---
@@ -206,6 +206,14 @@ pawl abandon --run <id> [--reason <text>]
 
 Ends a run. Always available, always terminal, never prompts. `--reason` is journalled and shown in
 `pawl status`. Undoes nothing a step did; releases `Stop` so the session can end.
+
+The run is looked up in the current working copy first. Only if it has no run with that exact id does
+`pawl abandon` fall back to a live (including `BLOCKED`) run with that id in another working copy —
+e.g. one whose checkout was deleted — printing a one-line note on stderr naming it. Several live
+matches elsewhere are refused (exit 1, nothing abandoned); a non-blocked run that looks actively
+driven (live lock holder, or a fresh heartbeat from its driving session) is refused with exit 4 —
+end that other session, or wait for its heartbeat to go stale, and retry. The calling session
+abandoning its own run is never refused for its own heartbeat.
 
 ## `pawl version` — human
 

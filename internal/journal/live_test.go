@@ -176,3 +176,60 @@ func TestLive_UsesResolvedRootSlug(t *testing.T) {
 		t.Errorf("Live() = %+v, want one run at %s", live, dir)
 	}
 }
+
+func TestFindRun_ZeroMatchesWrapsErrNoRun(t *testing.T) {
+	t.Setenv(EnvStateDir, t.TempDir())
+	_, err := FindRun("/home/user/proj", "0617")
+	if !errors.Is(err, ErrNoRun) {
+		t.Fatalf("err=%v, want ErrNoRun", err)
+	}
+	if err.Error() != `no run "0617" for this working copy` {
+		t.Fatalf("message changed: %q", err.Error())
+	}
+}
+
+func TestFindLiveRunElsewhere(t *testing.T) {
+	t.Setenv(EnvStateDir, t.TempDir())
+	cwd, other, third := "/a", "/b", "/c"
+	live := []Event{{Kind: KindRunStart, RunID: "0617"}, {Kind: KindStepEnter, RunID: "0617", Step: "s", Attempt: 1}}
+	blocked := append(append([]Event{}, live...), Event{Kind: KindRunEnd, RunID: "0617", Step: "s", Status: "blocked"})
+	ended := append(append([]Event{}, live...), Event{Kind: KindRunEnd, RunID: "0617", Step: "s", Status: "abandoned"})
+	for root, evs := range map[string][]Event{cwd: live, other: blocked, third: ended} {
+		d, err := CreateRunDir(root, "wf", "0617")
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeEventsFile(t, d, evs)
+	}
+	got, err := FindLiveRunElsewhere("0617", Slug(cwd))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Slug != Slug(other) || got[0].WorkflowID != "wf" {
+		t.Fatalf("got %+v, want only %s's blocked run", got, Slug(other))
+	}
+}
+
+func TestSyncLiveIndexSlug_PrunesRunInAnotherSlug(t *testing.T) {
+	t.Setenv(EnvStateDir, t.TempDir())
+	root := "/gone/wc"
+	d, err := CreateRunDir(root, "wf", "0617")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeEventsFile(t, d, []Event{{Kind: KindRunStart, RunID: "0617", HookSelfTest: "on"}})
+	if err := SyncLiveIndexSlug(Slug(root)); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(LiveIndexDir(), Slug(root)+"__wf__0617")
+	if _, err := os.Lstat(link); err != nil {
+		t.Fatalf("link not created: %v", err)
+	}
+	writeEventsFile(t, d, []Event{{Kind: KindRunEnd, RunID: "0617", Status: "abandoned"}})
+	if err := SyncLiveIndexSlug(Slug(root)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(link); !os.IsNotExist(err) {
+		t.Fatalf("link not pruned: %v", err)
+	}
+}
