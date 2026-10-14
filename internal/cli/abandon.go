@@ -106,6 +106,6 @@ func cmdAbandon(args []string, cwd string, stdout, stderr io.Writer) int {
 		StepID:  ref.State.Cursor.Step,
 		Outcome: "abandoned",
 		Message: fmt.Sprintf("run %s abandoned at step %q by user request.", runID, ref.State.Cursor.Step),
-	}, ""))
+	}, "", resumeHint{}))
 	return 0
 }

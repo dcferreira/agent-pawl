@@ -14,7 +14,7 @@ yourself; you only do what the machine tells you to do next.
 It only ever hands control back to you at an `agentic` step (`DISPATCH`), a group of one or more
 `agentic` branches — or, for a `foreach:` step, per-item bodies — inside a `parallel` step
 (`DISPATCH_PARALLEL`), a `wait` step (`WAIT`), a
-`human` step (`ASK`), or when the run ends (`TERMINAL`).
+`human` step (`ASK`), or when the run reaches a terminal (`TERMINAL`: `ok` ends it, `blocked` pauses it).
 
 **The enforcement hooks are live.** `pawl run` will refuse to start at all (exit 4) unless its
 `PreToolUse` hook has fired for this session (or, failing that, this working copy) recently — if you see
@@ -278,7 +278,7 @@ elapsed instead) — never guess or skip this step's routing yourself.
 
 ## TERMINAL `<run>` `<status>`
 
-The run is over. Real output:
+The run reached a terminal id. Real output:
 
 ```
 TERMINAL 9074 ok
@@ -287,10 +287,38 @@ message:
 END TERMINAL 9074 ok
 ```
 
-`<status>` is whatever the workflow's `terminal:` map declares for the id reached (commonly `ok`
-or `blocked`). If the run ended `blocked`, the block carries an additional `blocked_reason:`
-field with the underlying diagnostic. Report `message:` (and `blocked_reason:` if present) to the
-user. There is nothing further to submit — the loop ends here.
+`<status>` is whatever the workflow's `terminal:` map declares for the id reached (`ok` or
+`blocked`). `ok` means the run is over: report `message:` to the user. There is nothing further
+to submit, and the loop ends here.
+
+`blocked` means the run is **paused, not finished**. It stays live, and its hooks and the
+subagent-VCS rule still apply, until it is resumed or abandoned. The block carries extra fields:
+
+```
+TERMINAL 9074 blocked
+message:
+  Tests still red after 3 attempts.
+blocked_reason:
+  fix-tests: postcondition failed: go test ./... exited 1
+resume:
+  pawl run green-tests --run 9074
+abandon:
+  pawl abandon --run 9074 --reason '<reason>'
+END TERMINAL 9074 blocked
+```
+
+Report `message:` and `blocked_reason:`, then give the user both ways out, quoting the block's own
+commands:
+
+1. Fix the cause in the working tree, then run the `resume:` command. It re-runs the blocking
+   step from attempt 1. Don't edit the workflow file: a resume refuses a changed one.
+2. Run the `abandon:` command, replacing `<reason>` with a real reason.
+
+Don't pick for them unless the user has already told you how to handle blocked runs. Never end
+your turn with a blocked run silently left live: say that it is still live and which command
+closes it. When pawl can't name the workflow from the current directory, the block prints a
+`resume_note:` instead of `resume:`. Pass the note on, and run `pawl run <name> --run <id>` from
+where the workflow resolves.
 
 ## What this skill does not cover
 
@@ -336,6 +364,6 @@ entirely on its own — there is nothing extra for this skill to do. When a work
 `pawl run`'s start banner prints an extra line, `invariants: N (engine-checked after every step)`.
 For a `kind: parallel` step, invariants are checked once when the whole group joins, not after each
 branch's own submit — so a DISPATCH_PARALLEL's branches all land normally even if the group as a
-whole later blocks. If an invariant is violated, the run ends (or re-ends, on resume) TERMINAL
-`blocked` exactly like any other blocked run — its `message:` names the invariant and the `message:`
+whole later blocks. If an invariant is violated, the run pauses (or re-pauses, on resume) with a TERMINAL
+`blocked` block exactly like any other blocked run — its `message:` names the invariant and the `message:`
 it declared; report it to the user the same way you would any other blocked reason.

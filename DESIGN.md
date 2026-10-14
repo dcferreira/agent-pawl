@@ -60,7 +60,13 @@ Run `pawl run <name> [key=value …]`. It prints exactly one line telling you wh
                                         `pawl submit` for a wait. When it exits it prints the next
                                         DISPATCH/DISPATCH_PARALLEL/ASK/WAIT/TERMINAL line — report
                                         that.
-  TERMINAL <run> <status>               the run is over. Report the printed summary.
+  TERMINAL <run> <status>               `ok`: the run is over. `blocked`: the run is paused and
+                                        stays live (§4). Report the printed summary. A `blocked`
+                                        block also prints, after `message:`/`blocked_reason:`, either
+                                        `resume:` (the exact `pawl run <name> --run <run>`) or, when no
+                                        name resolves to the run's workflow file from the current
+                                        directory, `resume_note:` (a statement of fact, no command);
+                                        then `abandon:` (`pawl abandon --run <run> --reason '<reason>'`).
 
 The instruction is the first column-0 line matching
 `DISPATCH|DISPATCH_PARALLEL|ASK|WAIT|TERMINAL`, and `END <KIND> <run> <step>` at column 0 closes

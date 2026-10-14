@@ -37,7 +37,7 @@ func setupWorkingCopy(t *testing.T) string {
 func writeWorkflow(t *testing.T, root, name, yaml string) {
 	t.Helper()
 	dir := filepath.Join(root, ".claude", "workflows")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, name+".yaml"), []byte(yaml), 0o644); err != nil {
