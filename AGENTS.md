@@ -188,8 +188,9 @@ runtime either — see the next section.
 
 ## Conventions and traps
 
-- **PR descriptions follow `.claude/skills/pr-description/SKILL.md`** (repo-local skill, not part of the
-  plugin): required template, Conventional Commit title, changelog fragment or `skip changelog`.
+- **PR descriptions fill in `.github/pull_request_template.md`** (the single source of truth for
+  the headings), following `.claude/skills/pr-description/SKILL.md` (repo-local skill, not part of
+  the plugin): Conventional Commit title, changelog fragment or `skip changelog`, writing rules.
 - **Commits are Conventional Commits** (`feat:`, `fix:`, `ci:`, `docs:`, `test:`), imperative
   subject line, a body explaining *why* and any non-obvious trade-off, a `Co-Authored-By:` trailer
   where applicable. Never a `Claude-Session:` trailer or session URL (see the pr-description skill).
