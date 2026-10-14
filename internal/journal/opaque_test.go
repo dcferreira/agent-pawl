@@ -191,3 +191,17 @@ func TestReadEvents_NewlineTerminatedGarbageFinalLineStillErrors(t *testing.T) {
 		t.Fatal("want error for mid-file garbage")
 	}
 }
+
+func TestLive_NewerFormatWithTypeMismatchedRecordIsNewer(t *testing.T) {
+	t.Setenv(EnvStateDir, t.TempDir())
+	root := "/home/user/proj"
+	dir, _ := CreateRunDir(root, "wf", "r99")
+	writeRaw(t, dir, future99+`{"kind":"FUTURE_THING","run_id":"r99","seq":"x","time":"2026-01-01T00:00:02Z"}`+"\n")
+	live, err := Live(root)
+	if err != nil || len(live) != 1 || live[0].Opaque == nil {
+		t.Fatalf("Live = %+v, %v", live, err)
+	}
+	if !live[0].Opaque.Newer() || live[0].StatusText() != "newer-format" {
+		t.Errorf("opaque = %+v, want newer", live[0].Opaque)
+	}
+}

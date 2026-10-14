@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"sort"
@@ -172,14 +171,19 @@ func formatVisits(visits map[string]int) string {
 	return strings.Join(parts, ", ")
 }
 
-// formatStatusOpaqueJSON is --json output for a run this build cannot replay.
+// formatStatusOpaqueJSON is --json output for a run this build cannot replay:
+// the documented envelope, with empty values for what cannot be known.
 func formatStatusOpaqueJSON(root string, ref *journal.RunRef) string {
-	b, _ := json.Marshal(map[string]any{
-		"root":     root,
-		"run_id":   ref.RunID,
-		"workflow": ref.WorkflowID,
-		"status":   ref.StatusText(),
-		"detail":   opaqueSentence(ref),
+	return mustJSONLine(statusJSON{
+		Root: root,
+		Runs: []statusRunJSON{{
+			RunID:     ref.RunID,
+			Workflow:  ref.WorkflowID,
+			Status:    ref.StatusText(),
+			Visits:    map[string]int{},
+			StateKeys: []string{},
+			Reason:    opaqueSentence(ref),
+			Soft:      statusSoftJSON{StepIDs: []string{}},
+		}},
 	})
-	return string(b) + "\n"
 }

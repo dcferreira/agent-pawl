@@ -30,10 +30,16 @@ type OpaqueRun struct {
 	// Ended reports that the last decodable event is a RUN_END whose status
 	// is not "blocked" (a blocked run is paused, still live).
 	Ended bool
+	// EndStatus and EndReason are the status and reason of that RUN_END
+	// (empty unless Ended).
+	EndStatus string
+	EndReason string
 }
 
-// Newer reports whether the run is opaque because a newer pawl wrote it.
-func (o *OpaqueRun) Newer() bool { return errors.Is(o.Err, ErrNewerFormat) }
+// Newer reports whether the run is opaque because a newer pawl wrote it: its
+// RUN_START format is above this build's, even when a newer record shape made
+// the strict parse fail before the format check could run.
+func (o *OpaqueRun) Newer() bool { return errors.Is(o.Err, ErrNewerFormat) || o.Format > Format }
 
 // Terminal reports whether the run is over: for an opaque run, whether the
 // lenient scan saw a final non-blocked RUN_END; otherwise State.Terminal().
@@ -45,9 +51,16 @@ func (r RunRef) Terminal() bool {
 }
 
 // StatusText is the run's status as shown to a user: "newer-format" or
-// "unreadable" for an opaque run, else State.Status().
+// "unreadable" for an opaque run (or its RUN_END status once ended), else
+// State.Status().
 func (r RunRef) StatusText() string {
 	if r.Opaque != nil {
+		if r.Opaque.Ended {
+			if r.Opaque.EndStatus != "" {
+				return r.Opaque.EndStatus
+			}
+			return "ended"
+		}
 		if r.Opaque.Newer() {
 			return "newer-format"
 		}
@@ -58,11 +71,13 @@ func (r RunRef) StatusText() string {
 
 // opaqueScan is the result of a lenient scan of events.jsonl.
 type opaqueScan struct {
-	RunID   string
-	LastSeq int
-	Format  int // normalised; 0 when no RUN_START decoded
-	Ended   bool
-	Events  int // number of decodable lines
+	RunID     string
+	LastSeq   int
+	Format    int // normalised; 0 when no RUN_START decoded
+	Ended     bool
+	EndStatus string
+	EndReason string
+	Events    int // number of decodable lines
 }
 
 // scanEvents reads dir's events.jsonl line by line, decoding only the fields
@@ -93,6 +108,7 @@ func scanEvents(dir string) (opaqueScan, error) {
 			RunID  string `json:"run_id"`
 			Seq    int    `json:"seq"`
 			Status string `json:"status"`
+			Reason string `json:"reason"`
 			Format int    `json:"format"`
 		}
 		line := bytes.TrimSpace(sc.Bytes())
@@ -110,6 +126,10 @@ func scanEvents(dir string) (opaqueScan, error) {
 			s.Format = NormalizeFormat(e.Format)
 		}
 		s.Ended = e.Kind == string(KindRunEnd) && e.Status != "blocked"
+		s.EndStatus, s.EndReason = "", ""
+		if s.Ended {
+			s.EndStatus, s.EndReason = e.Status, e.Reason
+		}
 	}
 	return s, sc.Err()
 }
@@ -121,7 +141,7 @@ func opaqueRef(dir string, cause error) (*OpaqueRun, bool) {
 	if err != nil || s.Events == 0 {
 		return nil, false
 	}
-	return &OpaqueRun{Format: s.Format, Err: cause, RunID: s.RunID, LastSeq: s.LastSeq, Ended: s.Ended}, true
+	return &OpaqueRun{Format: s.Format, Err: cause, RunID: s.RunID, LastSeq: s.LastSeq, Ended: s.Ended, EndStatus: s.EndStatus, EndReason: s.EndReason}, true
 }
 
 // AppendRunEndRaw appends one RUN_END event to dir's events.jsonl without

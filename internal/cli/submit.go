@@ -83,6 +83,10 @@ func cmdSubmit(args []string, cwd string, stdout, stderr io.Writer) int {
 		return exitForLookupErr(err)
 	}
 	if ref.Opaque != nil {
+		if ref.Opaque.Ended {
+			printLine(stderr, "pawl submit:", opaqueSentence(ref))
+			return exitForEngineErr(fmt.Errorf("%w: run %q already ended", engine.ErrAlreadyTerminal, runID))
+		}
 		return opaqueRefusal(stderr, "pawl submit", ref)
 	}
 	// findRunByID finds a run whether it is live or already terminal

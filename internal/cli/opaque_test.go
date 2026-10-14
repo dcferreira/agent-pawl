@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -251,5 +252,53 @@ func TestOpaque_NewerPlanOnEnginePathExits4(t *testing.T) {
 	_, stderr, code := runCLI(t, []string{"pawl", "submit", "--run", "ee22", "--step", "fix", "--json", "{}"})
 	if code != 4 || stderr != wantNewer("pawl submit", "ee22") {
 		t.Errorf("exit=%d stderr=%q", code, stderr)
+	}
+}
+
+func TestOpaque_TypeMismatchedNewerFormatExits4(t *testing.T) {
+	root := setupWorkingCopy(t)
+	seedOpaque(t, root, "sample", "ab99", newerEvents+`{"kind":"FUTURE_THING","run_id":"ab99","seq":"x"}`+"\n", newerPlan)
+	_, stderr, code := runCLI(t, []string{"pawl", "submit", "--run", "ab99", "--step", "s", "--json", "{}"})
+	if code != 4 || stderr != wantNewer("pawl submit", "ab99") {
+		t.Errorf("exit=%d stderr=%q", code, stderr)
+	}
+}
+
+func TestOpaque_StatusAndSubmitAfterAbandon(t *testing.T) {
+	root := setupWorkingCopy(t)
+	seedOpaque(t, root, "sample", "ab99", newerEvents, newerPlan)
+	if _, stderr, code := runCLI(t, []string{"pawl", "abandon", "--run", "ab99"}); code != 0 {
+		t.Fatalf("abandon exit=%d stderr=%q", code, stderr)
+	}
+	stdout, stderr, code := runCLI(t, []string{"pawl", "status", "--run", "ab99"})
+	if code != 0 || !strings.Contains(stdout, "abandoned") || strings.Contains(stdout, "newer-format") || strings.Contains(stdout, "upgrade") {
+		t.Errorf("status: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	_, stderr, code = runCLI(t, []string{"pawl", "submit", "--run", "ab99", "--step", "s", "--json", "{}"})
+	if code != 4 || !strings.Contains(stderr, "has already ended") {
+		t.Errorf("submit: exit=%d stderr=%q", code, stderr)
+	}
+}
+
+func TestOpaque_StatusJSONEnvelope(t *testing.T) {
+	root := setupWorkingCopy(t)
+	seedOpaque(t, root, "sample", "ab99", newerEvents, newerPlan)
+	stdout, stderr, code := runCLI(t, []string{"pawl", "status", "--run", "ab99", "--json"})
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, stderr)
+	}
+	var got struct {
+		Root string
+		Runs []struct {
+			RunID  string `json:"run_id"`
+			Status string
+			Reason string
+		}
+	}
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil || len(got.Runs) != 1 {
+		t.Fatalf("stdout=%q err=%v", stdout, err)
+	}
+	if r := got.Runs[0]; r.RunID != "ab99" || r.Status != "newer-format" || !strings.Contains(r.Reason, "newer pawl") {
+		t.Errorf("run = %+v", r)
 	}
 }

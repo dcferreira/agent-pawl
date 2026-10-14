@@ -103,6 +103,13 @@ func exitForEngineErr(err error) int {
 // format stamp (0) renders as 1: an unstamped journal is format 1.
 func opaqueSentence(ref *journal.RunRef) string {
 	o := ref.Opaque
+	if o.Ended {
+		msg := fmt.Sprintf("run %s has already ended (%s)", ref.RunID, ref.StatusText())
+		if o.EndReason != "" {
+			msg += ": " + o.EndReason
+		}
+		return msg
+	}
 	if o.Newer() {
 		return newerSentence(ref.RunID, o.Format)
 	}
