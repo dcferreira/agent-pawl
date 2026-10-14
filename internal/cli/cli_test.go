@@ -644,12 +644,12 @@ steps:
     kind: deterministic
     run: echo hi
 `)
-	stdout, _, code := runCLI(t, []string{"pawl", "validate", "broken"})
+	_, stderr, code := runCLI(t, []string{"pawl", "validate", "broken"})
 	if code != 2 {
 		t.Fatalf("exit = %d, want 2 (validation failed, the frozen exit-code table (exitcode.go))", code)
 	}
-	if !strings.Contains(stdout, `step "a"`) {
-		t.Errorf("stdout missing the failing step id: %q", stdout)
+	if !strings.Contains(stderr, `step "a"`) {
+		t.Errorf("stderr missing the failing step id: %q", stderr)
 	}
 }
 

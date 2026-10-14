@@ -18,37 +18,6 @@ type runFlags struct {
 	NoEnforcement bool
 }
 
-// parseRunArgs splits pawl run's trailing arguments into key=value bindings
-// and flags.
-func parseRunArgs(args []string) (raw map[string]string, flags runFlags, err error) {
-	raw = map[string]string{}
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch {
-		case a == "--fresh":
-			flags.Fresh = true
-		case a == "--force":
-			flags.Force = true
-		case a == "--no-enforcement":
-			flags.NoEnforcement = true
-		case a == "--run":
-			i++
-			if i >= len(args) {
-				return nil, flags, fmt.Errorf("pawl run: --run needs a value")
-			}
-			flags.RunID = args[i]
-		case strings.HasPrefix(a, "--run="):
-			flags.RunID = strings.TrimPrefix(a, "--run=")
-		case strings.Contains(a, "="):
-			kv := strings.SplitN(a, "=", 2)
-			raw[kv[0]] = kv[1]
-		default:
-			return nil, flags, fmt.Errorf("pawl run: unrecognised argument %q", a)
-		}
-	}
-	return raw, flags, nil
-}
-
 // argsUsageError carries a one-line reason plus the args: declarations that
 // produced it, so the caller renders the full multi-line usage message
 // through a guarded blockWriter (writeArgsUsage) rather than a

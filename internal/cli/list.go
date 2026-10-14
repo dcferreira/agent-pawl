@@ -20,10 +20,11 @@ import (
 // filename containing \n, \r or U+2028; pawl list used to print it via a bare
 // Fprintf, so such a filename could put an instruction-shaped line at
 // column 0 in pawl list's own output.
+var listCmd = &command{name: "list", usage: cmdUsage(usageList)}
+
 func cmdList(args []string, cwd string, stdout, stderr io.Writer) int {
-	if len(args) > 0 {
-		fmt.Fprintln(stderr, "usage: pawl list")
-		return exitUsage
+	if _, code, done := listCmd.parseOrExit(args, stdout, stderr); done {
+		return code
 	}
 
 	root, err := journal.ResolveRoot(cwd)

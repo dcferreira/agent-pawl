@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/dcferreira/agent-pawl/internal/selfupdate"
 )
@@ -35,30 +34,10 @@ func validatePin(pin string) error {
 	return nil
 }
 
-func parseUpdateArgs(args []string) (updateFlags, error) {
-	var f updateFlags
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch {
-		case a == "--check":
-			f.Check = true
-		case a == "--force":
-			f.Force = true
-		case a == "--version":
-			i++
-			if i >= len(args) {
-				return f, fmt.Errorf("pawl update: --version needs a value")
-			}
-			f.Pin = args[i]
-			f.VersionGiven = true
-		case strings.HasPrefix(a, "--version="):
-			f.Pin = strings.TrimPrefix(a, "--version=")
-			f.VersionGiven = true
-		default:
-			return f, fmt.Errorf("pawl update: unrecognised argument %q", a)
-		}
-	}
-	return f, nil
+var updateCmd = &command{
+	name:  "update",
+	usage: cmdUsage(usageUpdate),
+	flags: []flagDef{{name: "check", isBool: true}, {name: "force", isBool: true}, {name: "version"}},
 }
 
 // osExecutable and evalSymlinks are os.Executable/filepath.EvalSymlinks,
@@ -140,14 +119,15 @@ func resolveExePath(cfg selfupdate.Config) (string, error) {
 // target directory, or the "impossible" case of a CompareVersions error
 // against an already-validated target version — see below).
 func CmdUpdate(args []string, stdout, stderr io.Writer, currentVersion string, cfg *selfupdate.Config) int {
-	flags, err := parseUpdateArgs(args)
-	if err != nil {
-		printLine(stderr, err.Error())
-		return exitUsage
+	pf, code, done := updateCmd.parseOrExit(args, stdout, stderr)
+	if done {
+		return code
 	}
-	if flags.VersionGiven && flags.Pin == "" {
-		printLine(stderr, "pawl update: --version needs a non-empty value")
-		return exitUsage
+	flags := updateFlags{
+		Check:        pf.boolean("check"),
+		Force:        pf.boolean("force"),
+		Pin:          pf.value("version"),
+		VersionGiven: pf.has("version"),
 	}
 	if flags.Check && flags.VersionGiven {
 		printLine(stderr, "pawl update: --check and --version are mutually exclusive")

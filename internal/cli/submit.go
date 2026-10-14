@@ -21,51 +21,27 @@ import (
 // attempt number is not a flag — it is read off the run's own journal,
 // since the model has no reason to track it and the engine refuses any
 // (run, step, attempt) triple but the one it is actually waiting on.
+var submitCmd = &command{
+	name:  "submit",
+	usage: cmdUsage(usageSubmit),
+	flags: []flagDef{{name: "run"}, {name: "step"}, {name: "json"}, {name: "item"}},
+}
+
 func cmdSubmit(args []string, cwd string, stdout, stderr io.Writer) int {
-	var runID, stepID string
-	var result string
-	var haveResult bool
+	pf, code, done := submitCmd.parseOrExit(args, stdout, stderr)
+	if done {
+		return code
+	}
+	runID, stepID := pf.value("run"), pf.value("step")
+	result, haveResult := pf.value("json"), pf.has("json")
 	var item *int
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--run":
-			i++
-			if i >= len(args) {
-				fmt.Fprintln(stderr, "pawl submit: --run needs a value")
-				return exitUsage
-			}
-			runID = args[i]
-		case "--step":
-			i++
-			if i >= len(args) {
-				fmt.Fprintln(stderr, "pawl submit: --step needs a value")
-				return exitUsage
-			}
-			stepID = args[i]
-		case "--json":
-			i++
-			if i >= len(args) {
-				fmt.Fprintln(stderr, "pawl submit: --json needs a value")
-				return exitUsage
-			}
-			result = args[i]
-			haveResult = true
-		case "--item":
-			i++
-			if i >= len(args) {
-				fmt.Fprintln(stderr, "pawl submit: --item needs a value")
-				return exitUsage
-			}
-			n, err := strconv.Atoi(args[i])
-			if err != nil || n < 0 {
-				printLine(stderr, "pawl submit: --item needs a non-negative integer, got", args[i])
-				return exitUsage
-			}
-			item = &n
-		default:
-			printLine(stderr, "pawl submit: unrecognised argument", args[i])
+	if pf.has("item") {
+		n, err := strconv.Atoi(pf.value("item"))
+		if err != nil || n < 0 {
+			printLine(stderr, "pawl submit: --item needs a non-negative integer, got", pf.value("item"))
 			return exitUsage
 		}
+		item = &n
 	}
 	if runID == "" || stepID == "" || !haveResult {
 		fmt.Fprintln(stderr, "usage: pawl submit --run <id> --step <id> [--item <n>] --json '<result>'")

@@ -20,29 +20,18 @@ import (
 // Like pawl submit it takes no attempt number: the journal is authoritative
 // about where the run is. Unlike pawl submit it takes no result at all — the
 // poll: command's own stdout is the result.
+var pollCmd = &command{
+	name:  "poll",
+	usage: cmdUsage(usagePoll),
+	flags: []flagDef{{name: "run"}, {name: "step"}},
+}
+
 func cmdPoll(args []string, cwd string, stdout, stderr io.Writer) int {
-	var runID, stepID string
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--run":
-			i++
-			if i >= len(args) {
-				fmt.Fprintln(stderr, "pawl poll: --run needs a value")
-				return exitUsage
-			}
-			runID = args[i]
-		case "--step":
-			i++
-			if i >= len(args) {
-				fmt.Fprintln(stderr, "pawl poll: --step needs a value")
-				return exitUsage
-			}
-			stepID = args[i]
-		default:
-			printLine(stderr, "pawl poll: unrecognised argument", args[i])
-			return exitUsage
-		}
+	pf, code, done := pollCmd.parseOrExit(args, stdout, stderr)
+	if done {
+		return code
 	}
+	runID, stepID := pf.value("run"), pf.value("step")
 	if runID == "" || stepID == "" {
 		fmt.Fprintln(stderr, "usage: pawl poll --run <id> --step <name>")
 		return exitUsage

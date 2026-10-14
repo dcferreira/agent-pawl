@@ -73,31 +73,20 @@ func runBeingDriven(dir string) bool {
 // the RUN_END event directly via internal/journal, the same package the
 // engine itself uses to end a run, with status "abandoned" (anything but
 // "blocked" is terminal per journal.RunState.Terminal).
+var abandonCmd = &command{
+	name:  "abandon",
+	usage: cmdUsage(usageAbandon),
+	// An empty --reason is legitimate: it falls back to the default text.
+	flags: []flagDef{{name: "run"}, {name: "reason", allowEmpty: true}},
+}
+
 func cmdAbandon(args []string, cwd string, stdout, stderr io.Writer) int {
-	var runID, reason string
-	haveReason := false
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--run":
-			i++
-			if i >= len(args) {
-				fmt.Fprintln(stderr, "pawl abandon: --run needs a value")
-				return exitUsage
-			}
-			runID = args[i]
-		case "--reason":
-			i++
-			if i >= len(args) {
-				fmt.Fprintln(stderr, "pawl abandon: --reason needs a value")
-				return exitUsage
-			}
-			reason = args[i]
-			haveReason = true
-		default:
-			printLine(stderr, "pawl abandon: unrecognised argument", args[i])
-			return exitUsage
-		}
+	pf, code, done := abandonCmd.parseOrExit(args, stdout, stderr)
+	if done {
+		return code
 	}
+	runID, reason := pf.value("run"), pf.value("reason")
+	haveReason := pf.has("reason")
 	if runID == "" {
 		fmt.Fprintln(stderr, "usage: pawl abandon --run <id> [--reason <text>]")
 		return exitUsage

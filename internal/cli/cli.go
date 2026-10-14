@@ -18,42 +18,6 @@ import (
 	"github.com/dcferreira/agent-pawl/internal/journal"
 )
 
-// usage is the single source of truth for pawl's command-line surface
-// (design/format-spec.md §I): cmd/pawl's own run() prints this same text for
-// every command but "version" and "update", which it handles itself so a
-// build-time version string need not flow through this package (see
-// internal/cli/update.go's CmdUpdate doc comment).
-const usage = `Usage: pawl <command> [args]
-
-Commands:
-  pawl run <name> [key=value …] [--fresh] [--force] [--run <id>] [--no-enforcement]
-        start, or resume a non-terminal run
-  pawl validate <name> | --path <file>
-        run the static checks against a workflow file (--path validates a
-        specific file instead of a name resolved under .claude/workflows/)
-  pawl status [--run <id>] [--json]
-        show where a run is, and its trust surface (--json: machine-readable)
-  pawl abandon --run <id> [--reason <text>]
-        abandon a run; always available, always terminal
-  pawl list
-        list resolvable workflows and their source
-  pawl submit --run <id> --step <id> [--item <n>] --json '<result>'
-        internal: submit an agentic step's result (the /pawl skill calls this;
-        an author never writes it)
-  pawl poll --run <id> --step <name>
-        internal: poll a wait step until it resolves, then submit for itself
-        (the /pawl skill runs this under Monitor; an author never writes it)
-  pawl hook pre|stop
-        internal: Claude Code hook entry point (PreToolUse / Stop); reads the
-        hook payload on stdin. Wired by the plugin's hooks/hooks.json.
-  pawl version
-        print the pawl version
-  pawl update [--check] [--version <vX.Y.Z>] [--force]
-        self-update to the latest (or a pinned) GitHub release binary;
-        refuses to overwrite a source/go-install ("dev") build without
-        --force
-`
-
 // Run dispatches on args[1] and returns the process exit code. It is the
 // single entry point exercised by every test but hook_test.go: no path
 // through it calls os.Exit, so every command is testable by capturing
@@ -71,10 +35,16 @@ func RunIO(args []string, stdin io.Reader, stdout, stderr io.Writer) (exit int) 
 		fmt.Fprint(stderr, usage)
 		return exitUsage
 	}
+	switch args[1] {
+	case "help", "--help", "-h":
+		fmt.Fprint(stdout, usage)
+		return exitOK
+	}
 	cwd, err := os.Getwd()
 	if err != nil {
+		// An environment error, not a missing run or workflow.
 		printLine(stderr, "pawl: resolving working directory:", err.Error())
-		return exitNotFound
+		return exitInternal
 	}
 	// hook runs its own fail-open recover and calls commandHook itself.
 	if commandHook != nil && args[1] != "hook" {

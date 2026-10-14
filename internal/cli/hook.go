@@ -35,6 +35,15 @@ var nowFunc = time.Now
 // woken for. Like Stop it fails open with exit 0: exit 2 would block the
 // subagent from stopping.
 func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int) {
+	// Help is the one thing that is not a hook call. Everything else keeps
+	// the exact event check below, and its usage error stays exit 1: hooks
+	// never exit 2, which Claude Code reads as "block".
+	for _, a := range args {
+		if a == "-h" || a == "--help" {
+			fmt.Fprint(stdout, cmdUsage(usageHook))
+			return hookExitOK
+		}
+	}
 	if len(args) != 1 || (args[0] != "pre" && args[0] != "stop" && args[0] != "subagent-stop") {
 		fmt.Fprintln(stderr, "usage: pawl hook pre|stop|subagent-stop  (reads a Claude Code hook payload on stdin)")
 		return hookExitFailOpen

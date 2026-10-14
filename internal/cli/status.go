@@ -19,25 +19,18 @@ import (
 // or already terminal (journal.FindRun) — e.g. to show the reason an
 // abandoned run was ended — but the no-flag "every live run" path still
 // enumerates only journal.Live, matching `pawl run`'s own resume rule.
+var statusCmd = &command{
+	name:  "status",
+	usage: cmdUsage(usageStatus),
+	flags: []flagDef{{name: "run"}, {name: "json", isBool: true}},
+}
+
 func cmdStatus(args []string, cwd string, stdout, stderr io.Writer) int {
-	var runID string
-	asJSON := false
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--run":
-			i++
-			if i >= len(args) {
-				fmt.Fprintln(stderr, "pawl status: --run needs a value")
-				return exitUsage
-			}
-			runID = args[i]
-		case "--json":
-			asJSON = true
-		default:
-			printLine(stderr, "pawl status: unrecognised argument", args[i])
-			return exitUsage
-		}
+	pf, code, done := statusCmd.parseOrExit(args, stdout, stderr)
+	if done {
+		return code
 	}
+	runID, asJSON := pf.value("run"), pf.boolean("json")
 
 	root, err := journal.ResolveRoot(cwd)
 	if err != nil {

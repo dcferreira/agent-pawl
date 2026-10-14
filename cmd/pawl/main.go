@@ -2,7 +2,6 @@
 package main
 
 import (
-	"fmt"
 	"io"
 	"os"
 
@@ -29,8 +28,7 @@ func main() {
 func run(args []string, stdout, stderr io.Writer) (code int) {
 	defer cli.RecoverPanic(stderr, &code)
 	if len(args) >= 2 && args[1] == "version" {
-		fmt.Fprintf(stdout, "pawl %s\n", Version)
-		return 0
+		return cli.CmdVersion(args[2:], stdout, stderr, Version)
 	}
 	if len(args) >= 2 && args[1] == "update" {
 		return cli.CmdUpdate(args[2:], stdout, stderr, Version, nil)

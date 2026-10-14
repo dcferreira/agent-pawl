@@ -17,17 +17,40 @@ import (
 // workflow, gate on spec.Validate, resume a live run when exactly one
 // resolves (--run only disambiguates), or bind args and start a fresh one,
 // then print the start banner and the first instruction line.
+var runCmd = &command{
+	name:   "run",
+	usage:  cmdUsage(usageRun),
+	maxPos: -1,
+	flags: []flagDef{
+		{name: "fresh", isBool: true},
+		{name: "force", isBool: true},
+		{name: "no-enforcement", isBool: true},
+		{name: "run"},
+	},
+}
+
 func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
-	if len(args) < 1 {
-		fmt.Fprintln(stderr, "pawl run: missing workflow name")
-		fmt.Fprintln(stderr, "usage: pawl run <name> [key=value …] [--fresh] [--force] [--run <id>] [--no-enforcement]")
-		return exitUsage
+	pf, code, done := runCmd.parseOrExit(args, stdout, stderr)
+	if done {
+		return code
 	}
-	name := args[0]
-	raw, flags, err := parseRunArgs(args[1:])
-	if err != nil {
-		printLine(stderr, err.Error())
-		return exitUsage
+	if len(pf.pos) < 1 {
+		return runCmd.fail(stderr, "missing workflow name")
+	}
+	name := pf.pos[0]
+	raw := map[string]string{}
+	for _, kv := range pf.pos[1:] {
+		k, v, ok := strings.Cut(kv, "=")
+		if !ok {
+			return runCmd.fail(stderr, fmt.Sprintf("unrecognised argument %q", kv))
+		}
+		raw[k] = v
+	}
+	flags := runFlags{
+		Fresh:         pf.boolean("fresh"),
+		Force:         pf.boolean("force"),
+		NoEnforcement: pf.boolean("no-enforcement"),
+		RunID:         pf.value("run"),
 	}
 	if flags.Fresh && flags.RunID != "" {
 		fmt.Fprintln(stderr, "pawl run: --run is only used to disambiguate a resume; it does not name a fresh run's id — drop --run or drop --fresh")
