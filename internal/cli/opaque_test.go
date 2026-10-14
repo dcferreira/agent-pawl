@@ -282,12 +282,14 @@ func TestOpaque_StatusAndSubmitAfterAbandon(t *testing.T) {
 
 func TestOpaque_StatusJSONEnvelope(t *testing.T) {
 	root := setupWorkingCopy(t)
-	seedOpaque(t, root, "sample", "ab99", newerEvents, newerPlan)
-	wfPath := filepath.Join(root, ".claude", "workflows", "sample.yaml")
-	if err := os.MkdirAll(filepath.Dir(wfPath), 0o755); err != nil {
+	const wfPath = "/elsewhere/review.yaml"
+	seedOpaque(t, root, "sample", "ab99", newerEvents, `{"format":99,"future":1,"workflow":{"path":"`+wfPath+`"}}`)
+	// A same-named decoy that id-resolution would wrongly report.
+	decoy := filepath.Join(root, ".claude", "workflows", "sample.yaml")
+	if err := os.MkdirAll(filepath.Dir(decoy), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(wfPath, []byte("x"), 0o644); err != nil {
+	if err := os.WriteFile(decoy, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	stdout, stderr, code := runCLI(t, []string{"pawl", "status", "--run", "ab99", "--json"})

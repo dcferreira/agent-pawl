@@ -1,8 +1,11 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -173,12 +176,20 @@ func formatVisits(visits map[string]int) string {
 
 // formatStatusOpaqueJSON is --json output for a run this build cannot replay:
 // the documented envelope, with empty values for what cannot be known.
-// workflow is the path resolveWorkflowFile finds for the run's workflow ID
-// from the working-copy root, or "" when none resolves.
+// workflow is the path recorded in the run's own plan.json (decoded
+// leniently, so a newer-format plan still yields it), or "" when absent or
+// unreadable; the workflow ID is never re-resolved as a filename.
 func formatStatusOpaqueJSON(root string, ref *journal.RunRef) string {
 	workflowPath := ""
-	if wf, err := resolveWorkflowFile(root, ref.WorkflowID); err == nil {
-		workflowPath = wf.Path
+	if data, err := os.ReadFile(filepath.Join(ref.Dir, "plan.json")); err == nil {
+		var plan struct {
+			Workflow *struct {
+				Path string `json:"path"`
+			} `json:"workflow"`
+		}
+		if json.Unmarshal(data, &plan) == nil && plan.Workflow != nil {
+			workflowPath = plan.Workflow.Path
+		}
 	}
 	return mustJSONLine(statusJSON{
 		Root: root,
