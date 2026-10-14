@@ -283,6 +283,13 @@ func TestOpaque_StatusAndSubmitAfterAbandon(t *testing.T) {
 func TestOpaque_StatusJSONEnvelope(t *testing.T) {
 	root := setupWorkingCopy(t)
 	seedOpaque(t, root, "sample", "ab99", newerEvents, newerPlan)
+	wfPath := filepath.Join(root, ".claude", "workflows", "sample.yaml")
+	if err := os.MkdirAll(filepath.Dir(wfPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(wfPath, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	stdout, stderr, code := runCLI(t, []string{"pawl", "status", "--run", "ab99", "--json"})
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%q", code, stderr)
@@ -290,13 +297,17 @@ func TestOpaque_StatusJSONEnvelope(t *testing.T) {
 	var got struct {
 		Root string
 		Runs []struct {
-			RunID  string `json:"run_id"`
-			Status string
-			Reason string
+			RunID    string `json:"run_id"`
+			Workflow string
+			Status   string
+			Reason   string
 		}
 	}
 	if err := json.Unmarshal([]byte(stdout), &got); err != nil || len(got.Runs) != 1 {
 		t.Fatalf("stdout=%q err=%v", stdout, err)
+	}
+	if got.Runs[0].Workflow != wfPath {
+		t.Errorf("workflow = %q, want %q", got.Runs[0].Workflow, wfPath)
 	}
 	if r := got.Runs[0]; r.RunID != "ab99" || r.Status != "newer-format" || !strings.Contains(r.Reason, "newer pawl") {
 		t.Errorf("run = %+v", r)

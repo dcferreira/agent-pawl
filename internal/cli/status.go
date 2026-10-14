@@ -173,12 +173,18 @@ func formatVisits(visits map[string]int) string {
 
 // formatStatusOpaqueJSON is --json output for a run this build cannot replay:
 // the documented envelope, with empty values for what cannot be known.
+// workflow is the path resolveWorkflowFile finds for the run's workflow ID
+// from the working-copy root, or "" when none resolves.
 func formatStatusOpaqueJSON(root string, ref *journal.RunRef) string {
+	workflowPath := ""
+	if wf, err := resolveWorkflowFile(root, ref.WorkflowID); err == nil {
+		workflowPath = wf.Path
+	}
 	return mustJSONLine(statusJSON{
 		Root: root,
 		Runs: []statusRunJSON{{
 			RunID:     ref.RunID,
-			Workflow:  ref.WorkflowID,
+			Workflow:  workflowPath,
 			Status:    ref.StatusText(),
 			Visits:    map[string]int{},
 			StateKeys: []string{},
