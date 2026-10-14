@@ -187,7 +187,7 @@ after goreleaser, then `gh release upload ... --clobber`):
   repo); it records the zip's sha256 for the next step, and can be used for a version-pinned local
   install (see [install.md](install.md#migrating-from-an-earlier-install)).
 
-After the upload, `release.yml` commits the new zip URL and sha256 to `main`'s
+After the upload of a stable release, `release.yml` commits the new zip URL and sha256 to `main`'s
 `.claude-plugin/marketplace.json`, which is what `/plugin marketplace add dcferreira/agent-pawl`
 installs from. It copies the source block from the release's own `marketplace.json` asset
 (`scripts/release/update-repo-marketplace.sh`; idempotent, and it never downgrades an entry that

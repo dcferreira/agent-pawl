@@ -876,7 +876,7 @@ if changie_gate; then
   cp "$REPO_ROOT/.changie.yaml" "$E2E/"
   cp "$REPO_ROOT/.changes/header.tpl.md" "$E2E/.changes/"
   cp "$REPO_ROOT/.claude-plugin/plugin.json" "$E2E/.claude-plugin/"
-  sed -i 's/^  "version": ".*",/  "version": "0.7.0",/' "$E2E/.claude-plugin/plugin.json"
+  sed -i.bak 's/^  "version": ".*",/  "version": "0.7.0",/' "$E2E/.claude-plugin/plugin.json" && rm -f "$E2E/.claude-plugin/plugin.json.bak"
   printf '## v0.7.0 - 2026-01-01\n\n### Added\n\n* Seed.\n' >"$E2E/.changes/v0.7.0.md"
   jq -n --arg s "$SHA_A" '{name:"agent-pawl",plugins:[{name:"agent-pawl",source:{source:"archive",url:"https://github.com/dcferreira/agent-pawl/releases/download/v0.7.0/agent-pawl-plugin_0.7.0.zip",sha256:$s}}]}' >"$E2E/.claude-plugin/marketplace.json"
 
