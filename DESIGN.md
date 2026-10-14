@@ -458,7 +458,7 @@ delivered mid-turn: its marker survives to that turn's own Stop and excuses it i
 pawl run <id> (<workflow>) is at step <step> awaiting `pawl submit`. Finish it, or: pawl abandon --run <id>
 ```
 
-Both hooks fail toward the least surprising side on an internal error: `pawl hook pre` fails **open**
+The hooks fail toward the least surprising side on an internal error: `pawl hook pre` fails **open**
 (exit 1, message on stderr — a non-blocking Claude Code error) on an unparseable payload or a
 `journal.Live` I/O error, except that a run whose guards fail to compile still fails **closed** for
 that run (above); `pawl hook stop` never fails closed — any error allows, so a bug in the hook can
