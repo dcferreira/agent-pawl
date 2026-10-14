@@ -1,7 +1,7 @@
 workflow: rule21valid
 start: a
 args:
-  _Target1: {type: string, required: true}
+  Target1: {type: string, required: true}
 state:
   Some_key2: {type: string, default: ""}
 steps:

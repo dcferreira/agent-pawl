@@ -8,7 +8,7 @@
     "max_steps": 50,
     "args": {
       "retries": {
-        "type": "int",
+        "type": "integer",
         "default": 3,
         "required": false
       },
@@ -18,7 +18,7 @@
         "required": true
       },
       "verbose": {
-        "type": "bool",
+        "type": "boolean",
         "default": false,
         "required": false
       }
@@ -43,7 +43,7 @@
         "max_length": 0
       },
       "count": {
-        "type": "int",
+        "type": "integer",
         "default": 0,
         "max_length": 0
       },
@@ -63,7 +63,7 @@
         "max_length": 200
       },
       "ready": {
-        "type": "bool",
+        "type": "boolean",
         "default": false,
         "max_length": 0
       },
@@ -150,11 +150,7 @@
         },
         "catch": [
           {
-            "on": "failure",
-            "next": "blocked"
-          },
-          {
-            "on": "timeout",
+            "on": "exhausted",
             "next": "blocked"
           }
         ],
@@ -216,7 +212,7 @@
             "note"
           ],
           "types": {
-            "count": "int",
+            "count": "integer",
             "note": "string"
           },
           "max_length": {
@@ -645,5 +641,5 @@
     },
     "path": "workflow.yaml"
   },
-  "digest": "546f550880a6e4fed4065f7b8acee249d58c8e00b48dd401899cf9bc2fb8432e"
+  "digest": "d6271f9e0aede976f480ae23e5f71aafacbb907b11c97fe89d54683992113072"
 }

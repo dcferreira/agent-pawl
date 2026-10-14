@@ -46,19 +46,14 @@ func foreachSteps(w *Workflow) []*Step {
 }
 
 // checkForeachShape implements §H rule 22: a kind: parallel step declares
-// exactly one of branches:/foreach:; foreach: is valid only on kind:
-// parallel; its own keys are over/body/collect/max_items, the first three
+// exactly one of branches:/foreach:; its own keys are over/body/collect/max_items, the first three
 // required and max_items, when set, at least 1. (The ≥ 2 entries rule for
 // branches: is checkParallelBranches's, and applies only when branches: is
 // the form used.)
 func checkForeachShape(w *Workflow, errs *[]string) {
 	for _, s := range w.Steps {
 		if s.Kind != "parallel" {
-			if s.Foreach != nil {
-				*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
-					"rule 22: foreach: is only valid on kind: parallel, not kind: %s; remove the foreach: block", s.Kind)))
-			}
-			continue
+			continue // foreach: on another kind is rule 30's
 		}
 		hasBranches, hasForeach := len(s.Branches) > 0, s.Foreach != nil
 		switch {
@@ -333,32 +328,6 @@ func checkForeachRouting(w *Workflow, errs *[]string) {
 func itemKeyScopeMsg(loc, key string) string {
 	return fmt.Sprintf(
 		"rule 27: %s uses ${%s}, which is only valid in a foreach body's own fields; remove it or move the work into the body", loc, key)
-}
-
-// checkForeachItemKeys implements the reservation half of §H rule 27: item
-// and item_index are engine pseudo-keys scoped to a foreach body, so they may
-// not be declared as state: or args: keys (checkRule4 reports their use
-// outside a body).
-func checkForeachItemKeys(w *Workflow, errs *[]string) {
-	check := func(section string, keys []string) {
-		sort.Strings(keys)
-		for _, k := range keys {
-			if isForeachItemKey(k) {
-				*errs = append(*errs, fileErr(w, fmt.Sprintf(
-					"rule 27: %s: key %q is reserved for foreach bodies; rename it", section, k)))
-			}
-		}
-	}
-	stateKeys := make([]string, 0, len(w.State))
-	for k := range w.State {
-		stateKeys = append(stateKeys, k)
-	}
-	check("state", stateKeys)
-	argKeys := make([]string, 0, len(w.Args))
-	for k := range w.Args {
-		argKeys = append(argKeys, k)
-	}
-	check("args", argKeys)
 }
 
 // itemShellExec matches a shell -c whose script argument is a bare

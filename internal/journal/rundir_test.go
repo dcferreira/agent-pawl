@@ -20,7 +20,9 @@ import (
 // field, whether it belongs in digestWorkflow/digestStep too.
 const (
 	wantSpecWorkflowFieldCount = 12
-	wantSpecStepFieldCount     = 28
+	// 29: Step.Fields (the authored-key index, json:"-") is derived from the
+	// YAML, so it is deliberately not carried by digestStep.
+	wantSpecStepFieldCount = 29
 )
 
 func TestDigestProjection_PinnedAgainstSpecFieldCount(t *testing.T) {

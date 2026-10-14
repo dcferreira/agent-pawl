@@ -18,8 +18,9 @@ Wait on something outside the run: CI, a review, a build, a person doing a thing
 - **`max_visits:`** — bounds the *cycle* that keeps re-entering this step (wait → fix → push → wait),
   separately from `timeout:` which bounds one sojourn. Exceeding it gives the reserved outcome
   `exhausted`; route it somewhere useful (e.g. a `human` gate) or it goes to `blocked`.
-- **`postcondition:`** — optional here; the outcome *is* the check (`wait` and `human` are the two
-  kinds `pawl validate` exempts).
+- **`postcondition:`** — optional here; the outcome *is* the check (`wait` is exempt from the
+  validator's requirement). `soft:` needs a `postcondition:`. `timeout:` and an authored `every:` must
+  be valid Go durations greater than zero.
 - **`retry:`** — `{max_attempts, backoff}`. Retries one `poll:` **tick** in place — before any
   outcome is resolved — when that tick *hard*-fails: the poller exits non-zero, hits the
   engine-wide wall-clock ceiling, or a *routed* tick's payload fails to parse. An unrouted ("not

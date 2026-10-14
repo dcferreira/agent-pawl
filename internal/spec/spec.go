@@ -28,6 +28,11 @@ type ArgDecl struct {
 	Type     string `yaml:"type" json:"type"`
 	Default  *any   `yaml:"default" json:"default"`
 	Required bool   `yaml:"required" json:"required"`
+
+	// DefaultSet is true when default: was authored, even as null (which
+	// leaves Default nil). Set by Load; rule 33 uses it to reject
+	// default: null on a non-json type.
+	DefaultSet bool `yaml:"-" json:"-"`
 }
 
 // StateDecl declares a state key the run may carry.
@@ -35,6 +40,9 @@ type StateDecl struct {
 	Type      string `yaml:"type" json:"type"`
 	Default   *any   `yaml:"default" json:"default"`
 	MaxLength int    `yaml:"max_length" json:"max_length"`
+
+	// DefaultSet: see ArgDecl.DefaultSet.
+	DefaultSet bool `yaml:"-" json:"-"`
 }
 
 // GuardDecl is a guard declaration: {id, match, only_in}
@@ -84,10 +92,15 @@ type Terminal struct {
 	Message string `yaml:"message" json:"message"`
 }
 
-// CatchRule routes a step's exhausted outcome (design/format-spec.md §D).
+// CatchRule routes a step's non-success outcome (design/format-spec.md §D).
+// It has a custom UnmarshalYAML (catch.go) that records unknown keys in
+// UnknownKeys for Validate (rule 34) instead of failing the load.
 type CatchRule struct {
 	On   string `yaml:"on" json:"on"`
 	Next string `yaml:"next" json:"next"`
+
+	// UnknownKeys lists, sorted, any key other than on/next.
+	UnknownKeys []string `json:"-"`
 }
 
 // Step is defined in step.go: it has a custom UnmarshalYAML, so it is kept

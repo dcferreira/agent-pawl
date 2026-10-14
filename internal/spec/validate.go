@@ -90,9 +90,17 @@ func Validate(w *Workflow) (*Report, error) {
 	checkRule5(w, &errs)
 	checkRule6(w, &errs)
 	checkRule7(w, &errs)
-	checkWaitDurations(w, &errs)
+	checkRule36(w, &errs)
 	checkRule8(w, &errs)
-	checkRule8Multi(w, &errs)
+	checkRule30(w, &errs)
+	checkRule31(w, &errs)
+	checkRule32(w, &errs)
+	checkRule33(w, &errs)
+	checkRule34(w, &errs)
+	checkRule35(w, &errs)
+	checkRule37(w, &errs)
+	checkRule38(w, &errs)
+	checkRule39(w, &errs)
 	checkRule9(w, &errs)
 	checkRule9b(w, &errs)
 	checkRule10(w, &errs)
@@ -106,7 +114,6 @@ func Validate(w *Workflow) (*Report, error) {
 	checkRule18(w, &errs)
 	checkForeachBodyWrites(w, &errs)
 	checkForeachRouting(w, &errs)
-	checkForeachItemKeys(w, &errs)
 	checkForeachInjection(w, &errs)
 
 	report := &Report{TotalSteps: len(w.Steps)}
@@ -409,10 +416,10 @@ func minMatchWidth(re *syntax.Regexp) int {
 	}
 }
 
-// checkRetry implements §H rule 19: retry: is restricted to deterministic
-// and wait steps (a hard-failed body is the only thing it retries, and
-// those are the only two kinds whose body can hard-fail — see
-// design/format-spec.md §B.16), and its own fields are checked: max_attempts:
+// checkRetry implements §H rule 19: a retry: block's own fields are checked
+// (retry: itself is restricted to deterministic and wait steps by rule 30 —
+// a hard-failed body is the only thing it retries, and those are the only two
+// kinds whose body can hard-fail, see design/format-spec.md §B.16): max_attempts:
 // is required and must be an integer ≥ 2 (1 would retry zero times, a
 // no-op — reject it rather than silently accept a field that does nothing),
 // backoff: is required and must parse as a positive time.ParseDuration
@@ -425,9 +432,7 @@ func checkRetry(w *Workflow, errs *[]string) {
 			continue
 		}
 		if s.Kind != "deterministic" && s.Kind != "wait" {
-			*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
-				"rule 19: retry: is only valid on kind: deterministic or kind: wait, not kind: %s; remove the retry: block", s.Kind)))
-			continue
+			continue // rule 30 reports retry: on any other kind
 		}
 		if len(s.Retry.UnknownKeys) > 0 {
 			*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
@@ -666,7 +671,7 @@ func checkAgenticWrites(w *Workflow, errs *[]string) {
 		}
 		if missing {
 			*errs = append(*errs, stepErr(w, s.ID,
-				"kind: agentic requires a typed writes: map — it is the subagent's return schema; add writes: {<key>: {type: string|integer|json}} declaring each key the subagent returns"))
+				"kind: agentic requires a typed writes: map — it is the subagent's return schema; add writes: {<key>: {type: string|integer|number|boolean|json}} declaring each key the subagent returns"))
 		}
 	}
 }
@@ -1070,38 +1075,11 @@ func checkRule7(w *Workflow, errs *[]string) {
 	}
 }
 
-// checkWaitDurations validates that a wait step's every:/timeout: parse as
-// Go durations (§D's "duration" type column). No §H rule number covers a
-// field's type shape directly — like rule 10's emits: enum check, this is a
-// type check the field table implies but §H does not enumerate by number —
-// so it is reported without a "rule N:" prefix, the same convention
-// checkKindRequiredFields uses for its own un-numbered findings.
-func checkWaitDurations(w *Workflow, errs *[]string) {
-	for _, s := range w.Steps {
-		if s.Kind != "wait" {
-			continue
-		}
-		if s.Every != "" {
-			if _, err := time.ParseDuration(s.Every); err != nil {
-				*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
-					"every: %q is not a valid duration; use Go duration syntax, e.g. \"60s\", \"5m\"", s.Every)))
-			}
-		}
-		if s.Timeout != "" {
-			if _, err := time.ParseDuration(s.Timeout); err != nil {
-				*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
-					"timeout: %q is not a valid duration; use Go duration syntax, e.g. \"5m\", \"1h\"", s.Timeout)))
-			}
-		}
-	}
-}
-
 // checkRule8 implements §H rule 8's human-scoped sub-conditions (§B.5):
 // exactly one of options:/options_from:; every static option: routed in
 // outcomes: whenever outcomes: is used at all; and writes: with exactly one
 // key required whenever a chosen: route, options_from:, or multi: true is
-// in play. The multi:-on-a-non-human-kind sub-condition is not scoped to
-// human — see checkRule8Multi.
+// in play. (multi: on a non-human kind is rule 30's.)
 func checkRule8(w *Workflow, errs *[]string) {
 	for _, s := range w.Steps {
 		if s.Kind != "human" {
@@ -1142,20 +1120,6 @@ func checkRule8(w *Workflow, errs *[]string) {
 			*errs = append(*errs, stepErr(w, s.ID, fmt.Sprintf(
 				"rule 8: %s requires writes: with exactly one key (found %d); add writes: [<key>] naming the key that receives the answer",
 				strings.Join(reasons, " and "), len(s.Writes.Keys))))
-		}
-	}
-}
-
-// checkRule8Multi implements §H rule 8's "multi: on any kind other than
-// human" sub-condition. multi: parses on Step regardless of kind (step.go),
-// so it is not scoped to the human branch in checkRule8. Step.Multi has no
-// declared-vs-default tracking (unlike Postcondition.Soft), so multi: false
-// on a non-human step is treated as equivalent to "not declared" and only
-// multi: true is flagged.
-func checkRule8Multi(w *Workflow, errs *[]string) {
-	for _, s := range w.Steps {
-		if s.Kind != "human" && s.Multi {
-			*errs = append(*errs, stepErr(w, s.ID, "rule 8: multi: is only valid on kind: human; remove it"))
 		}
 	}
 }

@@ -49,11 +49,12 @@ var ErrParse = errors.New("spec: parse error")
 //
 // The decoder runs with KnownFields(true) (Finding F6): a field name this
 // build does not recognise at the workflow, args:, state:, guards:,
-// invariants:, terminal: or catch: level is a load error naming the file,
-// rather than a silently-dropped typo. A step-level unknown field is instead
-// recorded on Step.UnknownFields and reported by Validate, since Step has
-// its own UnmarshalYAML (see step.go) and so bypasses the decoder's
-// field-name checking for its own subtree.
+// invariants: or terminal: level is a load error naming the file, rather than
+// a silently-dropped typo. A step-level unknown field is instead recorded on
+// Step.UnknownFields and reported by Validate, since Step has its own
+// UnmarshalYAML (see step.go) and so bypasses the decoder's field-name
+// checking for its own subtree; the same holds for a catch: entry's keys
+// (CatchRule.UnknownKeys, rule 34).
 func Load(path string) (*Workflow, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -67,6 +68,7 @@ func Load(path string) (*Workflow, error) {
 		return nil, fmt.Errorf("%w: parsing %s: %w", ErrParse, path, err)
 	}
 	w.Path = path
+	markAuthoredDefaults(&w, data)
 	applyDefaults(&w)
 	return &w, nil
 }
@@ -108,6 +110,32 @@ func applyDefaults(w *Workflow) {
 
 		if s.Kind == "wait" && s.Every == "" {
 			s.Every = DefaultEvery
+		}
+	}
+}
+
+// markAuthoredDefaults sets DefaultSet on every args:/state: entry whose YAML
+// carried a default: key, including default: null (which decodes to a nil
+// Default pointer and so is otherwise indistinguishable from "no default").
+// Best-effort: a second decode failure leaves DefaultSet unset.
+func markAuthoredDefaults(w *Workflow, data []byte) {
+	var raw struct {
+		Args  map[string]map[string]any `yaml:"args"`
+		State map[string]map[string]any `yaml:"state"`
+	}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return
+	}
+	for k, decl := range w.Args {
+		if _, ok := raw.Args[k]["default"]; ok {
+			decl.DefaultSet = true
+			w.Args[k] = decl
+		}
+	}
+	for k, decl := range w.State {
+		if _, ok := raw.State[k]["default"]; ok {
+			decl.DefaultSet = true
+			w.State[k] = decl
 		}
 	}
 }

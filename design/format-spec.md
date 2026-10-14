@@ -91,7 +91,7 @@ never `true`). See `docs/dogfood.md`'s "traps" section for a worked example.
 **Engine-provided pseudo-keys**, readable everywhere, never declared and never written by a step:
 `run_id`, `step`, `attempt`, `visits`, `last_error` (a `branches:` branch's or `foreach:` item's own result never sets it; a failed `branches:` group sets it to a summary — §B.15), `blocked_reason`. Two more, `item` and
 `item_index`, are scoped to a `foreach:` body's own fields and reserved everywhere else (§B.15,
-§H rule 27).
+§H rules 27, 38).
 
 **`blocked_reason`** is set by the engine, and only the engine, when a run enters `BLOCKED`: the
 violated invariant's `message:`, or a fixed engine string naming the step and outcome (e.g.
@@ -103,6 +103,18 @@ Every key the engine can see a step reading is also exported to that step as `PA
 letters, digits and `_`, not starting with a digit (`^[A-Za-z_][A-Za-z0-9_]*$`; rule 21). `${key}`
 itself parses any text up to the closing `}`, so this restriction is enforced by `pawl validate`, not
 by the substitution grammar.
+
+**Reserved key names** (`state:`, `args:`; §H rules 38, 39). A key may not be an engine pseudo-key
+name, matched case-insensitively (`run_id`, `step`, `attempt`, `visits`, `last_error`,
+`blocked_reason`, `item`, `item_index`; `Attempt` is rejected too, since both export as `PAWL_ATTEMPT`);
+may not start with `_`; and may not export as an environment variable `pawl` itself reads
+(`PAWL_ENFORCEMENT`, `PAWL_STATE_DIR` — reserved by name, so the keys `enforcement` and `state_dir`
+are rejected). Two keys across `state:` ∪ `args:` that are equal case-insensitively, or the same key
+in both, collide on one `PAWL_<KEY>` and are rejected.
+
+**Forward-compatibility promise.** Any environment variable `pawl` reads in future is named
+`PAWL__<NAME>` (double underscore). `state:`/`args:` keys may not start with `_`, so they can never
+collide with one. `PAWL_ENFORCEMENT` and `PAWL_STATE_DIR` predate this rule and are reserved by name.
 
 ### 3. Deterministic steps get named outcomes
 
@@ -154,7 +166,7 @@ Milestone 1.
   a list, or free text, including free text mixed into a multi-select list) goes to the one `writes:`
   key, typed `string` for a single free-text/static answer or `json` when the value can be a list.
   Branch on the written value from a following `deterministic` router step (§B.6).
-- `timeout:` is **required**, and `timeout` is a reserved outcome. On `timeout` nothing is written.
+- `timeout:` is **required** and must be a valid Go duration greater than zero (§H rule 36), and `timeout` is a reserved outcome. On `timeout` nothing is written.
 - **The answer, on the wire.** `pawl submit` (the same command as for `agentic`, no new subcommand)
   accepts a JSON object `{"selected": ["Option Label", …], "other": "free text"}`: `selected` is the
   picked static/dynamic option label(s), verbatim; `other` is present whenever a free-text "Other"
@@ -197,11 +209,11 @@ exactly as a hard one does. `soft:` changes bookkeeping only: `pawl validate` pr
 percentage, list) and the run's terminal summary prints `N of M steps advanced on a soft
 postcondition`. `postcondition: "true"` plus `soft: true` is the floor, and it is counted.
 
-`postcondition:` is **required on `agentic`**, and **optional on `deterministic`, `wait` and
-`human`**. On `deterministic`, exit 0 is success unless declared; add one to check the command's
+`postcondition:` is **required on `agentic`**, **optional on `deterministic` and `wait`**, and
+**not accepted on `human` or `parallel`** (§H rule 30); `soft:` requires a `postcondition:` (rule 31). On `deterministic`, exit 0 is success unless declared; add one to check the command's
 *effect* when exit code alone can't — e.g. after `git push`:
 `[ "$(git rev-parse origin/${branch})" = "$(git rev-parse HEAD)" ]`, or after a PR create: the
-returned URL resolves. On `wait`/`human` the outcome *is* the check; there is no effect to verify.
+returned URL resolves. On `wait` the outcome *is* the check, and a `human` step's answer is; there is no effect to verify.
 
 ### 8. Fix-forward across a crashed or abandoned attempt
 
@@ -313,7 +325,10 @@ paused for review before continuing — it is not a dead end.
 - `--from <step>`, to resume at an arbitrary earlier step, is Milestone 2 (§I).
 
 `terminal: {status: ok|blocked, …}` (§D) names the *message shown on reaching that outcome*; `done`
-is the one status that is final.
+is the one status that is final. The step ids `done` and `blocked` are reserved for the implicit
+terminals, and a step id may not equal any declared `terminal:` key (§H rule 37). A declared
+`terminal: {done: …}` or `{blocked: …}` is allowed: it overrides the implicit terminal's message and
+status.
 
 ### 13. `pawl poll` submits for itself; the model never does
 
@@ -524,6 +539,17 @@ journalled deadline.
 
 Reserved outcome tokens, usable anywhere: `success`, `failure`, `timeout`, `exhausted`, `chosen`.
 
+**Allowed fields per kind** (§H rule 30; any other authored field is a validate error). Every kind
+accepts `id kind next outcomes catch max_visits attempt_key`; beyond that:
+
+| Kind | Also accepts |
+|---|---|
+| `deterministic` | `run emits writes postcondition soft attempts retry` |
+| `agentic` | `description context subagent_args writes postcondition soft attempts` |
+| `wait` | `poll every timeout emits writes postcondition soft retry` |
+| `human` | `question options options_from multi timeout writes` |
+| `parallel` | `branches foreach` |
+
 ---
 ## D. Field reference
 
@@ -533,12 +559,12 @@ Reserved outcome tokens, usable anywhere: `success`, `failure`, `timeout`, `exha
 | `description` | no | file | string | One paragraph. | — |
 | `start` | yes | file | step id | First step. | — |
 | `max_steps` | no | file | integer | Backstop on total step entries in a run. | `200` |
-| `args` | no | file | map | Run arguments, typed like `state:`, read-only, bound as `key=value`. | `{}` |
-| `state` | no | file | map | Every key the run may carry: `{type, default, max_length}`; `max_length` (`string` only) caps the value in Unicode code points, 0/omitted = no cap. | `{}` |
+| `args` | no | file | map | Run arguments, typed like `state:` (`type:` required), read-only, bound as `key=value`. | `{}` |
+| `state` | no | file | map | Every key the run may carry: `{type, default, max_length}`; `type` is **required**, one of `string`\|`integer`\|`number`\|`boolean`\|`json` (rule 32), and `default` must match it (rule 33); `max_length` (`string` only) caps the value in Unicode code points, 0/omitted = no cap. | `{}` |
 | `guards` | no | file | list | `{id, match, only_in: [steps]}` — see the guards[] sub-table below. | `[]` |
 | `invariants` | no | file | list | `{id, check, message}`; breaking one → `BLOCKED`. | `[]` |
 | `steps` | yes | file | list | The graph, read top to bottom. | — |
-| `terminal` | no | file | map | `{status: ok\|blocked, message}` per terminal id (§B.12). | implicit |
+| `terminal` | no | file | map | `{status: ok\|blocked, message}` per terminal id (§B.12). `done` and `blocked` may be declared to override the implicit terminals; no step id may equal a terminal key (rule 37). | implicit |
 | `id` | yes | all | string | Unique step name; transition target. | — |
 | `kind` | yes | all | enum | `deterministic` \| `agentic` \| `wait` \| `human` \| `parallel`. | — |
 | `run` | yes | deterministic | string | A command. Exit 0 → token/`success`; non-zero → `failure`. | — |
@@ -547,22 +573,22 @@ Reserved outcome tokens, usable anywhere: `success`, `failure`, `timeout`, `exha
 | `context` | no | agentic | list | Files/`!cmd`-tagged command output gathered by `pawl` and included in the `DISPATCH` block; `${key}` resolved first. A plain scalar names a file; only a scalar carrying the YAML tag `!cmd` (e.g. `!cmd "git diff"`) is run as a command — every plain entry starting with `!` (quoted or not) is rejected by rule 18, not just ones that "look like" an attempt at a command. A real file whose name starts with `!` needs the `./!name` escape hatch instead. | `[]` |
 | `subagent_args` | no | agentic | map | Extra arguments passed through verbatim for the subagent launch — in Claude Code typically `model`, `tools`, `effort`; other harnesses use whatever they need. Not interpreted or enforced by the engine (§B.6). | `{}` |
 | `poll` | yes | wait | string | Command re-run every `every:`; its last stdout line is read per §B.1. | — |
-| `every` | no | wait | duration | Poll interval. | `60s` |
-| `timeout` | **yes** | wait, human | duration | Hard deadline; on expiry the outcome is `timeout`. | — |
+| `every` | no | wait | duration | Poll interval; Go duration syntax, > 0 (rule 36). | `60s` |
+| `timeout` | **yes** | wait, human | duration | Hard deadline; on expiry the outcome is `timeout`. Go duration syntax, > 0 (rule 36). | — |
 | `question` | yes | human | string | Prompt text; `${key}` substituted. | — |
 | `options` | one of `options`/`options_from` | human | list | Static option list (§B.5). | — |
 | `options_from` | one of `options`/`options_from` | human | state key | A `json` state key holding a list of strings, resolved at ask time. Outcome is always `chosen` (§B.5). | — |
 | `multi` | no | human | boolean | Multi-select. `true` forces the outcome to `chosen`. | `false` |
 | `branches` | one of `branches`/`foreach` | parallel | list | ≥ 2 declared `deterministic`/`agentic` step ids, dispatched and joined together (§B.15); a listed step may declare no `next:`/`outcomes:`/`catch:`/`attempts:`/`attempt_key:`/`max_visits:` of its own. | — |
 | `foreach` | one of `branches`/`foreach` | parallel | map | `{over, body, collect, max_items}` — fan one `deterministic` or `agentic` body out over a json list (§B.15). `over`/`collect`: declared `json` `state:` keys; `max_items`: ≥ 1, default `20`. | — |
-| `writes` | no | all | list/map | Keys produced. Typed map required on `agentic` — it is the output schema; an entry is `{type, max_length}` and nothing else (an unknown field is a load error), `max_length` as under `state`. On `human`, exactly one key, required whenever `options_from:`, `multi: true` or a `chosen:` route is used. | `[]` |
-| `postcondition` | **yes** on agentic | all | string/map | Shell string, `{command}`, `{all_set}`, or `{equals}`. Evaluated by the engine; optional on `deterministic` (exit 0 = success unless declared), `wait`, `human`. | — |
-| `soft` | no | all | boolean | Marks the check as judgement-bounded. Counted at validate *and* run time. | `false` |
+| `writes` | no | deterministic, agentic, wait, human | list/map | Keys produced. Typed map required on `agentic` — it is the output schema; an entry is `{type, max_length}` (`type` one of `string`\|`integer`\|`number`\|`boolean`\|`json`) and nothing else (an unknown field is a validate error), `max_length` as under `state`. On `human`, exactly one key, required whenever `options_from:`, `multi: true` or a `chosen:` route is used. | `[]` |
+| `postcondition` | **yes** on agentic | deterministic, agentic, wait | string/map | Shell string, `{command}`, `{all_set}`, or `{equals}`. Evaluated by the engine; optional on `deterministic` (exit 0 = success unless declared) and `wait`. Not accepted on `human`/`parallel` (rule 30). | — |
+| `soft` | no | deterministic, agentic, wait | boolean | Marks the check as judgement-bounded; requires a `postcondition:` (rule 31). Counted at validate *and* run time. | `false` |
 | `attempts` | no | deterministic, agentic | integer | Re-runs of this step on postcondition failure. ≥ 1. | `1` |
-| `attempt_key` | no | deterministic, agentic | string | `"${template}"` overriding the automatic failure-text key (§B.4); on a foreach body, per item (§B.15). | automatic |
+| `attempt_key` | no | all | string | `"${template}"` overriding the automatic failure-text key (§B.4); on a foreach body, per item (§B.15). | automatic |
 | `max_visits` | no | all | integer | Cap on entries to this step in one run; exceeding it → `exhausted`. | `10` |
 | `retry` | no | deterministic, wait | map | `{max_attempts, backoff}` — retries the *body* on a hard failure, before any outcome is resolved. `backoff` is one duration (e.g. `30s`); retry *n* waits `backoff` × *n*, linear, no jitter. | none |
-| `catch` | no | all | list | Ordered `{on: <outcome>, next: <step or terminal>}`; fires on exhaustion. | `failure → blocked` |
+| `catch` | no | all | list | Ordered `{on, next}` and nothing else (rule 34); `on` must be a reserved non-success outcome the kind can produce — `failure`, `exhausted`, plus `timeout` (wait, human) or `partial` (foreach) — not an author-named outcome, which goes under `outcomes:` (rule 35). | `failure → blocked` |
 | `next` | one of `next`/`outcomes` | all | step id | Single successor. Mutually exclusive with `outcomes:`. | — (no fall-through — §B.11) |
 | `outcomes` | one of `next`/`outcomes` | all | map | Outcome → step/terminal, covering every outcome the step can produce (§B.11). | — |
 
@@ -690,10 +716,10 @@ work to an agent. See `docs/quickstart.md`.
    uses `${…}` in a field where substitution does not apply (§B.2).
 5. A step declares `writes:` on an `args:` key — args are read-only (§B.9).
 6. An `agentic` step has no `postcondition:`. `soft: true` is not an exemption from *declaring* one.
-   `deterministic`, `wait` and `human` are exempt (§B.7).
-7. A `wait` or `human` step with no `timeout:`, or with no route for the `timeout` outcome.
+   `deterministic` and `wait` are exempt; `human`/`parallel` do not accept one (§B.7, rule 30).
+7. A `wait` or `human` step with no `timeout:`, or with no route for the `timeout` outcome (the duration itself: rule 36).
 8. A `human` step with neither `options:` nor `options_from:`, or with both; an unrouted static
-   option; `multi:` on any kind other than `human`; a `chosen:` route with no `writes:` key, or a
+   option; a `chosen:` route with no `writes:` key, or a
    `writes:` with other than exactly one key; `options_from:`/`multi: true` without `writes:`.
 9. A step declares author-named `outcomes:` but its kind cannot produce a token: `agentic` never can
    (hard error, with "route from a following `deterministic` step" as the named fix — §B.6).
@@ -720,8 +746,8 @@ work to an agent. See `docs/quickstart.md`.
     command), or an *unquoted* entry (e.g. `!git diff main`), which YAML parses as some other
     custom tag (`!git`) applied to the rest of the scalar (`diff main`), not as that literal text.
     The error names the corrected `!cmd "..."` form either way.
-19. `retry:` on a kind other than `deterministic`/`wait` (including a `parallel` branch, which owns
-    no `retry:` of its own — §B.15); `max_attempts:` missing or less than 2; `backoff:` missing, not
+19. `retry:` on a `parallel` branch, which owns no `retry:` of its own (§B.15; on any other kind
+    that does not accept it, rule 30); `max_attempts:` missing or less than 2; `backoff:` missing, not
     a valid duration, or not greater than zero; or an unknown key inside `retry:`.
 20. A `terminal:` entry's `status:` is anything other than `ok` or `blocked` (§B.12, §D) — including an
     omitted `status:`.
@@ -731,7 +757,7 @@ work to an agent. See `docs/quickstart.md`.
     it; it is reported again against the step that wrote it.
 
 22. `foreach:` shape (§B.15): a `kind: parallel` step declares both `branches:` and `foreach:`, or
-    neither; `foreach:` on any other kind; `foreach.over`/`body`/`collect` missing; an unknown key
+    neither (`foreach:` on a non-`parallel` kind: rule 30); `foreach.over`/`body`/`collect` missing; an unknown key
     inside `foreach:`; `max_items:` less than 1.
 23. `foreach.over`/`foreach.collect` is not a declared `json` `state:` key (an `args:` key, an
     undeclared key and any other type are each rejected); `collect` equals `over`; or some step's
@@ -747,13 +773,44 @@ work to an agent. See `docs/quickstart.md`.
     foreach's `over:`), or another step also writes it.
 26. A `foreach:` step routes neither `outcomes: {partial: …}` nor `catch: [{on: partial, …}]`; or a
     `branches:` `parallel` step routes `partial`.
-27. `${item}`/`${item_index}` used anywhere except the foreach body's own fields; or `item`/
-    `item_index` declared as a `state:` or `args:` key.
+27. `${item}`/`${item_index}` used anywhere except the foreach body's own fields (declaring `item`/
+    `item_index` as a `state:`/`args:` key: see rule 38).
 28. A foreach body's `run:`, `postcondition.command` or `!cmd` `context:` entry contains `-c ${item}` / `-c ${item_index}`
     (e.g. `sh -c ${item}`): the value comes from workflow state and must never be executed as a
     script (§B.2).
 29. `max_length:` on a `state:` or typed `writes:` entry is negative or on a key whose type is not
     `string`; or a `state:` `default:` string is already longer than its `max_length:`.
+30. A step authors a field its kind does not accept (§C table; `attempt_key:` is common to every kind, `attempts:` is deterministic/agentic only). The error lists the offending fields,
+    sorted, names the kind(s) that do accept each, and says to remove them. Unknown keys are reported
+    separately as before; a step with an unknown `kind:` gets no rule-30 error. This subsumes the
+    former per-kind clauses (`multi:` off `human`, `foreach:` off `parallel`, `retry:` off
+    `deterministic`/`wait`). An authored `multi: false` on a non-`human` step is flagged too.
+31. A step authors `soft:` but no `postcondition:` — the flag would be silently dropped. Add a
+    `postcondition:` or remove `soft:`.
+32. A `state:` or `args:` entry, or a typed `writes:` entry, has no `type:` or one outside
+    `string`, `integer`, `number`, `boolean`, `json`. The message suggests the closest valid name.
+33. A `default:` does not match its `type:` as YAML decodes it: `string` needs a string; `integer` an
+    integer (not a bool or float); `number` an integer or float; `boolean` a bool; `json` anything,
+    including `null`. `default: null` on a non-`json` type is an error. Skipped when rule 32 already
+    reports the `type:`.
+34. A `catch[]` entry has a key other than `on:` and `next:`, or a missing/empty `on:` (a missing
+    `next:` is rule 1).
+35. A `catch[].on:` is not a reserved non-success outcome the step's kind can produce:
+    `deterministic`/`agentic`/`parallel`+`branches:` — `failure`, `exhausted`; `wait`/`human` —
+    `failure`, `timeout`, `exhausted`; `parallel`+`foreach:` — `failure`, `partial`, `exhausted`.
+    Author-named outcomes are routed under `outcomes:`. Also: two `catch[]` entries with the same
+    `on:` (the later can never fire), or a `catch[].on:` that is also a key in `outcomes:` (which
+    takes precedence).
+36. A `timeout:` (`wait` or `human`) or a `wait` step's authored `every:` is not a valid Go duration
+    (`5m`, `1h`, `24h`) or is not greater than zero.
+37. A step `id` is `done` or `blocked` (reserved for the implicit terminals), or equals a declared
+    `terminal:` key. A declared `terminal: {done: …}`/`{blocked: …}` is itself allowed (§B.12).
+38. A reserved key name in `state:` or `args:` (§B.2): an engine pseudo-key (`run_id`, `step`,
+    `attempt`, `visits`, `last_error`, `blocked_reason`, `item`, `item_index`), matched
+    case-insensitively; a key starting with `_` (the `PAWL__*` namespace is reserved for `pawl`'s own
+    future environment variables); or a key that exports as `PAWL_ENFORCEMENT` or `PAWL_STATE_DIR`.
+39. A key collision: the same key in both `args:` and `state:`, or two keys in `state:` ∪ `args:`
+    equal case-insensitively (they would export as the same `PAWL_<KEY>`).
 
 Plus two warnings: a key written and never read; a key read on some path before anything writes it.
 And one census, printed every time: the `soft:` count, percentage and list.
