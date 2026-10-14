@@ -92,3 +92,38 @@ func TestPlanRoundTripPreservesDigest(t *testing.T) {
 		t.Fatalf("only %d workflows loaded; expected the examples and fixtures", checked)
 	}
 }
+
+// TestPlanRoundTripPreservesLargeIntegers: an integer above 2^53 in an
+// interface-typed field must survive plan.json unchanged (decoded as
+// json.Number, not float64), or resume reads it as "workflow changed".
+func TestPlanRoundTripPreservesLargeIntegers(t *testing.T) {
+	const big = int64(9007199254740993) // 2^53 + 1
+	w := &spec.Workflow{
+		Steps: []spec.Step{{
+			ID:           "a",
+			SubagentArgs: map[string]any{"n": big},
+			Postcondition: &spec.Postcondition{
+				Equals: map[string]any{"k": big}, HasEquals: true,
+			},
+		}},
+	}
+	before, err := Digest(w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if _, err := WritePlan(dir, w); err != nil {
+		t.Fatal(err)
+	}
+	p, err := ReadPlan(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := Digest(p.Workflow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before != after {
+		t.Errorf("digest changed across the plan.json round trip for an integer above 2^53")
+	}
+}

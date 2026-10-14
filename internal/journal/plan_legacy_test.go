@@ -90,7 +90,7 @@ func TestReadPlan_LegacyKeepsUserDataKeys(t *testing.T) {
 	if _, ok := w.Args["Path"]; !ok {
 		t.Errorf("arg key Path renamed: %v", w.Args)
 	}
-	if d := w.Args["Path"].Default; d == nil || !reflect.DeepEqual(*d, map[string]any{"MaxStepsRaw": 1.0, "Path": "x"}) {
+	if d := w.Args["Path"].Default; d == nil || !reflect.DeepEqual(*d, map[string]any{"MaxStepsRaw": json.Number("1"), "Path": "x"}) {
 		t.Errorf("arg default was walked: %v", d)
 	}
 	if sd, ok := w.State["Attempts"]; !ok || sd.MaxLength != 5 {
@@ -100,7 +100,7 @@ func TestReadPlan_LegacyKeepsUserDataKeys(t *testing.T) {
 		t.Errorf("terminal key Path renamed: %v", w.Terminal)
 	}
 	s := w.Steps[0]
-	if want := (map[string]any{"Path": "p", "Attempts": 3.0, "MaxStepsRaw": map[string]any{"Path": 1.0}}); !reflect.DeepEqual(s.SubagentArgs, want) {
+	if want := (map[string]any{"Path": "p", "Attempts": json.Number("3"), "MaxStepsRaw": map[string]any{"Path": json.Number("1")}}); !reflect.DeepEqual(s.SubagentArgs, want) {
 		t.Errorf("SubagentArgs = %#v", s.SubagentArgs)
 	}
 	if want := (map[string]string{"Path": "done", "Attempts": "done", "MaxStepsRaw": "done"}); !reflect.DeepEqual(s.Outcomes, want) {
@@ -109,7 +109,7 @@ func TestReadPlan_LegacyKeepsUserDataKeys(t *testing.T) {
 	if s.Writes.Types["Attempts"] != "string" || s.Writes.MaxLength["MaxStepsRaw"] != 4 || !s.Writes.IsTyped {
 		t.Errorf("Writes = %+v", s.Writes)
 	}
-	if want := (map[string]any{"Path": "v", "Attempts": map[string]any{"MaxStepsRaw": 2.0}}); !reflect.DeepEqual(s.Postcondition.Equals, want) || !s.Postcondition.HasEquals {
+	if want := (map[string]any{"Path": "v", "Attempts": map[string]any{"MaxStepsRaw": json.Number("2")}}); !reflect.DeepEqual(s.Postcondition.Equals, want) || !s.Postcondition.HasEquals {
 		t.Errorf("Equals = %#v", s.Postcondition)
 	}
 	if s.AttemptsRaw == nil || *s.AttemptsRaw != 2 || s.Attempts != 2 {

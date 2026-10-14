@@ -45,8 +45,9 @@ subject to review.
     the file, and from the last step to `done`. Now: **no fall-through, ever** — every step needs
     `next:` or a complete `outcomes:` map; unrouted is a `pawl validate` error. Spec's own hello
     workflow fixed to add an explicit `next: done`.
-13. `steps/wait.md` · After a resume the `timeout:` deadline restarts from zero · Alt: an absolute
-    deadline from first entry · accepted.
+13. `steps/wait.md` · A crash resume keeps the original `timeout:` deadline (same visit); resuming a
+    blocked run is a fresh visit and starts a new deadline · superseded the earlier "restarts from
+    zero" ruling.
 14. `steps/wait.md` · A poll iteration with no token, or an unrouted one, means "not yet"; only a
     non-zero exit is `failure` · Alt: an unrouted token is an error · accepted.
 15. `steps/human.md`, `faq.md` · Free text against a static single-select produces `chosen`; if

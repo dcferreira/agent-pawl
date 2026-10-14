@@ -1,8 +1,10 @@
 package journal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"reflect"
 	"strings"
 
@@ -26,14 +28,14 @@ func decodePlan(data []byte) (*Plan, error) {
 			return nil, err
 		}
 		var plan Plan
-		if err := json.Unmarshal(data, &plan); err != nil {
+		if err := unmarshalUseNumber(data, &plan); err != nil {
 			return nil, fmt.Errorf("journal: parsing plan.json: %w", err)
 		}
 		return &plan, nil
 	}
 
 	var generic any
-	if err := json.Unmarshal(data, &generic); err != nil {
+	if err := unmarshalUseNumber(data, &generic); err != nil {
 		return nil, fmt.Errorf("journal: parsing plan.json: %w", err)
 	}
 	top, ok := generic.(map[string]any)
@@ -48,11 +50,27 @@ func decodePlan(data []byte) (*Plan, error) {
 		return nil, fmt.Errorf("journal: re-encoding legacy plan.json: %w", err)
 	}
 	var plan Plan
-	if err := json.Unmarshal(converted, &plan); err != nil {
+	if err := unmarshalUseNumber(converted, &plan); err != nil {
 		return nil, fmt.Errorf("journal: parsing legacy plan.json: %w", err)
 	}
 	plan.Format = NormalizeFormat(0)
 	return &plan, nil
+}
+
+// unmarshalUseNumber decodes data into v keeping numbers in interface-typed
+// fields as json.Number, so integers above 2^53 survive the plan.json round
+// trip instead of being rounded through float64 (which would make Digest of
+// the pinned workflow differ from Digest of the unchanged file).
+func unmarshalUseNumber(data []byte, v any) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	if err := dec.Decode(v); err != nil {
+		return err
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return fmt.Errorf("unexpected data after top-level value")
+	}
+	return nil
 }
 
 // renameLegacyKeys walks the generic JSON value v alongside the Go type t it

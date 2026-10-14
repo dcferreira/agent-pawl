@@ -151,6 +151,9 @@ func TestGolden_FixtureCoversEveryTaggedField(t *testing.T) {
 			if strings.HasPrefix(f.Name, "Unknown") {
 				continue
 			}
+			if f.Tag.Get("json") == "-" {
+				continue
+			}
 			if !seen[typ.Name()+"."+f.Name] {
 				t.Errorf("golden fixture never sets %s.%s; extend testdata/golden/workflow.yaml", typ.Name(), f.Name)
 			}

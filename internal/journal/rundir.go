@@ -56,7 +56,7 @@ func CreateRunDir(root, workflowID, runID string) (string, error) {
 //
 // Format is the journal format that wrote it (see Format); a plan.json
 // without the key is format 1, whose workflow object used Go field names and
-// is decoded by decodeLegacyPlan. Digest is a record of the digest at run
+// is decoded by decodePlan (via renameLegacyKeys). Digest is a record of the digest at run
 // start; resume and submit compare Digest(plan.Workflow) recomputed by the
 // running code, never this stored string.
 type Plan struct {
