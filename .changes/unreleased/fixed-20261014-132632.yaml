@@ -1,3 +1,0 @@
-kind: fixed
-body: '`pawl abandon --run <id>` now finds a live run in another working copy when the current one has no run with that id, so a stale blocked run whose checkout was deleted can be abandoned from anywhere. Several matches are refused, and so is a non-blocked run that another session is still actively driving.'
-time: 2026-10-14T13:26:32.923812725+02:00
