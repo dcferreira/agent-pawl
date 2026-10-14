@@ -6,8 +6,8 @@ The engine runs a shell command itself. No model, no tokens, no handshake. See
 ## Fields
 
 - **`run:`** — any command you already have; pipes, `&&`, a script. Runs with cwd at the
-  working-copy root, `${key}` substituted as single shell-quoted tokens. Every key a step reads is
-  also exported as `PAWL_<KEY>` (upper-cased).
+  working-copy root, `${key}` substituted as single shell-quoted tokens. Each key the command's own
+  `run:` template references is also exported as `PAWL_<KEY>` (upper-cased).
 - **`emits:`** — `json` (default) or `pairs`. The engine reads **the last non-empty line of
   stdout**; everything above is logged, never parsed. `emits: json` expects
   `{"mr_url":"…","mr_iid":"41"}`; `emits: pairs` expects `dir_exists=yes vcs=git`. Keys must be a
@@ -15,7 +15,9 @@ The engine runs a shell command itself. No model, no tokens, no handshake. See
 - **`writes:`** — `[branch, title]` (types from `state:`) or `{comment_count: {type: integer}}`
   (typed here). Values are coerced and rejected loudly if they don't fit.
 - **Named outcomes** — print a token as the first word of the last line and route it in `outcomes:`.
-  A bare token with nothing after it writes nothing. **Non-zero exit is always `failure`**, whatever
+  A bare token with nothing after it writes nothing. The printable tokens are your own `outcomes:` names,
+  `failure` (always), and `success` (only if declared under `outcomes:`); the engine-owned `exhausted`,
+  `timeout`, `partial` and `chosen` are never printable, even if declared — printing one is unintelligible stdout. **Non-zero exit is always `failure`**, whatever
   was printed — exit codes never select outcomes; wrap a script that uses them:
   `case $? in 0) echo OK ;; 1) echo MISSING_DIR ;; esac`.
 - **`postcondition:`** — optional (required only on `agentic`). Exit 0 is success unless you declare

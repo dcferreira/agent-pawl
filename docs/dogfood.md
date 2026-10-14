@@ -101,7 +101,11 @@ description:
   The test suite is failing. Fix the code so that it passes.
   Do not edit, weaken or delete tests to make them pass — fix the code under test.
   The failures:
-  --- FAIL: TestAdd (0.00s)\u000a    fixture_test.go:7: Add(2, 3) = -1, want 5\u000aFAIL\u000aFAIL\u0009fixture\u00090.002s\u000aFAIL
+  --- FAIL: TestAdd (0.00s)
+      fixture_test.go:7: Add(2, 3) = -1, want 5
+  FAIL
+  FAIL	fixture	0.002s
+  FAIL
 context:
   [1] git diff (0 bytes)
     (empty)
@@ -114,16 +118,16 @@ END DISPATCH 9c8c fix_tests
 
 Note: the run resolved and executed `run_tests` (a `deterministic` step) entirely by itself before
 stopping — the first thing you see is the `DISPATCH` for `fix_tests`, the `agentic` step, since
-`pawl run` only ever hands control back at an agentic step or a terminal. The `\u000a`/`\u0009`
-sequences are real: `run_tests`' captured multi-line stdout is carried as a `pawl` state value
-(`emit.go`'s escaping — a control character becomes a literal `\uXXXX` escape, the same treatment
-the emit grammar gives any control byte reaching it through a step's output), then substituted
-verbatim into the rendered `description:` — it renders as the literal six-character sequence
-`\u000a`, not an actual newline and not a "cooked" `\n`.
+`pawl run` only ever hands control back at an agentic step or a terminal. The multi-line failure
+is real: `run_tests`' captured multi-line stdout is carried as a `pawl` state value that keeps its
+newlines and tabs (every other control character would be stored as a visible `\u00XX` escape),
+then substituted into the rendered `description:`. The `DISPATCH` writer keeps a multi-line value
+indented beneath its header, so it can never forge a column-0 instruction or sentinel line.
 
 `[1] git diff (0 bytes)` is empty because `/tmp/pawl-dogfood` isn't a git (or jj) working copy in
-this walkthrough; per `docs/examples/green-tests/NOTES.md`, a failing or unavailable `!cmd` context
-entry degrades silently to empty rather than blocking the run.
+this walkthrough; per `docs/examples/green-tests/NOTES.md`, a `!cmd` context entry that fails or is
+unavailable doesn't block the run: a non-zero exit or timeout keeps the command's stdout and adds an
+engine line `(context command exited N)` / `(context command timed out)` under the item.
 
 Per the `/pawl` skill (`.claude/skills/pawl/SKILL.md`), this `DISPATCH` line is the instruction: it's
 the first column-0 line matching `DISPATCH|TERMINAL`, and everything indented beneath it up to

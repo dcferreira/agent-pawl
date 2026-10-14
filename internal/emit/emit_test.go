@@ -356,36 +356,71 @@ func TestParse_NoTokenWhenOutcomesDeclared_IsError(t *testing.T) {
 	}
 }
 
-// TestParse_TokenRoutedOnlyByCatch_IsAccepted is finding I4's round-2
-// end-to-end fix: a TOKEN named only by a catch: entry (no matching
-// outcomes: key at all) must be accepted, not rejected as unintelligible —
-// design/format-spec.md §D defines catch: as an ordered list routing any
-// outcome, not just the two reserved ones, so the routable set Parse checks
-// a TOKEN against must be outcomes: keys ∪ catch[].on values.
-func TestParse_TokenRoutedOnlyByCatch_IsAccepted(t *testing.T) {
+// TestParse_RoutableTokens: the routable set is author-named outcomes: keys,
+// "failure" always, and "success" only when declared under outcomes: (#57).
+// catch: contributes nothing: a catch-only author name is rejected.
+func TestParse_RoutableTokens(t *testing.T) {
 	step := namedStep("s", map[string]string{"good": "done"}, nil, "json")
-	step.Catch = []spec.CatchRule{{On: "bad", Next: "blocked"}}
+	step.Catch = []spec.CatchRule{{On: "failure", Next: "blocked"}}
 
-	result, err := emit.Parse("bad", 0, step, nil)
-	if err != nil {
-		t.Fatalf("Parse: unexpected error: %v", err)
+	for _, tok := range []string{"worse", "bad", "success"} {
+		if _, err := emit.Parse(tok, 0, step, nil); !errors.Is(err, emit.ErrParse) {
+			t.Errorf("Parse(%q): error = %v, want it to wrap ErrParse", tok, err)
+		}
 	}
-	if result.Outcome != "bad" {
-		t.Errorf("Outcome = %q, want %q", result.Outcome, "bad")
+	for _, tok := range []string{"good", "failure"} {
+		res, err := emit.Parse(tok, 0, step, nil)
+		if err != nil || res.Outcome != tok {
+			t.Errorf("Parse(%q) = %+v, %v; want Outcome %q", tok, res, err, tok)
+		}
 	}
 }
 
-// TestParse_TokenInNeitherOutcomesNorCatch_IsError pins that the "keep the
-// unroutable-token-is-ErrParse behaviour for tokens in neither set" half of
-// finding I4's ruling still holds: a token that isn't in outcomes: or
-// catch: is still unintelligible stdout.
-func TestParse_TokenInNeitherOutcomesNorCatch_IsError(t *testing.T) {
+// TestParse_FailureTokenRoutableWithoutCatch: a script may always report a
+// clean failure, whether or not the step has any catch: entry.
+func TestParse_FailureTokenRoutableWithoutCatch(t *testing.T) {
 	step := namedStep("s", map[string]string{"good": "done"}, nil, "json")
-	step.Catch = []spec.CatchRule{{On: "bad", Next: "blocked"}}
+	res, err := emit.Parse("failure", 0, step, nil)
+	if err != nil || res.Outcome != "failure" {
+		t.Fatalf("Parse(failure) = %+v, %v; want Outcome failure", res, err)
+	}
+	if tok, routed := emit.Routed("failure", 0, step); tok != "failure" || !routed {
+		t.Errorf("Routed(failure) = %q, %v; want failure, true", tok, routed)
+	}
+}
 
-	_, err := emit.Parse("worse", 0, step, nil)
-	if !errors.Is(err, emit.ErrParse) {
-		t.Errorf("Parse(%q): error = %v, want it to wrap ErrParse", "worse", err)
+// TestParse_SuccessTokenRoutableOnlyWhenDeclared pins that "success" is a
+// routable stdout token only if the step declares it under outcomes:.
+func TestParse_SuccessTokenRoutableOnlyWhenDeclared(t *testing.T) {
+	undeclared := namedStep("s", map[string]string{"good": "done"}, nil, "json")
+	if _, err := emit.Parse("success", 0, undeclared, nil); !errors.Is(err, emit.ErrParse) {
+		t.Errorf("undeclared success: error = %v, want ErrParse", err)
+	}
+	if _, routed := emit.Routed("success", 0, undeclared); routed {
+		t.Error("Routed(success) = true for a step that does not declare success under outcomes:")
+	}
+	declared := namedStep("s", map[string]string{"good": "done", "success": "done"}, nil, "json")
+	res, err := emit.Parse("success", 0, declared, nil)
+	if err != nil || res.Outcome != "success" {
+		t.Errorf("declared success: %+v, %v; want Outcome success", res, err)
+	}
+}
+
+// TestParse_EngineOwnedTokensNeverRoutable: exhausted, timeout, partial and
+// chosen are engine-owned; a script may not forge them even when the step
+// declares them under outcomes: (those entries route the engine's own).
+func TestParse_EngineOwnedTokensNeverRoutable(t *testing.T) {
+	for _, tok := range []string{"exhausted", "timeout", "partial", "chosen"} {
+		step := namedStep("s", map[string]string{"good": "done", tok: "elsewhere"}, nil, "json")
+		if _, err := emit.Parse(tok, 0, step, nil); !errors.Is(err, emit.ErrParse) {
+			t.Errorf("Parse(%q) declared under outcomes: error = %v, want ErrParse", tok, err)
+		}
+		if _, routed := emit.Routed(tok, 0, step); routed {
+			t.Errorf("Routed(%q) = true, want false", tok)
+		}
+		if _, err := emit.Parse(tok, 0, step, nil); err != nil && strings.Contains(err.Error(), "catch:") {
+			t.Errorf("error %q still mentions catch:", err)
+		}
 	}
 }
 
@@ -572,5 +607,21 @@ func TestParse_MaxLength(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestParse_Pairs_JSONValueTrailingDataIsError: a pairs-sourced json value
+// must be exactly one JSON value, as in the json emits mode; trailing data
+// after it is a type error.
+func TestParse_Pairs_JSONValueTrailingDataIsError(t *testing.T) {
+	step := typedStep("s", map[string]string{"A": "x"}, map[string]string{"k": "json"}, "pairs")
+	for _, bad := range []string{`A k={"a":1}x`, `A k=1,2`, `A k={"a":1}{"b":2}`} {
+		if _, err := emit.Parse(bad, 0, step, nil); !errors.Is(err, emit.ErrParse) {
+			t.Errorf("Parse(%q): error = %v, want ErrParse", bad, err)
+		}
+	}
+	res, err := emit.Parse(`A k={"a":1}`, 0, step, nil)
+	if err != nil || res.Writes["k"] == nil {
+		t.Errorf("Parse of a clean json value = %+v, %v; want it accepted", res, err)
 	}
 }

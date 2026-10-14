@@ -58,8 +58,9 @@ observes real test output until `jq` is installed.
 
 - **A `!cmd` context entry is a convenience, not a dependency.** `fix_tests`'s
   `context: [!cmd "git diff"]` is there so a real agentic run has the actual diff to look
-  at, but per the engine's own contract a failing/missing `!cmd` degrades silently (empty
-  context, empty `last_error`) rather than wedging the run. `description:` therefore
+  at, but per the engine's own contract a failing `!cmd` (non-zero exit or timeout) still
+  supplies its stdout, plus an engine status line `(context command exited N)` /
+  `(context command timed out)`, rather than wedging the run. `description:` therefore
   stands on its own via `${failures}` regardless of whether `git diff` succeeds, is
   available, or the working copy isn't a git repo at all — the example's correctness never
   depends on that command.

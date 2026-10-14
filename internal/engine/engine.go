@@ -582,11 +582,17 @@ func (e *Engine) gatherContext(c spec.ContextEntry, vals render.Values) (Context
 		if err != nil {
 			return ContextItem{}, fmt.Errorf("%w: rendering !cmd entry: %v", errContextUnavailable, err)
 		}
-		stdout, _, _, err := e.execShell(cmd, render.Keys(c.Value), vals)
-		if err != nil && !errors.Is(err, errTimeout) {
+		stdout, _, exitCode, err := e.execShell(cmd, render.Keys(c.Value), vals)
+		item := ContextItem{Source: cmd, Value: stdout}
+		switch {
+		case err != nil && errors.Is(err, errTimeout):
+			item.Status = "context command timed out"
+		case err != nil:
 			return ContextItem{}, fmt.Errorf("%w: running !cmd entry %q: %v", errContextUnavailable, cmd, err)
+		case exitCode != 0:
+			item.Status = fmt.Sprintf("context command exited %d", exitCode)
 		}
-		return ContextItem{Source: cmd, Value: stdout}, nil
+		return item, nil
 	}
 	path, err := render.RenderProse(c.Value, vals)
 	if err != nil {

@@ -32,8 +32,10 @@ Wait on something outside the run: CI, a review, a build, a person doing a thing
   interacts with the wait's own deadline. This is a different layer from `catch:`, which decides
   where to go only once `retry:`'s tries (if any) are exhausted and the tick is still a hard
   failure. An exit-0 poller that prints the reserved `failure` token is **not** retried — like a
-  non-zero exit without `retry:` declared, it routes straight to `catch:` as a clean (if failing)
-  tick, never as a hard failure.
+  non-zero exit without `retry:` declared, it routes straight to `catch:` (or the default
+  `failure → blocked`) as a clean (if failing) tick, never as a hard failure. `failure` is always
+  printable; `timeout`, `exhausted`, `partial` and `chosen` never are — printing one is unintelligible
+  stdout.
 
 ## Example
 

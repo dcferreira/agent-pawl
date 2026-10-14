@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"strconv"
 	"strings"
@@ -146,7 +147,7 @@ func (e *Engine) submit(runID, stepID string, attempt int, item *int, result jso
 	var cr checkResult
 	if len(bytes.TrimSpace(result)) == 0 {
 		cr = checkResult{OK: false, Text: fmt.Sprintf("step %q: submitted result is empty", stepID)}
-	} else if err := json.Unmarshal(result, &parsed); err != nil {
+	} else if err := decodeSubmitted(result, &parsed); err != nil {
 		cr = checkResult{OK: false, Text: fmt.Sprintf("step %q: submitted result is not a JSON object: %v", stepID, err)}
 	} else {
 		writes, schemaErr := validateAgenticWrites(e.Workflow.State, step, parsed)
@@ -475,6 +476,24 @@ func validateAgenticWrites(decls map[string]spec.StateDecl, step *spec.Step, par
 	return writes, ""
 }
 
+// decodeSubmitted decodes a submitted JSON object keeping every number as a
+// json.Number (its own source text), so integer/number/string coercion sees
+// the exact literal instead of a float64 that has already lost precision
+// above 2^53 or rewritten 1e6. Trailing data after the object is an error,
+// as json.Unmarshal would report.
+func decodeSubmitted(result []byte, v *map[string]any) error {
+	dec := json.NewDecoder(bytes.NewReader(result))
+	dec.UseNumber()
+	if err := dec.Decode(v); err != nil {
+		return err
+	}
+	var extra json.RawMessage
+	if err := dec.Decode(&extra); err != io.EOF {
+		return errors.New("invalid character after top-level value")
+	}
+	return nil
+}
+
 func coerceAgenticValue(key string, v any, declType string) (any, error) {
 	badType := func() error {
 		return fmt.Errorf("key %q: value %v does not fit declared type %q", key, v, declType)
@@ -482,8 +501,12 @@ func coerceAgenticValue(key string, v any, declType string) (any, error) {
 	switch declType {
 	case "integer":
 		switch x := v.(type) {
-		case float64:
-			return int64(x), nil
+		case json.Number:
+			i, err := x.Int64()
+			if err != nil {
+				return nil, badType()
+			}
+			return i, nil
 		case string:
 			i, err := strconv.ParseInt(strings.TrimSpace(x), 10, 64)
 			if err != nil {
@@ -495,8 +518,12 @@ func coerceAgenticValue(key string, v any, declType string) (any, error) {
 		}
 	case "number":
 		switch x := v.(type) {
-		case float64:
-			return x, nil
+		case json.Number:
+			f, err := x.Float64()
+			if err != nil {
+				return nil, badType()
+			}
+			return f, nil
 		case string:
 			f, err := strconv.ParseFloat(strings.TrimSpace(x), 64)
 			if err != nil {
@@ -515,14 +542,14 @@ func coerceAgenticValue(key string, v any, declType string) (any, error) {
 	case "string":
 		switch x := v.(type) {
 		case string:
-			return emit.EscapeC0(x), nil
-		case float64:
-			return emit.EscapeC0(fmt.Sprint(x)), nil
+			return emit.EscapeStateC0(x), nil
+		case json.Number:
+			return emit.EscapeStateC0(x.String()), nil
 		default:
 			return nil, badType()
 		}
 	case "json":
-		return v, nil
+		return emit.EscapeStateValue(v), nil
 	default:
 		return nil, fmt.Errorf("key %q: declares unknown state type %q", key, declType)
 	}

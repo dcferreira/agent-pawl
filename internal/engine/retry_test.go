@@ -790,6 +790,110 @@ terminal:
 	}
 }
 
+// TestRetry_DeterministicFailureTokenWithNoCatchIsCleanFailure pins the #57
+// rule: a script may always report a clean failure. An exit-0 `failure` TOKEN
+// is routable with NO catch: entry at all; it is not unintelligible stdout, so
+// retry: does not apply and it routes on the very first try (the engine-wide
+// default failure path blocks the run).
+func TestRetry_DeterministicFailureTokenWithNoCatchIsCleanFailure(t *testing.T) {
+	const yaml = `
+workflow: det-retry-failure-token-nocatch
+start: a
+steps:
+  - id: a
+    kind: deterministic
+    run: "echo diag-message >&2; echo failure"
+    retry: {max_attempts: 3, backoff: 10s}
+    outcomes:
+      PASSED: done
+terminal:
+  done: {status: ok}
+`
+	e := newTestEngine(t, yaml)
+	clock := newFakeClock()
+	clock.install(e)
+
+	instr, err := e.Start("run1", nil)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	term, ok := instr.(Terminal)
+	if !ok || term.Status != "blocked" {
+		t.Fatalf("got %+v, want Terminal{blocked} (default failure path) on the very first try", instr)
+	}
+	events := eventsOf(t, e, "run1")
+	var enters int
+	for _, ev := range events {
+		if ev.Kind == journal.KindStepEnter && ev.Step == "a" {
+			enters++
+		}
+	}
+	if enters != 1 {
+		t.Errorf("STEP_ENTER count = %d, want exactly 1: a failure token with no catch: is a clean failure, not retried", enters)
+	}
+	if len(clock.slept) != 0 {
+		t.Errorf("slept = %v, want no sleep", clock.slept)
+	}
+	rs, err := journal.Replay(events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rs.LastError, "diag-message") {
+		t.Errorf("last_error = %q, want it to carry the run:'s own diagnostic", rs.LastError)
+	}
+}
+
+// TestRetry_DeterministicEngineOwnedTokenIsUnintelligible pins the other half
+// of #57, using the green-tests shape (outcomes: {PASSED: done, exhausted:
+// gave_up} plus retry:): a script printing the engine-owned `exhausted` token
+// on exit 0 may not forge that outcome. The token is unintelligible stdout, a
+// hard failure that retry: retries, and it is never routed to gave_up.
+func TestRetry_DeterministicEngineOwnedTokenIsUnintelligible(t *testing.T) {
+	const yaml = `
+workflow: det-retry-engine-owned-token
+start: a
+steps:
+  - id: a
+    kind: deterministic
+    run: "echo exhausted"
+    retry: {max_attempts: 3, backoff: 10s}
+    outcomes:
+      PASSED: done
+      exhausted: gave_up
+terminal:
+  done:    {status: ok}
+  gave_up: {status: ok}
+`
+	e := newTestEngine(t, yaml)
+	clock := newFakeClock()
+	clock.install(e)
+
+	instr, err := e.Start("run1", nil)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	term, ok := instr.(Terminal)
+	if !ok {
+		t.Fatalf("got %+v, want a Terminal", instr)
+	}
+	if term.Status == "ok" {
+		t.Fatalf("run ended ok (routed to gave_up?): a script must not forge the engine-owned exhausted outcome: %+v", term)
+	}
+	events := eventsOf(t, e, "run1")
+	var enters int
+	for _, ev := range events {
+		if ev.Kind == journal.KindStepEnter && ev.Step == "a" {
+			enters++
+		}
+	}
+	if enters != 3 {
+		t.Errorf("STEP_ENTER count = %d, want 3: the forged token is a hard failure, retried up to max_attempts", enters)
+	}
+	if len(clock.slept) != 2 {
+		t.Errorf("slept = %v, want 2 backoff sleeps", clock.slept)
+	}
+}
+
 // TestRetry_DeterministicHardRetrySuccessClearsLastError pins a review
 // finding: a try that hard-fails (journaling a failure diagnostic into
 // last_error, per I1) and is then retried successfully by retry: must not

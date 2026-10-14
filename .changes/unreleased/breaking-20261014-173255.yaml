@@ -1,0 +1,5 @@
+kind: breaking
+body: A stdout TOKEN may name an author-declared outcome, `failure` (always, no `catch:` needed) or `success` (only if declared under `outcomes:`); the engine-owned `exhausted`, `timeout`, `partial` and `chosen` are never routable from stdout, even when declared, and are now unintelligible stdout (a hard failure). `catch:` no longer makes a token routable.
+time: 2026-10-14T17:32:55.909523911+02:00
+custom:
+    PR: "63"

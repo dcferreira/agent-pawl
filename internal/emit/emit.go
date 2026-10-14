@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"strconv"
 	"strings"
@@ -33,6 +34,7 @@ var reservedOutcomes = map[string]bool{
 	"failure":   true,
 	"timeout":   true,
 	"exhausted": true,
+	"partial":   true,
 	"chosen":    true,
 }
 
@@ -54,7 +56,7 @@ type Result struct {
 // stdout is not inspected. On exit 0, the last non-empty line of stdout
 // (trailing whitespace does not count) is read: a TOKEN is present if and
 // only if step declares at least one author-named outcome (a name other
-// than the reserved success/failure/timeout/exhausted/chosen), in which
+// than the reserved success/failure/timeout/exhausted/partial/chosen), in which
 // case the first whitespace-separated field is the token and the routed
 // outcome it names, and the rest of the line is the payload; otherwise the
 // whole line is payload and the outcome is "success".
@@ -90,7 +92,7 @@ func Parse(stdout string, exitCode int, step *spec.Step, decls map[string]spec.S
 				ErrParse, step.ID, sortedRoutableNames(step))
 		}
 		if !isRoutableToken(step, token) {
-			return Result{}, fmt.Errorf("%w: step %q: outcome token %q is not routed by any outcomes: or catch: entry; routable outcomes are %s",
+			return Result{}, fmt.Errorf("%w: step %q: outcome token %q is not a routable stdout token (an author-named outcomes: key, failure, or success if declared under outcomes:); routable outcomes are %s",
 				ErrParse, step.ID, token, sortedRoutableNames(step))
 		}
 		outcome = token
@@ -151,18 +153,23 @@ func hasAuthorNamedOutcomes(step *spec.Step) bool {
 }
 
 // routableTokens is the set of outcome names a stdout TOKEN may legitimately
-// name: every outcomes: key, plus every catch[].on value. Finding I4 (round
-// 2): design/format-spec.md §D defines catch: as an ordered list routing any
-// outcome, not just the reserved failure/exhausted — so a token named only
-// by a catch: entry (no matching outcomes: key at all) must not be rejected
-// here as unintelligible before the engine ever gets a chance to route it.
+// name: every author-named outcomes: key, "failure" always (a script may
+// always report a clean, diagnostic-carrying failure, with or without a
+// catch: entry), and "success" only when the step declares it under
+// outcomes:. The engine-owned names (exhausted, timeout, partial, chosen) are
+// never routable from stdout, even when declared under outcomes:, and catch:
+// contributes nothing (#57): a script may report a clean failure but may not
+// forge an outcome the engine alone produces.
 func routableTokens(step *spec.Step) map[string]bool {
-	set := make(map[string]bool, len(step.Outcomes)+len(step.Catch))
+	set := make(map[string]bool, len(step.Outcomes)+1)
 	for k := range step.Outcomes {
-		set[k] = true
+		if !reservedOutcomes[k] {
+			set[k] = true
+		}
 	}
-	for _, c := range step.Catch {
-		set[c.On] = true
+	set["failure"] = true
+	if _, ok := step.Outcomes["success"]; ok {
+		set["success"] = true
 	}
 	return set
 }
@@ -171,9 +178,9 @@ func isRoutableToken(step *spec.Step, token string) bool {
 	return routableTokens(step)[token]
 }
 
-// sortedRoutableNames formats the combined routable set (outcomes: keys ∪
-// catch[].on values) for error messages, so they name every token the
-// stdout grammar will actually accept.
+// sortedRoutableNames formats the routable set (see routableTokens) for
+// error messages, so they name every token the stdout grammar will actually
+// accept.
 func sortedRoutableNames(step *spec.Step) string {
 	set := routableTokens(step)
 	names := make([]string, 0, len(set))
@@ -267,7 +274,7 @@ func parseJSON(step *spec.Step, decls map[string]spec.StateDecl, payload string)
 	// sanitizeJSONStrings only touches control bytes inside string literals
 	// (illegal per RFC 8259, and rejected outright by Go's decoder),
 	// leaving a script's own tab/newline-formatted JSON untouched (Finding
-	// F1); escapeValue/EscapeC0 below re-neutralise decoded string values
+	// F1); EscapeStateValue/EscapeStateC0 below re-neutralise decoded string values
 	// (and, recursively, map keys) for storage regardless of how they got
 	// there (Finding F2).
 	sanitized := sanitizeJSONStrings(payload)
@@ -342,8 +349,9 @@ func parsePairs(step *spec.Step, decls map[string]spec.StateDecl, payload string
 }
 
 // CheckMaxLength rejects a coerced string value longer than max code points
-// (utf8.RuneCountInString, i.e. wc -m), measured as stored — after C0
-// escaping. A non-string value or max <= 0 always passes. The error text is
+// (utf8.RuneCountInString, i.e. wc -m), measured as stored — after state
+// escaping (EscapeStateC0), so a kept LF or TAB counts as one code point and a
+// \u00XX escape as six. A non-string value or max <= 0 always passes. The error text is
 // shared by every write boundary (stdout payloads, agentic submit, human
 // answers); callers add their own step prefix.
 func CheckMaxLength(key string, coerced any, max int) error {
@@ -429,18 +437,18 @@ func coerceFromJSON(stepID, key string, v any, declType string) (any, error) {
 	case "string":
 		switch x := v.(type) {
 		case string:
-			return EscapeC0(x), nil
+			return EscapeStateC0(x), nil
 		case json.Number:
 			// A JSON number is an unambiguous textual value; coerce it to
 			// its own text rather than reject it just because the author's
 			// script emitted an unquoted number for a string-typed key
 			// (Finding F6).
-			return EscapeC0(x.String()), nil
+			return EscapeStateC0(x.String()), nil
 		default:
 			return nil, badType(stepID, key, declType, v)
 		}
 	case "json":
-		return escapeValue(v), nil
+		return EscapeStateValue(v), nil
 	default:
 		return nil, fmt.Errorf("%w: step %q: key %q declares unknown state type %q", ErrParse, stepID, key, declType)
 	}
@@ -468,7 +476,7 @@ func coerceFromPairs(stepID, key, raw, declType string) (any, error) {
 		}
 		return b, nil
 	case "string":
-		return EscapeC0(raw), nil
+		return EscapeStateC0(raw), nil
 	case "json":
 		sanitized := sanitizeJSONStrings(raw)
 		dec := json.NewDecoder(strings.NewReader(sanitized))
@@ -477,7 +485,13 @@ func coerceFromPairs(stepID, key, raw, declType string) (any, error) {
 		if err := dec.Decode(&v); err != nil {
 			return nil, badType(stepID, key, declType, raw)
 		}
-		return escapeValue(v), nil
+		// Exactly one JSON value: trailing data (k={"a":1}x, k=1,2) is a
+		// type error, as parseJSON's payload check is. A second Decode
+		// reaching EOF catches stray closers that dec.More() would miss.
+		if err := dec.Decode(new(any)); err != io.EOF {
+			return nil, badType(stepID, key, declType, raw)
+		}
+		return EscapeStateValue(v), nil
 	default:
 		return nil, fmt.Errorf("%w: step %q: key %q declares unknown state type %q", ErrParse, stepID, key, declType)
 	}
@@ -489,15 +503,36 @@ func coerceFromPairs(stepID, key, raw, declType string) (any, error) {
 // cannot be handed invalid UTF-8 (a lone 0xFF byte, a broken multi-byte
 // sequence) and lose or mangle information, which matters because it is
 // also the escape a caller such as the engine's journal applies to raw
-// captured stdout before logging it (Finding F3). It is the one boundary
-// (design/format-spec.md §B.1) at which control characters arriving through
-// a step's stdout are neutralised, so a value can never reintroduce a raw
-// control byte into a downstream single-line journal record.
+// captured stdout before logging it (Finding F3), and that poll output uses
+// for its single-line form. It escapes LF and TAB too; values stored into run
+// state use EscapeStateC0 instead, which keeps those two.
 func EscapeC0(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		if c < 0x20 || c == 0x7f {
+			fmt.Fprintf(&b, `\u%04x`, c)
+		} else {
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
+}
+
+// EscapeStateC0 is the escape applied at every state-ingest site (stdout
+// string/json coercion, agentic string/json submits). Like EscapeC0 it is
+// byte-wise and total, but LF (0x0a) and TAB (0x09) pass through raw: state
+// keeps real newlines and tabs so multi-line text round-trips. Every other
+// C0 control byte and DEL is stored as a visible \u00XX escape, so a value
+// can never smuggle e.g. ESC or CR into state; output boundaries (the cli
+// blockWriter) neutralise whatever reaches the instruction grammar. There is
+// no migration: values stored by older versions with a literal \u000a stay
+// literal.
+func EscapeStateC0(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c < 0x20 && c != '\n' && c != '\t') || c == 0x7f {
 			fmt.Fprintf(&b, `\u%04x`, c)
 		} else {
 			b.WriteByte(c)
@@ -515,7 +550,7 @@ func EscapeC0(s string) string {
 // line instead of misreporting valid, if hostile, stdout as unintelligible
 // (Finding F1). It is a syntax-level pre-pass, not a value transform: the
 // decoded string values it makes reachable are escaped again, post-decode,
-// by EscapeC0/escapeValue.
+// by EscapeStateC0/EscapeStateValue.
 func sanitizeJSONStrings(s string) string {
 	var b strings.Builder
 	inString := false
@@ -545,24 +580,24 @@ func sanitizeJSONStrings(s string) string {
 	return b.String()
 }
 
-// escapeValue recursively applies EscapeC0 to every string found within a
-// decoded JSON value (for the "json" declared state type) — including map
-// keys, not just values (Finding F2) — leaving json.Number, bool and nil
-// untouched.
-func escapeValue(v any) any {
+// EscapeStateValue recursively applies EscapeStateC0 to every string found
+// within a decoded JSON value (the "json" declared state type, for stdout
+// payloads and agentic submits alike) — including map keys, not just values
+// (Finding F2) — leaving json.Number, float64, bool and nil untouched.
+func EscapeStateValue(v any) any {
 	switch x := v.(type) {
 	case string:
-		return EscapeC0(x)
+		return EscapeStateC0(x)
 	case map[string]any:
 		out := make(map[string]any, len(x))
 		for k, val := range x {
-			out[EscapeC0(k)] = escapeValue(val)
+			out[EscapeStateC0(k)] = EscapeStateValue(val)
 		}
 		return out
 	case []any:
 		out := make([]any, len(x))
 		for i, val := range x {
-			out[i] = escapeValue(val)
+			out[i] = EscapeStateValue(val)
 		}
 		return out
 	default:

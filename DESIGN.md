@@ -107,12 +107,16 @@ waiting on. The run id is on every line because several runs may be live at once
 ## 3. Execution, per kind
 
 **`deterministic`.** The engine `exec`s `run:` with `${key}` substituted, cwd at the working-copy root
-(never the session's raw cwd — §5), and every state key the step reads exported as `PAWL_<KEY>`. stdout
+(never the session's raw cwd — §5), and each key *that command's own template references* exported as
+`PAWL_<KEY>` (not all state: a large `json` value in every environment would hit Linux's 128 KiB
+per-string limit and fail the exec; `design/format-spec.md` §B.2). stdout
 and stderr are captured in full; the engine reads the **last non-empty line** and nothing else. Exit
 0 is success unless the step declares a `postcondition:`, which is optional here (required only on
 `agentic`) — add one when exit code alone can't confirm the command's *effect*, e.g. that a push
 landed or a created PR's URL resolves. One engine-wide wall-clock ceiling applies (default 10
-minutes); exceeding it is `failure` with `last_error` set.
+minutes); exceeding it is `failure` with `last_error` set. On expiry the engine sends `SIGTERM` to the
+command's whole process group, waits a 5-second grace period (`killGrace`) for the group to exit,
+then `SIGKILL`s whatever remains — so a timed-out command takes at most the ceiling plus 5s.
 
 **`agentic`.** The engine renders `description:`, gathers the resolved `context:` entries, and prints
 them in the `DISPATCH` block with the `writes:` typed map as the return schema, plus `subagent_args:`
@@ -566,6 +570,8 @@ uses a `pawl` on `PATH` only in a checkout without `libexec/`.
 
 **Workflow resolution**: repo-local `.claude/workflows/<name>.yaml` (found by walking up from the
 working-copy root), then user-level `~/.claude/workflows/<name>.yaml`; first match wins, and `pawl run`
-prints which one it used. `scripts/` resolve relative to the workflow file; there is no `prompts/`
+prints which one it used. `scripts/` resolve relative to the workflow file (the first token of a command, when it contains a
+`/` and is not absolute — a bare command name goes through `PATH`; `design/format-spec.md` §B.2,
+"Script base"); there is no `prompts/`
 convention, since `description:` is inline. Plugin-shipped workflows are Milestone 2, "if free" — only
 if Claude Code exposes enabled-plugin paths to hooks and skills without dedicated code.

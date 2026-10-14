@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -17,10 +16,20 @@ import (
 )
 
 // waitDelay bounds how long execShell waits for a command's stdout/stderr
-// pipes to close after the process has been signalled to die, so a
-// surviving grandchild holding a pipe open cannot block Wait indefinitely
-// (finding C2).
+// pipes to close after the direct child has exited, so a surviving
+// grandchild holding a pipe open cannot block Wait indefinitely (finding
+// C2). It is shorter than killGrace, which is why escalate keeps polling the
+// process group after Wait returns instead of trusting Wait to mean "all
+// descendants are gone".
 const waitDelay = 2 * time.Second
+
+// defaultKillGrace is how long a timed-out command's process group gets,
+// after SIGTERM, to exit on its own before SIGKILL. Worst case a timed-out
+// command therefore takes Engine.Timeout + killGrace.
+const defaultKillGrace = 5 * time.Second
+
+// killGrace is the runtime value of defaultKillGrace; tests shorten it.
+var killGrace = defaultKillGrace
 
 // execShell runs cmdline under "sh -c" with cwd at the working-copy root
 // (never the session's raw cwd — DESIGN.md §5) and every key in keys
@@ -37,10 +46,12 @@ const waitDelay = 2 * time.Second
 // pipe open — by the time the ceiling would fire, there is nothing left for
 // Cancel to cancel, and Wait blocks until WaitDelay gives up (which stops
 // the *wait*, not the orphan). Instead, an independent timer fires at the
-// ceiling regardless of whether "sh" has already exited, and kills the
+// ceiling regardless of whether "sh" has already exited, and signals the
 // negative pgid directly — reaching the grandchild even when the direct
-// child is long gone. WaitDelay remains as a second line of defence in case
-// the kill itself doesn't reach every descendant.
+// child is long gone. The signalling is graceful: SIGTERM at the ceiling,
+// then SIGKILL once killGrace has elapsed if anything in the group is still
+// alive (see escalate). WaitDelay remains as a second line of defence for
+// the wait itself.
 func (e *Engine) execShell(cmdline string, keys []string, vals render.Values) (stdout, stderr string, exitCode int, err error) {
 	cmd := exec.Command("sh", "-c", cmdline)
 	cmd.Dir = e.Root
@@ -57,16 +68,15 @@ func (e *Engine) execShell(cmdline string, keys []string, vals render.Values) (s
 	}
 
 	pgid := cmd.Process.Pid
-	var timedOut atomic.Bool
-	timer := time.AfterFunc(e.Timeout, func() {
-		timedOut.Store(true)
-		_ = syscall.Kill(-pgid, syscall.SIGKILL)
-	})
+	waitDone := make(chan struct{})
+	escDone := make(chan bool, 1)
+	go func() { escDone <- e.escalate(pgid, waitDone) }()
 	runErr := cmd.Wait()
-	timer.Stop()
+	close(waitDone)
+	timedOut := <-escDone
 	stdout, stderr = outBuf.String(), errBuf.String()
 
-	if timedOut.Load() {
+	if timedOut {
 		return stdout, stderr, -1, fmt.Errorf("%w: %q", errTimeout, cmdline)
 	}
 	if runErr == nil {
@@ -103,4 +113,54 @@ func (e *Engine) execDeterministic(step *spec.Step, vals render.Values) (result 
 		return emit.Result{}, false, stdout, stderr, exitCode, err
 	}
 	return result, false, stdout, stderr, exitCode, nil
+}
+
+// escalate enforces the wall-clock ceiling on the process group pgid. At
+// e.Timeout it sends SIGTERM to the group and reports timedOut=true. It
+// then gives the group killGrace (measured from the TERM) to exit:
+//
+//   - if Wait has not returned by then (sh itself ignored TERM), it sends
+//     SIGKILL so Wait can return;
+//   - if Wait returns earlier, it polls kill(-pgid, 0) until the group is
+//     gone (ESRCH) or the deadline passes, and sends SIGKILL only if
+//     something is still alive. This covers a grandchild that ignores TERM
+//     and holds the stdout pipe: Wait returns after waitDelay (< killGrace)
+//     with that grandchild still running, and stopping escalation at that
+//     point would leave it alive forever.
+//
+// waitDone is closed when cmd.Wait returns; escalate returns only after the
+// whole sequence is finished, so the caller's return never races a pending
+// kill. If the ceiling is never reached it returns false as soon as waitDone
+// closes.
+func (e *Engine) escalate(pgid int, waitDone <-chan struct{}) (timedOut bool) {
+	ceiling := time.NewTimer(e.Timeout)
+	defer ceiling.Stop()
+	select {
+	case <-waitDone:
+		return false
+	case <-ceiling.C:
+	}
+	_ = syscall.Kill(-pgid, syscall.SIGTERM)
+	deadline := time.NewTimer(killGrace)
+	defer deadline.Stop()
+
+	select {
+	case <-deadline.C:
+		_ = syscall.Kill(-pgid, syscall.SIGKILL)
+		return true
+	case <-waitDone:
+	}
+	tick := time.NewTicker(50 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		if errors.Is(syscall.Kill(-pgid, 0), syscall.ESRCH) {
+			return true // group gone; nothing to kill (and the pgid may be reused)
+		}
+		select {
+		case <-deadline.C:
+			_ = syscall.Kill(-pgid, syscall.SIGKILL) // ESRCH ignored
+			return true
+		case <-tick.C:
+		}
+	}
 }

@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dcferreira/agent-pawl/internal/engine"
 	"github.com/dcferreira/agent-pawl/internal/render"
@@ -385,6 +386,9 @@ func writeDispatchBody(w *blockWriter, indent int, d engine.Dispatch, maxAttempt
 		for i, c := range d.Context {
 			w.line(indent+1, fmt.Sprintf("[%d]", i+1), c.Source, fmt.Sprintf("(%d bytes)", len(c.Value)))
 			w.body(indent+1, c.Value)
+			if c.Status != "" {
+				w.line(indent+1, "("+c.Status+")")
+			}
 		}
 	}
 
@@ -611,21 +615,24 @@ func formatVerbatim(v any) string {
 }
 
 // singleLine collapses any embedded newline in s into a literal "\n", and
-// escapes every other line-break-like control sequence indentN also guards
-// against: a bare CR, U+2028, U+2029 and NUL. Unlike indentN, a header line
+// escapes every other control or line-break-like character indentN also
+// guards against (see neutralizeControls: every C0 byte but LF/TAB, DEL,
+// U+0085, U+2028/2029, the bidi controls). Unlike indentN, a header line
 // collapses every break to a visible escape rather than normalising CRLF to
 // a real "\n" — a header must stay one line, never gain an embedded newline
-// at all. Called only from blockWriter.line; nothing else in this package
+// at all. TAB passes through unchanged: it cannot start a column-0 line. Called only from blockWriter.line; nothing else in this package
 // writes a header/sentinel/one-liner without going through it.
 func singleLine(s string) string {
 	s = strings.ReplaceAll(s, "\r\n", "\\n")
 	s = strings.ReplaceAll(s, "\n", "\\n")
-	s = neutralizeControlLineBreaks(s)
+	s = neutralizeControls(s)
 	return s
 }
 
 // indentN prefixes every line of s with n spaces, ensuring the result ends
-// with exactly one trailing newline. Called only from blockWriter.body;
+// with exactly one trailing newline. Real LF and TAB in s are preserved (a
+// multi-line value renders as indented lines); every other control or
+// line-break-like character is escaped by neutralizeControls. Called only from blockWriter.body;
 // nothing else in this package writes a multi-line field without going
 // through it.
 func indentN(s string, n int) string {
@@ -633,7 +640,7 @@ func indentN(s string, n int) string {
 	if s == "" {
 		return prefix + "(empty)\n"
 	}
-	s = neutralizeControlLineBreaks(s)
+	s = neutralizeControls(s)
 	lines := strings.Split(strings.TrimSuffix(s, "\n"), "\n")
 	for i, l := range lines {
 		lines[i] = prefix + l
@@ -641,33 +648,62 @@ func indentN(s string, n int) string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
-// neutralizeControlLineBreaks normalises every line-break-like control
-// sequence in s to either a real "\n" (safe: indentN's own split-then-indent
-// applies to it, same as an author's ordinary newline) or a visible, inert
-// escape — never left as a raw byte some renderer, as opposed to Go's own
-// strings.Split(s, "\n"), might still treat as a line break or a
-// cursor-reset (finding R1, fix round 2):
+// neutralizeControls normalises every control or line-break-like character
+// in s to either a real "\n" or TAB (safe: indentN's own split-then-indent
+// applies to it, same as an author's ordinary newline and indentation) or a
+// visible, inert escape — never left as a raw byte some renderer, as opposed
+// to Go's own strings.Split(s, "\n"), might treat as a line break, a cursor
+// movement or a display reordering (finding R1, fix round 2, extended once
+// state values, "!cmd" output and context-file contents began reaching the
+// block carrying arbitrary bytes). After CRLF -> LF normalisation:
 //
-//   - a bare CR (one not part of a CRLF pair) moves a terminal's cursor back
-//     to column 0 without ever producing a Go-split line, silently undoing
-//     that line's leading indent for whatever text follows it — the
-//     original column-0 injection, restored for any reader that renders
-//     \r as \r rather than splitting on it;
-//   - U+2028 LINE SEPARATOR and U+2029 PARAGRAPH SEPARATOR are honoured as
-//     line breaks by many renderers (browsers, some terminals) though not
-//     by strings.Split(s, "\n");
-//   - a NUL byte passes through unchanged and can truncate or corrupt some
-//     readers.
+//   - every C0 byte except LF (0x0a) and TAB (0x09), and DEL (0x7f), becomes
+//     a visible escape: bare CR as "\r", every other one as "\xNN" (so NUL is
+//     "\x00", ESC "\x1b", VT "\x0b", FF "\x0c", 0x1c-0x1e "\x1c".."\x1e").
+//     CR and ESC sequences (e.g. "\x1b[2K\x1b[0G") let a human-terminal
+//     reader see a forged column-0 line; VT, FF and 0x1c-0x1e are line
+//     breaks to Python's str.splitlines;
+//   - U+0085 (NEL), U+2028, U+2029, the bidi embedding/override controls
+//     U+202A-U+202E and the bidi isolates U+2066-U+2069 become "\uXXXX"
+//     (lowercase hex, four digits).
 //
-// CRLF is normalised to a plain "\n" first, so an ordinary Windows-style
-// line ending still becomes an indented line rather than an escaped one.
-func neutralizeControlLineBreaks(s string) string {
+// Invalid UTF-8 is not touched: a byte that does not decode is passed
+// through unchanged (it cannot be mistaken for any of the above, and
+// mangling it would corrupt the data for no safety gain). Both singleLine
+// and indentN call this one function; nothing else decides what is safe.
+func neutralizeControls(s string) string {
 	s = strings.ReplaceAll(s, "\r\n", "\n")
-	s = strings.ReplaceAll(s, "\r", "\\r")
-	s = strings.ReplaceAll(s, " ", "\\u2028")
-	s = strings.ReplaceAll(s, " ", "\\u2029")
-	s = strings.ReplaceAll(s, "\x00", "\\x00")
-	return s
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); {
+		c := s[i]
+		switch {
+		case c == '\r':
+			b.WriteString("\\r")
+			i++
+		case c == '\n' || c == '\t':
+			b.WriteByte(c)
+			i++
+		case c < 0x20 || c == 0x7f:
+			fmt.Fprintf(&b, "\\x%02x", c)
+			i++
+		case c < utf8.RuneSelf:
+			b.WriteByte(c)
+			i++
+		default:
+			r, size := utf8.DecodeRuneInString(s[i:])
+			if r == utf8.RuneError && size == 1 {
+				b.WriteByte(c)
+			} else if r == 0x85 || r == 0x2028 || r == 0x2029 ||
+				(r >= 0x202a && r <= 0x202e) || (r >= 0x2066 && r <= 0x2069) {
+				fmt.Fprintf(&b, "\\u%04x", r)
+			} else {
+				b.WriteString(s[i : i+size])
+			}
+			i += size
+		}
+	}
+	return b.String()
 }
 
 // formatTerminal renders the TERMINAL block (DESIGN.md §2): the summary

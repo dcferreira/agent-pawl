@@ -12,7 +12,9 @@ the five kinds compare.
 - **`context:`** — files/command output `pawl` gathers into `DISPATCH`: `CHANGELOG.md` (verbatim),
   `!cmd "uv run pytest -q | tail -n 150"` (stdout). Only a scalar carrying the YAML tag `!cmd` is run
   as a command — a plain quoted string is always a file path, even one starting with `!`. `${key}`
-  inside `!cmd` resolves first. Keep it small.
+  inside `!cmd` resolves first. A `!cmd` that exits non-zero or times out still supplies its stdout,
+  followed by an engine line `(context command exited N)` / `(context command timed out)`. Keep it
+  small.
 - **`subagent_args:`** — extra arguments passed through verbatim for the subagent launch; the engine
   does not interpret or enforce any of it. In Claude Code these are typically `model`, `tools`,
   `effort:`; other harnesses use whatever they need. The one subagent rule the `PreToolUse` hook

@@ -39,22 +39,55 @@ everything else is logged, never parsed.
 ```
 
 `TOKEN` is present if and only if the step declares author-named `outcomes:` (names other than the
-reserved `success` / `failure` / `timeout` / `exhausted`). The `payload` is parsed per `emits:`:
+reserved `success` / `failure` / `timeout` / `exhausted` / `partial` / `chosen`). Which TOKENs a script may then
+print is the rule under "Reserved outcome tokens" in §A: an author-named `outcomes:` key, `failure`, or
+`success` if declared. The `payload` is parsed per `emits:`:
 
 | `emits:` | payload shape |
 |---|---|
 | `json` (default) | a JSON object whose keys are a subset of `writes:` |
-| `pairs` | whitespace-separated `k=v` tokens |
+| `pairs` | whitespace-separated `k=v` tokens; values are whitespace-free scalars only |
+
+**`pairs` grammar (frozen).** The payload is split on runs of whitespace (Go `strings.Fields`); each
+token must contain `=`, else the step fails as unintelligible stdout. The key is everything before
+the **first** `=` and the value everything after it, so a further `=` belongs to the value
+(`url=a=b` writes `a=b`). A key must be in `writes:`; an empty value (`k=`) is a value like any
+other (an empty string, or a coercion error for a non-`string` type). A key repeated in one line is
+not an error: the **last** occurrence wins. Because tokens split on whitespace, a value cannot
+contain a space, tab or newline; anything that must (free text, a diff, a multi-line message) or
+that has structure (a list, an object) uses `emits: json`.
 
 `emits:` is the **maximum** payload shape, not a per-emission obligation: a TOKEN-only line is valid
 under both modes, writes nothing, and leaves the declared keys at their previous values or their
 `default:`. A step that writes nothing declares no `writes:`.
 
-Values are coerced to the declared `state:` type and rejected loudly if they do not fit. The engine
-escapes C0 control characters at this boundary, once, for all workflows.
+Values are coerced to the declared `state:` type and rejected loudly if they do not fit — the engine
+never quietly stringifies an integer or reinterprets a string. **The coercion table (frozen):**
+
+| declared type | `emits: json` | `emits: pairs` | `agentic` submit (JSON object) |
+|---|---|---|---|
+| `integer` | a JSON number that parses as a base-10 `int64` (`3` yes; `3.0`, `1e2` no); a JSON string, whitespace-trimmed, parsed the same way (`" 3 "` is 3); anything else rejected | the token value, whitespace-trimmed, parsed as a base-10 `int64` | as for `emits: json`: submit decodes numbers keeping their written text, so a JSON number must parse as a base-10 `int64` (`3` yes; `3.7`, `1e2` rejected, not truncated; any value in the `int64` range is kept exactly), or a string as above; anything else rejected |
+| `number` | a JSON number as `float64`; a JSON string, whitespace-trimmed, via `strconv.ParseFloat`; anything else rejected | the token value via `strconv.ParseFloat` | a JSON number as `float64`; or a string via `strconv.ParseFloat`; anything else rejected |
+| `boolean` | a JSON `true`/`false`; a JSON string, whitespace-trimmed, via `strconv.ParseBool` (`1 t T TRUE true True 0 f F FALSE false False`); a JSON number is rejected | the token value via `strconv.ParseBool` | a JSON `true`/`false` **only** — a string is rejected (frozen: unlike `emits:`, no `ParseBool` strings) |
+| `string` | a JSON string; a JSON number is accepted and stored as its own written text (`42` becomes `"42"`); `true`/`null`/arrays/objects rejected | the token value, verbatim | a JSON string; a JSON number is accepted and stored as its own written text, as for `emits: json` (`42` stays `"42"`, `1000000` stays `"1000000"`, `1e6` stays `"1e6"`); anything else rejected |
+| `json` | any JSON value, kept as-is (numbers keep their written text) | the token value parsed as exactly one JSON value (trailing data such as `k={"a":1}x` or `k=1,2` is a type error) | any JSON value, kept as-is |
+
+A value that does not fit fails as unintelligible stdout (`emits:`) or a failed submit (`agentic`),
+naming the key, the value and the declared type; nothing is written.
+
+**Control characters.** State keeps real newline (LF) and TAB characters in a value. Every other C0
+control character (U+0000–U+001F) and DEL (U+007F) is stored as a visible `\u00XX` escape, uniformly
+for `emits: json`, `emits: pairs` and `agentic` submit, for `string` values and for every string inside
+a `json` value (object keys included). A multi-line `string` therefore just works; there is no need
+for a `type: json` workaround. There is no migration: a value an older `pawl` (≤ 0.7) already stored
+with a literal `\u000a` stays literal on resume. The engine's *output* boundary — the `DISPATCH` /
+`ASK` / `TERMINAL` / `WAIT` block writer — separately neutralises into visible escapes every control
+character except LF and TAB, plus DEL, U+0085, U+2028/U+2029 and the bidi controls U+202A–U+202E and
+U+2066–U+2069, and keeps a multi-line value indented beneath its header so it can never forge a
+column-0 instruction or sentinel line.
 
 A `string` value is also rejected when it is longer than its `max_length:` — counted in Unicode code
-points (like `wc -m`) on the value as stored, after C0 escaping. The cap is the tighter of the
+points (like `wc -m`) on the value as stored (a newline counts as 1). The cap is the tighter of the
 `state:` entry's and the writing step's own typed `writes:` entry's; it fails exactly like a type
 mismatch (`key "title": value is 80 characters, longer than max_length 72`).
 
@@ -78,6 +111,13 @@ knowable without running anything.
 substituted as **one shell-quoted token**. In *prose* contexts (`description:`, `question:`,
 `message:`) the raw value is substituted, JSON pretty-printed. `$${` renders a literal `${`.
 
+**Numbers render by declared type, never in exponent form.** An `integer` state/arg value renders
+as a plain decimal integer (`1000000`, `123456789`, `-5`). A `number` renders as the shortest
+decimal that round-trips exactly, never exponent form (`1e6` renders `1000000`, `0.1` renders `0.1`,
+`1e-7` renders `0.0000001`). This holds in shell, `$PAWL_<KEY>` and prose contexts alike, and
+regardless of how the value was stored (the engine rebuilds state from the journal on every
+invocation).
+
 **Never additionally double-quote a `${key}` in a shell context.** The substitution already is a
 single shell-quoted token (e.g. `'value'`), so `${key}` should stand alone, or be concatenated only
 with literal text outside any quotes (`origin/${branch}` is fine). Writing `"${key}"` embeds the
@@ -98,8 +138,15 @@ violated invariant's `message:`, or a fixed engine string naming the step and ou
 `"wait_for_ci: timeout"`, `"fix_tests: exhausted"`). It is always set by the time a `blocked`
 terminal's `message:` is rendered.
 
-Every key the engine can see a step reading is also exported to that step as `PAWL_<KEY>`
-(upper-cased). That is why every key name in `state:`, `args:` and `writes:` must be identifier-like —
+**Environment export (frozen).** Each command — a `run:`, a `poll:`, a `check:` or postcondition
+`command:`, a `!cmd` context entry — is exported, as `PAWL_<KEY>` (upper-cased), **only the keys that
+command's own template references via `${key}`**: not every state key, and not keys the step reads
+elsewhere (its `description:`, another command). A pseudo-key (`run_id`, `step`, `attempt`, `visits`,
+`last_error`, `blocked_reason`, and `item`/`item_index` in a `foreach:` body) is exported the same way
+when the template references it, and not otherwise. The reason: exporting all state would put large
+`json` values (a 126 KB diff, say) into every command's environment, and Linux caps one environment
+string at 128 KiB (`MAX_ARG_STRLEN`), failing the exec. A script that wants a key in its environment
+names it in its own command (`${branch}` in `run:` also makes `$PAWL_BRANCH` available). That is why every key name in `state:`, `args:` and `writes:` must be identifier-like —
 letters, digits and `_`, not starting with a digit (`^[A-Za-z_][A-Za-z0-9_]*$`; rule 21). `${key}`
 itself parses any text up to the closing `}`, so this restriction is enforced by `pawl validate`, not
 by the substitution grammar.
@@ -111,6 +158,16 @@ may not start with `_`; and may not export as an environment variable `pawl` its
 (`PAWL_ENFORCEMENT`, `PAWL_STATE_DIR`, and the plugin launcher's `PAWL_WRAPPER_ACTIVE` — reserved by
 name, so the keys `enforcement`, `state_dir` and `wrapper_active` are rejected). Two keys across `state:` ∪ `args:` that are equal case-insensitively, or the same key
 in both, collide on one `PAWL_<KEY>` and are rejected.
+
+**Script base (frozen).** For `run:`, `poll:`, `check:`, a postcondition `command:` and a `!cmd`
+context entry, the engine decides on the *unrendered* template whether the first token is a path: if
+it contains a `/` (after substituting any `${key}` in it, raw) and is not absolute, it is resolved
+relative to the **workflow file's directory** and then shell-quoted as one token (`scripts/x.sh a b`
+runs `<workflow dir>/scripts/x.sh`). A bare command name (`git`, `jq`, `sh`) is left alone and found
+via `PATH`; an absolute path is used as is. Only the first token is rewritten: every other argument
+is passed through, and the command's working directory is always the working-copy root (never the
+workflow's directory). A plain (non-`!cmd`) `context:` entry is a file path, relative to the workflow
+file's directory unless absolute.
 
 **Forward-compatibility promise.** Any environment variable `pawl` reads in future is named
 `PAWL__<NAME>` (double underscore). `state:`/`args:` keys may not start with `_`, so they can never
@@ -202,6 +259,14 @@ these are typically `model`, `tools`, `effort`; other harnesses use whatever the
 agentic step runs as a subagent. The one rule the `PreToolUse` hook keeps on a subagent is the
 VCS-mutation deny, which applies whenever any run is live for the working copy, not only while an
 agentic step is live (DESIGN.md §5); nothing in `subagent_args:` is engine- or hook-enforced.
+
+**A `!cmd` context entry's failure is shown, not hidden.** The command's stdout is always the context
+body. When it exits non-zero or hits the wall-clock ceiling, `pawl` additionally prints an
+engine-written status line under that context item in the `DISPATCH` block —
+`(context command exited N)` or `(context command timed out)` — so the subagent can tell a failed
+command's partial output from a clean one. A command that cannot even be started (or a context file
+that cannot be read) still blocks the dispatch. The status line is the engine's, never part of the
+command's own output.
 
 ### 7. `soft: true` — what it costs
 
@@ -490,7 +555,8 @@ before the next try.
 synchronously inside whichever `pawl` command is currently executing the step (`pawl run`, `pawl
 submit`, or `pawl poll` continuing on into a later step) — there is no separate command to poll, the
 way `wait`'s `poll:` loop has. In the worst case that call blocks for up to `max_attempts × Timeout`
-(the engine-wide wall-clock ceiling, `DefaultTimeout` = 10m unless overridden) plus
+(the engine-wide wall-clock ceiling, `DefaultTimeout` = 10m unless overridden, plus up to 5s of
+SIGTERM-to-SIGKILL grace per timed-out try) plus
 `backoff × 1 + backoff × 2 + ... + backoff × (max_attempts-1)` of sleep before it returns an
 instruction — a driving session running that command as an ordinary blocking call must budget for
 that, not the few-second ceiling a step without `retry:` would need. The engine writes one line per
@@ -538,7 +604,17 @@ journalled deadline.
 | `human` | a question mapped onto `AskUserQuestion` — options and/or a runtime list, optional multi-select, always free-text "Other" | the chosen option (static single-select), or the reserved `chosen`, or `timeout` |
 | `parallel` | `branches:` naming ≥ 2 declared `deterministic`/`agentic` steps, dispatched together and joined all-or-nothing (§B.15); or `foreach:` running one `deterministic` or `agentic` body per item of a json list (§B.15) | `branches:`: `success` (every branch succeeded) / `failure` (any branch failed) only; `foreach:`: `success` / `partial` / `failure` |
 
-Reserved outcome tokens, usable anywhere: `success`, `failure`, `timeout`, `exhausted`, `chosen`.
+Reserved outcome names: `success`, `failure`, `timeout`, `exhausted`, `partial`, `chosen`.
+
+**Which tokens a script may print.** A `deterministic` or `wait` script's last-line stdout TOKEN
+(exit 0) is routable only if it is one of: an author-named `outcomes:` key (any name not reserved
+above); `failure`, always, with or without a `catch:` entry; or `success`, only if the step declares
+`success` under `outcomes:`. The engine-owned names `exhausted`, `timeout`, `partial` and `chosen`
+are **never** routable from stdout, even when declared under `outcomes:` — such an `outcomes:` entry
+routes the outcome the engine itself produces (a spent budget, a wall-clock ceiling, a foreach join, a
+human answer), not a token a script prints. `catch:` contributes nothing to this set. Any other token
+is unintelligible stdout (a hard failure, to which `retry:` applies). The principle: a script may
+always report a clean failure, and may never forge an outcome the engine owns.
 
 **Allowed fields per kind** (§H rule 30; any other authored field is a validate error). Every kind
 accepts `id kind next outcomes catch max_visits attempt_key`; beyond that:

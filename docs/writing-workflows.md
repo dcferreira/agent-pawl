@@ -14,7 +14,15 @@
 the run banner prints which one it used.
 
 `scripts/` paths are resolved **relative to the workflow file**, not your shell's cwd — a repo-local
-workflow is self-contained. There is no `prompts/` directory: an agentic step's prompt is an inline
+workflow is self-contained. Precisely: for `run:`, `poll:`, `check:`, a postcondition `command:` and
+a `!cmd` context entry, the **first token** is rewritten if it contains a `/` and is not absolute
+(`scripts/x.sh`, `./x.sh`); a bare command name (`git`, `jq`) is found on `PATH`, and an absolute
+path is used as is. Other arguments are untouched, and the command runs with cwd at the working-copy
+root. A plain `context:` file is relative to the workflow file too.
+
+A `!cmd` context entry whose command exits non-zero or times out still contributes its stdout, and
+`pawl` prints `(context command exited N)` or `(context command timed out)` under that item in the
+`DISPATCH` block. Only a command that cannot be started blocks the dispatch. There is no `prompts/` directory: an agentic step's prompt is an inline
 `description:` in the YAML, composed into the subagent prompt at dispatch time (see
 [agentic steps](steps/agentic.md)).
 
@@ -53,7 +61,15 @@ code points; a longer write is rejected like a type mismatch.
 
 Types are `string`, `integer`, `number`, `boolean`, `json`; `type:` is required on every `state:`
 and `args:` entry, and a `default:` must match it. A value that does not fit its type is
-rejected — the engine will not quietly stringify your integer.
+rejected — the engine will not quietly stringify your integer. The exact accepted inputs per type
+and per source (`emits: json`, `emits: pairs`, an agentic submit) are the coercion table in
+`design/format-spec.md` §B.1.
+
+A script's last-line `emits: pairs` payload is `k=v` tokens split on whitespace, so a `pairs` value
+can never contain whitespace; free text, multi-line output or anything structured goes through
+`emits: json`. A `string` value keeps real newlines and tabs; every other control character is
+stored as a visible `\u00XX` escape, so multi-line text needs no `type: json` workaround.
+`max_length:` counts the stored value (a newline is one character).
 
 Read a key as `${key}`. Substitution works in `run:`, `poll:`, `check:`, `postcondition:`,
 `description:`, `context:` (including inside a `!cmd`, resolved before the command runs), `question:`,
@@ -67,8 +83,12 @@ quotes survives an argument boundary intact. In prose contexts (`description:`, 
 
 Six pseudo-keys are always readable and never declared: `run_id`, `step`, `attempt`, `visits`,
 `last_error`, `blocked_reason` (plus `item`/`item_index` inside a `foreach:` body). Scripts also get
-state through the environment: every key a step reads is exported as `PAWL_<KEY>`, upper-cased —
-`${branch}` is also `$PAWL_BRANCH`.
+state through the environment, but only per command: each command (`run:`, `poll:`, `check:`,
+postcondition `command:`, `!cmd`) gets `PAWL_<KEY>`, upper-cased, for just the keys *its own*
+template references — `run: scripts/x.sh ${branch}` also sees `$PAWL_BRANCH`, but a key used only in
+`description:` or another step's command is not exported. (Exporting all state would put a large
+`json` value in every environment and trip Linux's 128 KiB per-string limit.) Pseudo-keys follow the
+same rule: exported only when referenced.
 
 Those names are reserved as `state:`/`args:` keys (case-insensitively), as are keys starting with `_`
 and keys that would export as `PAWL_ENFORCEMENT`, `PAWL_STATE_DIR` or `PAWL_WRAPPER_ACTIVE`; two keys equal
