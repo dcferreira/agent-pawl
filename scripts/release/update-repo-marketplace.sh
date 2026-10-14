@@ -29,6 +29,9 @@
 # (see its header): base X.Y.Z numerically, a bare release after its own
 # prereleases, prereleases among themselves by suffix.
 #
+# A prerelease release source (X.Y.Z-pre) is refused the same way (notice,
+# exit 0, file untouched): see is-prerelease.sh.
+#
 # Sourced by test-checks.sh; guarded at the bottom by PAWL_RELEASE_CHECK_TEST
 # like the other release scripts.
 set -euo pipefail
@@ -101,6 +104,19 @@ update_repo_marketplace() {
     echo "FAIL: $release .plugins[0].source is invalid: $why" >&2
     return 1
   fi
+
+  # Belt and braces for release.yml, which already skips this step for a
+  # prerelease (is-prerelease.sh): the repo marketplace is what
+  # `/plugin marketplace add` installs from, so a release candidate must never
+  # land there, whoever calls this.
+  # (Inlined rather than sourcing is-prerelease.sh: that script's own
+  # main-guard would fire when sourced outside the test harness.)
+  case "$new_ver" in
+  *-*)
+    echo "notice: v$new_ver is a prerelease — not pointing $repo at it"
+    return 0
+    ;;
+  esac
 
   local cur_src
   cur_src="$(jq -c '[.plugins[]? | select(.name == "agent-pawl")][0].source // empty' "$repo")" || {

@@ -121,7 +121,20 @@ jobs:
       # scripts/release/*.sh's pure logic (fragment/version-bump checks) is
       # unit-tested against throwaway git fixture repos, no network — see
       # scripts/release/test-checks.sh.
+      #
+      # Its release-candidate end-to-end proof drives a real changie, pinned
+      # to the same version release-pr.yml installs. PAWL_REQUIRE_CHANGIE makes
+      # a missing/wrong changie a failure instead of a skipped proof (same idea
+      # as PAWL_REQUIRE_VCS_TOOLS above). setup-go's module/build cache (on by
+      # default) covers the install; GOPATH/bin is put on PATH explicitly.
+      - name: Install changie
+        run: |
+          go install github.com/miniscruff/changie@v1.26.0
+          echo "$(go env GOPATH)/bin" >>"$GITHUB_PATH"
+
       - name: Test release check scripts
+        env:
+          PAWL_REQUIRE_CHANGIE: "1"
         run: make test-release-checks
 
       # bin/pawl, the plugin launcher: bundled-binary exec, platform mapping

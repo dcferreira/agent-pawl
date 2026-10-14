@@ -62,3 +62,8 @@ release:
   # merges to main, so publishing immediately is correct — there's no
   # separate promotion step in this repo.
   draft: false
+  # Any tag with a semver prerelease suffix (v1.0.0-rc.1) is published as a
+  # GitHub prerelease, which GitHub never marks "latest" — so install.sh and
+  # `pawl update` (both resolve /releases/latest) never pick a release
+  # candidate; testers opt in by pinning the version explicitly.
+  prerelease: auto

@@ -1,0 +1,5 @@
+kind: added
+body: The release pipeline now supports release candidates (vX.Y.Z-rc.N), published as GitHub prereleases that install.sh, `pawl update` and the repo marketplace never pick up.
+time: 2026-10-14T15:00:00.000000000+00:00
+custom:
+  PR: "55"

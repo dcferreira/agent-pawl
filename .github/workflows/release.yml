@@ -54,6 +54,20 @@ jobs:
           set -euo pipefail
           echo "VERSION=$(changie latest)" >>"$GITHUB_ENV"
 
+      # A release candidate (v1.0.0-rc.1) is published as a GitHub prerelease
+      # (goreleaser's prerelease: auto) but must not become what
+      # `/plugin marketplace add dcferreira/agent-pawl` installs, so the three
+      # repo-marketplace steps below are skipped for it. The plugin zip and
+      # marketplace.json are still uploaded to the prerelease: harmless there,
+      # and testers can install the rc from them.
+      - name: Skip the repo marketplace for a prerelease
+        run: |
+          set -euo pipefail
+          if bash scripts/release/is-prerelease.sh "$VERSION"; then
+            echo "::notice::${VERSION} is a prerelease — not pointing the repo marketplace at it."
+            echo "SKIP_MARKETPLACE=1" >>"$GITHUB_ENV"
+          fi
+
       - name: Sanity-check plugin.json agrees with .changes/
         run: bash scripts/release/check-version-consistency.sh
 
