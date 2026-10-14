@@ -265,7 +265,7 @@ func SyncLiveIndexSlug(slug string) error {
 	prefix := slug + "__"
 	want := map[string]string{}
 	for _, r := range live {
-		if r.State.EnforcementOff() {
+		if r.State != nil && r.State.EnforcementOff() {
 			continue
 		}
 		want[prefix+r.WorkflowID+"__"+r.RunID] = r.Dir
@@ -356,15 +356,27 @@ func liveIndexed(match func(runDir string) bool) ([]RunRef, error) {
 		if match != nil && !match(runDir) {
 			continue
 		}
+		ref := RunRef{Slug: parts[0], WorkflowID: parts[1], RunID: parts[2], Dir: runDir}
 		events, err := ReadEvents(runDir)
-		if err != nil || len(events) == 0 {
-			continue
+		if err == nil {
+			if len(events) == 0 {
+				continue
+			}
+			var rs *RunState
+			if rs, err = Replay(events); err == nil {
+				if rs.Terminal() {
+					continue
+				}
+				ref.State = rs
+				out = append(out, ref)
+				continue
+			}
 		}
-		rs, err := Replay(events)
-		if err != nil || rs.Terminal() {
-			continue
+		// An unreplayable run stays visible (opaque) unless it ended.
+		if o, ok := opaqueRef(runDir, err); ok && !o.Ended {
+			ref.Opaque = o
+			out = append(out, ref)
 		}
-		out = append(out, RunRef{WorkflowID: parts[1], RunID: parts[2], Dir: runDir, State: rs})
 	}
 	return out, nil
 }

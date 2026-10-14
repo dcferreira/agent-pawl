@@ -649,3 +649,63 @@ func TestHookStop_ExpiredMarkerBlocksAndIsPruned(t *testing.T) {
 }
 
 func mustOut(_ int, out, _ string) string { return out }
+
+// startOpaqueRun writes a run directory in root that this build cannot
+// replay: format-99 RUN_START, an unknown event kind, a format-99 plan.json.
+func startOpaqueRun(t *testing.T, root string) (runID string) {
+	t.Helper()
+	runID = "r99"
+	dir, err := journal.CreateRunDir(root, "wfx", runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev := `{"kind":"RUN_START","run_id":"r99","seq":0,"time":"2026-01-01T00:00:00Z","format":99}` + "\n" +
+		`{"kind":"FUTURE_THING","run_id":"r99","seq":1,"time":"2026-01-01T00:00:01Z"}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "events.jsonl"), []byte(ev), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plan.json"), []byte(`{"format":99}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return runID
+}
+
+func TestHookPre_OpaqueRunSubagentVCSDenyNamesAbandon(t *testing.T) {
+	root := setupWorkingCopy(t)
+	runID := startOpaqueRun(t, root)
+	code, out, errs := hookCall(t, "pre", prePayload(root, "s1", "git commit -am x", "agent-1"))
+	reason, ok := preDenyReason(t, code, out)
+	if !ok || !strings.Contains(reason, "pawl abandon --run "+runID) || !strings.Contains(reason, "newer-format") || !strings.Contains(reason, "wfx") {
+		t.Fatalf("code=%d out=%q err=%q", code, out, errs)
+	}
+	// Guards are not applied and nothing fails closed for the main session.
+	if code, out, _ := hookCall(t, "pre", prePayload(root, "s1", "git push", "")); code != 0 || out != "" {
+		t.Fatalf("code=%d out=%q", code, out)
+	}
+}
+
+func TestHookStop_OpaqueRunNeverBlocks(t *testing.T) {
+	root := setupWorkingCopy(t)
+	runID := startOpaqueRun(t, root)
+	if err := journal.WriteDriver(journal.RunDir(root, "wfx", runID), "s1", nowFunc()); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, errs := hookCall(t, "stop", stopPayload(root, "s1", false)); code != 0 || out != "" || errs != "" {
+		t.Fatalf("code=%d out=%q err=%q", code, out, errs)
+	}
+}
+
+func TestHookSubagentStop_OpaqueRunWritesNothing(t *testing.T) {
+	root := setupWorkingCopy(t)
+	runID := startOpaqueRun(t, root)
+	if err := journal.WriteDriver(journal.RunDir(root, "wfx", runID), "s1", nowFunc()); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errs := hookCall(t, "subagent-stop", subagentStopPayload(root, "s1", "a1"))
+	if code != 0 || out != "" || errs != "" {
+		t.Fatalf("code=%d out=%q err=%q", code, out, errs)
+	}
+	if m := stopMarkers(t, "s1"); len(m) != 0 {
+		t.Fatalf("markers = %+v", m)
+	}
+}

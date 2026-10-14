@@ -2,6 +2,8 @@ package cli
 
 import (
 	"errors"
+	"fmt"
+	"io"
 
 	"github.com/dcferreira/agent-pawl/internal/engine"
 	"github.com/dcferreira/agent-pawl/internal/journal"
@@ -84,7 +86,8 @@ func exitForLookupErr(err error) int {
 
 func exitForEngineErr(err error) int {
 	switch {
-	case errors.Is(err, journal.ErrHeld),
+	case errors.Is(err, journal.ErrNewerFormat),
+		errors.Is(err, journal.ErrHeld),
 		errors.Is(err, engine.ErrDigestMismatch),
 		errors.Is(err, engine.ErrAlreadyTerminal),
 		errors.Is(err, engine.ErrRefused):
@@ -92,4 +95,56 @@ func exitForEngineErr(err error) int {
 	default:
 		return 5
 	}
+}
+
+// opaqueSentence is the cmd-less refusal text for a run this build cannot
+// replay (journal.RunRef.Opaque): (a) for a run written by a newer pawl,
+// (b) for a run of a known format whose events are unreadable. An unknown
+// format stamp (0) renders as 1: an unstamped journal is format 1.
+func opaqueSentence(ref *journal.RunRef) string {
+	o := ref.Opaque
+	if o.Ended {
+		msg := fmt.Sprintf("run %s has already ended (%s)", ref.RunID, ref.StatusText())
+		if o.EndReason != "" {
+			msg += ": " + o.EndReason
+		}
+		return msg
+	}
+	if o.Newer() {
+		return newerSentence(ref.RunID, o.Format)
+	}
+	return fmt.Sprintf("run %s cannot be replayed (format %d): %v; repair its events.jsonl, or `pawl abandon --run %s`", ref.RunID, journal.NormalizeFormat(o.Format), o.Err, ref.RunID)
+}
+
+func newerSentence(runID string, format int) string {
+	return fmt.Sprintf("run %s was written by a newer pawl (format %d; this pawl reads formats 1-%d); upgrade, or `pawl abandon --run %s`", runID, format, journal.Format, runID)
+}
+
+// opaqueRefusal prints the refusal for an opaque run under cmd (e.g. "pawl
+// submit") to stderr and returns its exit code: 4 for a newer format, 5 for
+// an unreadable one.
+func opaqueRefusal(stderr io.Writer, cmd string, ref *journal.RunRef) int {
+	printLine(stderr, cmd+":", opaqueSentence(ref))
+	if ref.Opaque.Newer() {
+		return 4
+	}
+	return 5
+}
+
+// printEngineErr prints err (from an Engine call or loadPinnedWorkflow) under
+// cmd and returns its exit code. A *journal.FormatError — a newer-format
+// journal or plan met on an engine path — gets the same text and exit 4 as
+// opaqueRefusal; anything else is "cmd: err" with fallback unless
+// exitForEngineErr says it is a refusal.
+func printEngineErr(stderr io.Writer, cmd, runID string, err error, fallback int) int {
+	var fe *journal.FormatError
+	if errors.As(err, &fe) {
+		printLine(stderr, cmd+":", newerSentence(runID, fe.Format))
+		return 4
+	}
+	printLine(stderr, cmd+":", err.Error())
+	if code := exitForEngineErr(err); code != 5 {
+		return code
+	}
+	return fallback
 }

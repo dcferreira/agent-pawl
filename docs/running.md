@@ -76,7 +76,7 @@ soft: 0/23 steps (0.0%): (none)
 separate word per kind (there's no `dispatched`/`asking`/`waiting`) — and, once the run has ended,
 whatever its `RUN_END` recorded: the terminal's own declared `status:` (normatively `ok` or
 `blocked` — see [format-spec.md §B.12](../design/format-spec.md)), or `abandoned` for a run `pawl
-abandon` ended. A `reason:` line appears only when one was recorded (a `blocked` run's diagnostic,
+abandon` ended. A run pawl cannot replay shows `newer-format` (written by a newer pawl) or `unreadable` (corrupt journal) instead; `pawl run`/`submit`/`poll` refuse it, and `pawl abandon` ends it. A `reason:` line appears only when one was recorded (a `blocked` run's diagnostic,
 or an abandon's `--reason`). `root` is worth checking if enforcement looks wrong; `--json` (see
 [cli.md](cli.md)) prints the same fields, machine-readably.
 

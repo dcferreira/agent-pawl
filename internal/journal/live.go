@@ -40,7 +40,11 @@ type RunRef struct {
 	WorkflowID string
 	RunID      string
 	Dir        string
-	State      *RunState
+	// State is the replayed run; nil exactly when Opaque is set.
+	State *RunState
+	// Opaque is non-nil for a run whose journal could not be replayed
+	// (newer format or corrupt); see OpaqueRun.
+	Opaque *OpaqueRun
 }
 
 // Live enumerates every non-terminal run (BLOCKED included, per DESIGN.md
@@ -49,10 +53,10 @@ type RunRef struct {
 //
 // A run directory that exists but has never recorded a single event (e.g.
 // created and then abandoned before RUN_START landed) is not counted: it has
-// nothing to resume. An unreadable or corrupt run directory, or workflow-id
-// directory, is skipped rather than aborting the whole scan — one bad run
-// must not hide every other live run for the working copy from `pawl run`'s
-// resume rule.
+// nothing to resume. A run whose journal cannot be replayed (newer format, or
+// corrupt) is NOT skipped: it is returned with a nil State and RunRef.Opaque
+// set, so it stays visible to resume, the hooks and abandon. An unreadable
+// workflow-id directory is skipped rather than aborting the whole scan.
 func Live(root string) ([]RunRef, error) {
 	return liveSlug(Slug(root))
 }
@@ -64,7 +68,7 @@ func liveSlug(slug string) ([]RunRef, error) {
 	}
 	var live []RunRef
 	for _, ref := range all {
-		if ref.State.Terminal() {
+		if ref.Terminal() {
 			continue
 		}
 		live = append(live, ref)
@@ -97,7 +101,7 @@ func FindLiveRunElsewhere(runID, excludeSlug string) ([]RunRef, error) {
 			continue
 		}
 		for _, r := range runs {
-			if r.RunID == runID && !r.State.Terminal() {
+			if r.RunID == runID && !r.Terminal() {
 				found = append(found, r)
 			}
 		}
@@ -153,7 +157,7 @@ func FindRun(root, runID string) (*RunRef, error) {
 
 	var live []RunRef
 	for _, m := range matches {
-		if !m.State.Terminal() {
+		if !m.Terminal() {
 			live = append(live, m)
 		}
 	}
@@ -163,7 +167,7 @@ func FindRun(root, runID string) (*RunRef, error) {
 
 	candidates := make([]string, len(matches))
 	for i, m := range matches {
-		candidates[i] = fmt.Sprintf("%s/%s (%s)", m.WorkflowID, m.RunID, m.State.Status())
+		candidates[i] = fmt.Sprintf("%s/%s (%s)", m.WorkflowID, m.RunID, m.StatusText())
 	}
 	sort.Strings(candidates)
 	return nil, fmt.Errorf("run id %q is ambiguous across workflows for this working copy: %s", runID, strings.Join(candidates, ", "))
@@ -172,9 +176,9 @@ func FindRun(root, runID string) (*RunRef, error) {
 // allRuns walks every run directory under root's slug, replaying each one's
 // events. A run directory that exists but has never recorded a single event
 // (e.g. created and then abandoned before RUN_START landed) is skipped: it
-// has no state to report. An unreadable or corrupt run directory, or
-// workflow-id directory, is skipped rather than aborting the whole scan —
-// one bad run must not hide every other run for the working copy.
+// has no state to report. A run directory with events that cannot be read or
+// replayed is kept as an opaque RunRef (State nil, Opaque set). An unreadable
+// workflow-id directory is skipped rather than aborting the whole scan.
 func allRuns(root string) ([]RunRef, error) {
 	return allRunsSlug(Slug(root))
 }
@@ -207,15 +211,23 @@ func allRunsSlug(slug string) ([]RunRef, error) {
 			}
 			runID := rd.Name()
 			dir := filepath.Join(base, workflowID, runID)
+			ref := RunRef{Slug: slug, WorkflowID: workflowID, RunID: runID, Dir: dir}
 			events, err := ReadEvents(dir)
-			if err != nil || len(events) == 0 {
-				continue
+			if err == nil {
+				if len(events) == 0 {
+					continue
+				}
+				var rs *RunState
+				if rs, err = Replay(events); err == nil {
+					ref.State = rs
+					all = append(all, ref)
+					continue
+				}
 			}
-			rs, err := Replay(events)
-			if err != nil {
-				continue
+			if o, ok := opaqueRef(dir, err); ok {
+				ref.Opaque = o
+				all = append(all, ref)
 			}
-			all = append(all, RunRef{Slug: slug, WorkflowID: workflowID, RunID: runID, Dir: dir, State: rs})
 		}
 	}
 	return all, nil

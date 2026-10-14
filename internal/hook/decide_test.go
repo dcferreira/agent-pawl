@@ -2,6 +2,7 @@ package hook
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -318,5 +319,77 @@ func TestDecideStop_SubagentStopCredit(t *testing.T) {
 	}
 	if d := DecideStop([]LiveRun{agentic}, stop("s1", false), nil, stopNow); d.Allow {
 		t.Fatalf("second stop must block: %+v", d)
+	}
+}
+
+func opaqueRun() LiveRun {
+	return LiveRun{RunID: "r99", WorkflowID: "wfx", Opaque: true, OpaqueStatus: "newer-format", DriverSession: "s1",
+		// A newer-format run's cursor is unknowable; even if a caller set
+		// these, an opaque run must never block a Stop.
+		CursorStep: "fix", CursorKind: "agentic"}
+}
+
+func TestDecidePre_OpaqueRunGuardsNotApplied(t *testing.T) {
+	r := opaqueRun()
+	r.Guards = table(t, spec.GuardDecl{ID: "no-push", Match: `git push`, OnlyIn: []string{"commit"}})
+	r.GuardsErr = fmt.Errorf("should be ignored")
+	if d := DecidePre([]LiveRun{r}, bash("git push")); !d.Allow {
+		t.Fatalf("opaque run must not apply guards or fail closed; got %+v", d)
+	}
+}
+
+func TestDecidePre_OpaqueRunSubagentVCSDenied(t *testing.T) {
+	p := bash("git commit -am x")
+	p.AgentID = "agent-1"
+	d := DecidePre([]LiveRun{opaqueRun()}, p)
+	if d.Allow {
+		t.Fatalf("got %+v", d)
+	}
+	for _, want := range []string{"run r99", "(wfx)", "newer-format", "pawl abandon --run r99"} {
+		if !strings.Contains(d.Reason, want) {
+			t.Errorf("reason %q lacks %q", d.Reason, want)
+		}
+	}
+	// Main session is still not subject to the subagent rule.
+	if d := DecidePre([]LiveRun{opaqueRun()}, bash("git commit -am x")); !d.Allow {
+		t.Fatalf("main session got %+v", d)
+	}
+}
+
+func TestDecidePre_OpaqueRunNormalDenyTextUnchanged(t *testing.T) {
+	runs := []LiveRun{{RunID: "ab12", WorkflowID: "wf", CursorStep: "fix"}}
+	p := bash("git commit -am x")
+	p.AgentID = "agent-1"
+	want := "pawl: a subagent may not mutate VCS while run ab12 is live (step fix); leave commits to the workflow's own steps"
+	if d := DecidePre(runs, p); d.Reason != want {
+		t.Fatalf("reason = %q", d.Reason)
+	}
+}
+
+func TestDecidePre_MixedNormalAndOpaquePerRun(t *testing.T) {
+	normal := LiveRun{RunID: "ab12", WorkflowID: "wf", CursorStep: "fix", ActiveSteps: []string{"fix"},
+		Guards: table(t, pushOnlyInCommit)}
+	runs := []LiveRun{opaqueRun(), normal}
+	if d := DecidePre(runs, bash("git push")); d.Allow || !strings.Contains(d.Reason, "push-in-commit") {
+		t.Fatalf("normal run's guard must still apply; got %+v", d)
+	}
+	if d := DecidePre(runs, bash("ls")); !d.Allow {
+		t.Fatalf("got %+v", d)
+	}
+	p := bash("git commit -am x")
+	p.AgentID = "a"
+	if d := DecidePre(runs, p); d.Allow || !strings.Contains(d.Reason, "pawl abandon --run r99") {
+		t.Fatalf("opaque first run is named; got %+v", d)
+	}
+}
+
+func TestDecideStop_OpaqueRunNeverBlocks(t *testing.T) {
+	if d := DecideStop([]LiveRun{opaqueRun()}, stop("s1", false), nil, stopNow); !d.Allow {
+		t.Fatalf("got %+v", d)
+	}
+	normal := LiveRun{RunID: "ab12", WorkflowID: "wf", CursorStep: "fix", CursorKind: "agentic", DriverSession: "s1"}
+	d := DecideStop([]LiveRun{opaqueRun(), normal}, stop("s1", false), nil, stopNow)
+	if d.Allow || !strings.Contains(d.Reason, "ab12") {
+		t.Fatalf("normal run still blocks; got %+v", d)
 	}
 }

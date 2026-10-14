@@ -1,8 +1,11 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -74,11 +77,30 @@ func cmdStatus(args []string, cwd string, stdout, stderr io.Writer) int {
 			ids := make([]string, len(live))
 			for i, r := range live {
 				ids[i] = r.RunID
+				if r.Opaque != nil {
+					ids[i] += " (" + r.StatusText() + ")"
+				}
 			}
 			sort.Strings(ids)
 			printLine(stderr, fmt.Sprintf("pawl status: multiple runs are live for this working copy; disambiguate with --run <id>: %s", strings.Join(ids, ", ")))
 			return 1
 		}
+	}
+
+	if ref.Opaque != nil {
+		// Read-only: show the run and why it cannot be driven, exit 0.
+		if asJSON {
+			fmt.Fprint(stdout, formatStatusOpaqueJSON(root, ref))
+		} else {
+			w := &blockWriter{}
+			w.line(0, "root:", root)
+			w.line(0, "run:", ref.RunID)
+			w.line(0, "workflow:", ref.WorkflowID)
+			w.line(0, "status:", ref.StatusText())
+			w.line(0, "detail:", opaqueSentence(ref))
+			fmt.Fprint(stdout, w.String())
+		}
+		return 0
 	}
 
 	// C1: read the workflow from plan.json, never by re-resolving the run
@@ -150,4 +172,35 @@ func formatVisits(visits map[string]int) string {
 		parts[i] = fmt.Sprintf("%s=%d", n, visits[n])
 	}
 	return strings.Join(parts, ", ")
+}
+
+// formatStatusOpaqueJSON is --json output for a run this build cannot replay:
+// the documented envelope, with empty values for what cannot be known.
+// workflow is the path recorded in the run's own plan.json (decoded
+// leniently, so a newer-format plan still yields it), or "" when absent or
+// unreadable; the workflow ID is never re-resolved as a filename.
+func formatStatusOpaqueJSON(root string, ref *journal.RunRef) string {
+	workflowPath := ""
+	if data, err := os.ReadFile(filepath.Join(ref.Dir, "plan.json")); err == nil {
+		var plan struct {
+			Workflow *struct {
+				Path string `json:"path"`
+			} `json:"workflow"`
+		}
+		if json.Unmarshal(data, &plan) == nil && plan.Workflow != nil {
+			workflowPath = plan.Workflow.Path
+		}
+	}
+	return mustJSONLine(statusJSON{
+		Root: root,
+		Runs: []statusRunJSON{{
+			RunID:     ref.RunID,
+			Workflow:  workflowPath,
+			Status:    ref.StatusText(),
+			Visits:    map[string]int{},
+			StateKeys: []string{},
+			Reason:    opaqueSentence(ref),
+			Soft:      statusSoftJSON{StepIDs: []string{}},
+		}},
+	})
 }

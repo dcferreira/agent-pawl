@@ -82,6 +82,19 @@ If the reason is a postcondition you cannot satisfy, the fix is usually in the w
 world — see [validation.md](validation.md) rule 6. An invariant that "cannot run at all" also counts
 as violated.
 
+## "run <id> was written by a newer pawl"
+
+```
+pawl run: run 7f3a was written by a newer pawl (format 3; this pawl reads formats 1-2); upgrade, or `pawl abandon --run 7f3a`
+```
+
+Exit 4. The run's journal is in an on-disk format this binary does not know, so `pawl run`, `submit`
+and `poll` refuse it instead of guessing; `pawl status` still shows it (`newer-format`). Upgrade pawl
+(`pawl update`, or the plugin) and resume, or `pawl abandon --run 7f3a` to end it. A corrupt journal in
+a known format is the same shape of refusal (`cannot be replayed (format N): <err>`, exit 5, status
+`unreadable`): repair its `events.jsonl`, or abandon. While such a run is live, the hooks still deny
+subagent VCS writes (naming the run and `pawl abandon`), but apply none of its guards and never block `Stop` on it.
+
 ## The workflow file changed mid-run
 
 ```

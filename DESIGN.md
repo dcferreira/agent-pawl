@@ -257,8 +257,17 @@ binary reads every earlier format (a format-1 `plan.json`, which used Go field n
 `plan.json`'s snake_case keys, goes through a legacy decode that renames only struct field keys, never
 user-authored map keys); downgrade is not promised, so an older binary may not read a newer run.
 Adding an event kind or changing `plan.json`'s shape bumps `Format`. `Replay` and `ReadPlan` return a
-typed error for a run whose format is newer than the binary knows; a user-facing refusal for that case
-is not built yet.
+typed error for a run whose format is newer than the binary knows.
+
+A run whose `events.jsonl` cannot be read or replayed — a newer format, or corruption in a known
+format — is never silently skipped: it stays visible as an *opaque* run (`journal/opaque.go`), status
+`newer-format` or `unreadable`, in resume lookup, `pawl status` (exit 0) and `pawl abandon`. `pawl
+run`/`submit`/`poll` refuse it rather than guess: a newer format exits 4 (`written by a newer pawl
+(format N; this pawl reads formats 1-2); upgrade, or `pawl abandon --run <id>``), an unreadable known
+format exits 5 (`cannot be replayed (format N): <err>; repair its events.jsonl, or `pawl abandon --run
+<id>``), and `pawl run` never starts fresh past one (`--fresh` still does). `pawl abandon` ends it by
+appending the frozen-shape `RUN_END` without replaying. A torn final line with no trailing newline
+(a crash mid-append) is an uncommitted write and is ignored, not treated as corruption.
 
 **Resume.** `pawl run <name>` resumes a non-terminal run — `BLOCKED` included — when exactly one
 resolves for this working copy; `--run <id>` is only needed to disambiguate several.
@@ -392,7 +401,7 @@ invocation) is only a cache: `bin/pawl-hook`'s "is anything live at all" check, 
 runs in other working copies. The actual decision always comes from the run directories themselves —
 `ResolveRoot` + `journal.Live`, and for a `live/` entry `journal.LiveIndexed`, which accepts it only
 if its target is `<state_base>/<slug>/<workflow_id>/<run_id>` spelling the entry's own name and
-replays as non-terminal — never from the symlink's presence alone (deviation 4). Hooks read stdin for *data*, never for identity: one algorithm run
+replays as non-terminal (or is an opaque run, see above, whose last event is not an ending RUN_END) — never from the symlink's presence alone (deviation 4). Hooks read stdin for *data*, never for identity: one algorithm run
 independently by both sides against the same disk state is the only structural way to stop the two
 layers disagreeing about which run is live. `pawl status` prints the resolved root and run id.
 
@@ -424,6 +433,11 @@ cursor on the `parallel` step for the whole fan-out, so that step's own id is ac
 transitions: `only_in: [p]` for a `parallel` step `p` permits the pattern in every branch for the
 entire fan-out, while `only_in: [b]` for a branch `b` permits it only until `b` resolves (its grouped
 TRANSITION is journaled).
+
+An opaque run (above) counts as live but unreadable to the hooks: its `guards:` are not applied, and
+`Stop` never blocks on it and it earns no subagent-stop credit, but the subagent-VCS deny below still
+applies to it — fail closed, though its enforcement mode cannot be read — with a reason naming the
+run and `pawl abandon --run <id>`.
 
 `PreToolUse` also denies VCS-mutating `Bash` from a subagent (`agent_id` present in the payload)
 whenever any run is live for this working copy, not only while an agentic step is live — the one

@@ -1,0 +1,5 @@
+kind: changed
+body: 'A run pawl can''t replay (written by a newer pawl, or with a corrupt journal) no longer silently disappears: `pawl run`/`submit`/`poll` refuse it with an upgrade-or-abandon message (exit 4, or 5 for a corrupt journal), `pawl status` shows it, `pawl abandon` ends it, and the hooks keep denying subagent VCS writes while it is live.'
+time: 2026-10-14T17:01:33.901568586+02:00
+custom:
+  PR: "59"

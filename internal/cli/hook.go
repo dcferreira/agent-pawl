@@ -105,7 +105,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 		for _, r := range runs {
 			// Only a run awaiting this session's `pawl submit` earns credit:
 			// a blocked run, or one at a wait/human cursor, never blocks a Stop.
-			if r.DriverSession != "" && r.DriverSession == p.SessionID && !r.Blocked &&
+			if !r.Opaque && r.DriverSession != "" && r.DriverSession == p.SessionID && !r.Blocked &&
 				(r.CursorKind == "agentic" || r.CursorKind == "parallel") {
 				if err := journal.WriteSubagentStop(p.SessionID, p.AgentID, nowFunc(), hook.SubagentStopCreditTTL); err != nil {
 					printLine(stderr, "pawl hook subagent-stop: recording marker:", err.Error())
@@ -200,13 +200,29 @@ func appendDrivenRuns(live []journal.RunRef, sessionID string) []journal.RunRef 
 
 // buildLiveRuns builds hook.LiveRun values for live runs from the run
 // directory alone: replayed state, plan.json (guards and step kinds) and
-// driver.json. A run started with enforcement opted out
+// driver.json. An opaque run (journal.RunRef.Opaque) becomes a minimal
+// LiveRun with Opaque set. A run started with enforcement opted out
 // (journal.RunState.EnforcementOff) is left out entirely, so neither
 // DecidePre nor DecideStop ever acts on it — its banner said its guards are
 // NOT enforced, and nothing is checked for it.
 func buildLiveRuns(live []journal.RunRef) []hook.LiveRun {
 	out := make([]hook.LiveRun, 0, len(live))
 	for _, ref := range live {
+		if ref.Opaque != nil {
+			// Unreadable journal: no State, plan or cursor to consult, and
+			// hook_self_test can't be read, so it is not dropped as
+			// enforcement-off. DecidePre/DecideStop give it only the
+			// subagent VCS rule.
+			lr := hook.LiveRun{RunID: ref.RunID, WorkflowID: ref.WorkflowID, Opaque: true, OpaqueStatus: ref.StatusText()}
+			if lr.RunID == "" {
+				lr.RunID = ref.Opaque.RunID
+			}
+			if d, ok, err := journal.ReadDriver(ref.Dir); err == nil && ok {
+				lr.DriverSession = d.SessionID
+			}
+			out = append(out, lr)
+			continue
+		}
 		if ref.State.EnforcementOff() {
 			continue
 		}

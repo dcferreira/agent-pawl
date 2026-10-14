@@ -82,6 +82,13 @@ func cmdSubmit(args []string, cwd string, stdout, stderr io.Writer) int {
 		printLine(stderr, "pawl submit:", err.Error())
 		return exitForLookupErr(err)
 	}
+	if ref.Opaque != nil {
+		if ref.Opaque.Ended {
+			printLine(stderr, "pawl submit:", opaqueSentence(ref))
+			return exitForEngineErr(fmt.Errorf("%w: run %q already ended", engine.ErrAlreadyTerminal, runID))
+		}
+		return opaqueRefusal(stderr, "pawl submit", ref)
+	}
 	// findRunByID finds a run whether it is live or already terminal
 	// (journal.FindRun), deliberately: submitting against a run that has
 	// already finished is not "no such run" (exit 1) but a refusal (exit
@@ -104,8 +111,7 @@ func cmdSubmit(args []string, cwd string, stdout, stderr io.Writer) int {
 		// plan.json that has since become unreadable or unparsable is not
 		// "unknown run" (exit 1) but a broken run directory (exit 5) —
 		// docs/cli.md's exit-code table (~line 33).
-		printLine(stderr, "pawl submit:", err.Error())
-		return 5
+		return printEngineErr(stderr, "pawl submit", runID, err, 5)
 	}
 	if pinned.Changed {
 		printLine(stderr, fmt.Sprintf("pawl submit: workflow file changed since run %s started (changed: %s); this run cannot continue safely — abandon it with `pawl abandon --run %s` and start a fresh run", runID, pinned.Detail, runID))
@@ -133,8 +139,7 @@ func cmdSubmit(args []string, cwd string, stdout, stderr io.Writer) int {
 		instr, err = e.Submit(runID, stepID, ref.State.Cursor.Attempt, json.RawMessage(result))
 	}
 	if err != nil {
-		printLine(stderr, "pawl submit:", err.Error())
-		return exitForEngineErr(err)
+		return printEngineErr(stderr, "pawl submit", runID, err, 5)
 	}
 	stampDriver(root, w.Workflow, runID)
 	fmt.Fprint(stdout, formatInstruction(instr, w, root, cwd))
