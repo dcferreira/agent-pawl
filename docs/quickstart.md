@@ -109,10 +109,14 @@ Change `greet`'s postcondition to `test -s nothing.txt` and type `/pawl run hell
   ✗ greet  postcondition failed: test -s nothing.txt (exit 1)
   TERMINAL 6d02 blocked
   Paused for review: greet: postcondition failed after 1 attempt.
+  resume:  pawl run hello --run 6d02
+  abandon: pawl abandon --run 6d02 --reason '<reason>'
 ```
 
 The step's body ran; the postcondition failed, there's no `attempts:` budget or `catch:` route, so
 the default applies: `failure` goes to `blocked`. The engine never decides a step was probably fine.
+A blocked run is paused, not over: it stays live until you fix the cause and run the `resume:`
+command, which re-runs `greet` from attempt 1, or until you close it with the `abandon:` command.
 
 ## 5. Where to go next
 
