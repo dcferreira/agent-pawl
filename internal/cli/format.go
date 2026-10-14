@@ -4,12 +4,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/dcferreira/agent-pawl/internal/engine"
+	"github.com/dcferreira/agent-pawl/internal/render"
 	"github.com/dcferreira/agent-pawl/internal/spec"
 )
 
@@ -292,7 +295,7 @@ func formatKeySet(m map[string]any) string {
 // a blocked Terminal, root+w.Workflow locate the run directory so the
 // journal's own diagnostic text (finding I2) can be surfaced instead of just
 // the generic "<step>: <outcome>" reason.
-func formatInstruction(instr engine.Instruction, w *spec.Workflow, root string) string {
+func formatInstruction(instr engine.Instruction, w *spec.Workflow, root, cwd string) string {
 	switch v := instr.(type) {
 	case engine.Dispatch:
 		maxAttempts := 1
@@ -320,10 +323,12 @@ func formatInstruction(instr engine.Instruction, w *spec.Workflow, root string) 
 		return formatAsk(v)
 	case engine.Terminal:
 		detail := ""
+		var hint resumeHint
 		if v.Status == "blocked" {
 			detail = blockedDetail(root, w.Workflow, v.RunID)
+			hint = blockedResumeHint(w.Path, v.RunID, cwd)
 		}
-		return formatTerminal(v, detail)
+		return formatTerminal(v, detail, hint)
 	default:
 		return fmt.Sprintf("pawl: internal error: unknown instruction type %T\n", instr)
 	}
@@ -680,12 +685,21 @@ func neutralizeControlLineBreaks(s string) string {
 // status straight to this function, bypassing Validate.
 // Like formatDispatch, every field is indented and the block ends with an
 // "END TERMINAL <run> <status>" sentinel (finding C3).
-func formatTerminal(t engine.Terminal, detail string) string {
+func formatTerminal(t engine.Terminal, detail string, hint resumeHint) string {
 	w := &blockWriter{}
 	w.line(0, "TERMINAL", t.RunID, t.Status)
 	w.field(0, "message", t.Message)
 	if detail != "" {
 		w.field(0, "blocked_reason", detail)
+	}
+	if t.Status == "blocked" {
+		// The two ways out of a blocked run, printed exactly. The reason
+		// placeholder is literally single-quoted so a copy-paste is one
+		// token (an unquoted <reason> would be a shell redirect).
+		if hint.Field != "" {
+			w.field(0, hint.Field, hint.Text)
+		}
+		w.field(0, "abandon", "pawl abandon --run "+quoteIfNeeded(t.RunID)+" --reason '<reason>'")
 	}
 	w.line(0, "END", "TERMINAL", t.RunID, t.Status)
 	return w.String()
@@ -818,4 +832,66 @@ func mustJSONLine(v any) string {
 		panic(fmt.Sprintf("cli: marshalling status JSON: %v", err))
 	}
 	return string(b) + "\n"
+}
+
+// resumeHint is the blocked TERMINAL's resume field: Field is "resume" (Text
+// is an exact command) or "resume_note" (Text is a statement of fact); the
+// zero value prints nothing.
+type resumeHint struct{ Field, Text string }
+
+var safeShellToken = regexp.MustCompile(`^[A-Za-z0-9_./:@%+=,-]+$`)
+
+// quoteIfNeeded shell-quotes s only when it contains characters a shell would
+// interpret; render.ShellQuote itself always quotes.
+func quoteIfNeeded(s string) string {
+	if safeShellToken.MatchString(s) {
+		return s
+	}
+	return render.ShellQuote(s)
+}
+
+// blockedResumeHint builds `pawl run <name> --run <id>` exact by construction:
+// the name is derived from the workflow file's path (relative to the nearest
+// .claude/workflows ancestor, .yaml stripped) and accepted only if the real
+// resolver, run from cwd, maps it back to that same file. Otherwise it returns
+// a resume_note that states the facts and guesses no command.
+func blockedResumeHint(wfPath, runID, cwd string) resumeHint {
+	if name := resumeName(wfPath, cwd); name != "" {
+		return resumeHint{"resume", "pawl run " + quoteIfNeeded(name) + " --run " + quoteIfNeeded(runID)}
+	}
+	return resumeHint{"resume_note", "run " + runID + "'s workflow file is " + wfPath + "; no workflow name resolves to that file from this directory"}
+}
+
+func resumeName(wfPath, cwd string) string {
+	if wfPath == "" || !strings.HasSuffix(wfPath, ".yaml") {
+		return ""
+	}
+	real, err := filepath.EvalSymlinks(wfPath)
+	if err != nil {
+		return ""
+	}
+	// Nearest ancestor directory named .claude/workflows.
+	dir := filepath.Dir(real)
+	rel := filepath.Base(real)
+	for {
+		if filepath.Base(dir) == "workflows" && filepath.Base(filepath.Dir(dir)) == ".claude" {
+			break
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		rel = filepath.Join(filepath.Base(dir), rel)
+		dir = parent
+	}
+	name := strings.TrimSuffix(filepath.ToSlash(rel), ".yaml")
+	got, err := resolveWorkflowFile(cwd, name)
+	if err != nil {
+		return ""
+	}
+	gotReal, err := filepath.EvalSymlinks(got.Path)
+	if err != nil || gotReal != real {
+		return ""
+	}
+	return name
 }

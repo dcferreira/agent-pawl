@@ -110,7 +110,7 @@ func cmdPoll(args []string, cwd string, stdout, stderr io.Writer) int {
 		return exitForEngineErr(err)
 	}
 	stampDriver(root, w.Workflow, runID)
-	fmt.Fprint(stdout, formatInstruction(instr, w, root))
+	fmt.Fprint(stdout, formatInstruction(instr, w, root, cwd))
 	return instructionExitCode(instr)
 }
 

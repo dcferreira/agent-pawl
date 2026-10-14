@@ -1,0 +1,5 @@
+kind: changed
+body: "A `blocked` TERMINAL block now prints its two ways out: a `resume:` field with the exact `pawl run <name> --run <id>` command, checked by resolving the name back to the run's own workflow file (or a `resume_note:` when no name resolves from the current directory), and an `abandon:` field with `pawl abandon --run <id> --reason '<reason>'`. The `/agent-pawl:pawl` skill now treats a blocked run as paused, not finished: it gives the user both commands and never leaves the run silently live. The `ok` block is unchanged."
+time: 2026-10-14T12:00:00.000000000+01:00
+custom:
+  PR: 51

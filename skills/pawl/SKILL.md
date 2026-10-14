@@ -278,7 +278,7 @@ elapsed instead) — never guess or skip this step's routing yourself.
 
 ## TERMINAL `<run>` `<status>`
 
-The run is over. Real output:
+The run reached a terminal id. Real output:
 
 ```
 TERMINAL 9074 ok
@@ -287,10 +287,38 @@ message:
 END TERMINAL 9074 ok
 ```
 
-`<status>` is whatever the workflow's `terminal:` map declares for the id reached (commonly `ok`
-or `blocked`). If the run ended `blocked`, the block carries an additional `blocked_reason:`
-field with the underlying diagnostic. Report `message:` (and `blocked_reason:` if present) to the
-user. There is nothing further to submit — the loop ends here.
+`<status>` is whatever the workflow's `terminal:` map declares for the id reached (`ok` or
+`blocked`). `ok` means the run is over: report `message:` to the user. There is nothing further
+to submit, and the loop ends here.
+
+`blocked` means the run is **paused, not finished**. It stays live, and its hooks and the
+subagent-VCS rule still apply, until it is resumed or abandoned. The block carries extra fields:
+
+```
+TERMINAL 9074 blocked
+message:
+  Tests still red after 3 attempts.
+blocked_reason:
+  fix-tests: postcondition failed: go test ./... exited 1
+resume:
+  pawl run green-tests --run 9074
+abandon:
+  pawl abandon --run 9074 --reason '<reason>'
+END TERMINAL 9074 blocked
+```
+
+Report `message:` and `blocked_reason:`, then give the user both ways out, quoting the block's own
+commands:
+
+1. Fix the cause in the working tree, then run the `resume:` command. It re-runs the blocking
+   step from attempt 1. Don't edit the workflow file: a resume refuses a changed one.
+2. Run the `abandon:` command, replacing `<reason>` with a real reason.
+
+Don't pick for them unless the user has already told you how to handle blocked runs. Never end
+your turn with a blocked run silently left live: say that it is still live and which command
+closes it. When pawl can't name the workflow from the current directory, the block prints a
+`resume_note:` instead of `resume:`. Pass the note on, and run `pawl run <name> --run <id>` from
+where the workflow resolves.
 
 ## What this skill does not cover
 

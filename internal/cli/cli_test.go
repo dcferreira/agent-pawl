@@ -1614,7 +1614,7 @@ func TestFormatters_GuardValidatorClosedFields(t *testing.T) {
 	}
 
 	t.Run("formatTerminal: hostile status", func(t *testing.T) {
-		out := formatTerminal(engine.Terminal{RunID: "ab12", Status: hostile, Message: "m"}, "")
+		out := formatTerminal(engine.Terminal{RunID: "ab12", Status: hostile, Message: "m"}, "", resumeHint{})
 		assertNoRawControlBytes(t, "formatTerminal", out)
 		if got := instrLines(out); len(got) != 2 || !strings.HasPrefix(got[0], "TERMINAL ab12 ") || !strings.HasPrefix(got[1], "END TERMINAL ab12 ") {
 			t.Errorf("want exactly the TERMINAL and END lines, got %q\nin %q", got, out)

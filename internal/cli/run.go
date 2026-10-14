@@ -144,7 +144,7 @@ func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 			stampDriverAs(root, w.Workflow, ref.RunID, mode.SessionID)
 		}
 		fmt.Fprint(stdout, formatResumeLine(ref.RunID, ref.State.Cursor.Step, ref.State.Cursor.Attempt, ref.State.State))
-		fmt.Fprint(stdout, formatInstruction(instr, w, root))
+		fmt.Fprint(stdout, formatInstruction(instr, w, root, cwd))
 		return instructionExitCode(instr)
 	}
 
@@ -167,7 +167,7 @@ func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 		printLine(stderr, "pawl run:", err.Error())
 		return exitForEngineErr(err)
 	}
-	fmt.Fprint(stdout, formatInstruction(instr, w, root))
+	fmt.Fprint(stdout, formatInstruction(instr, w, root, cwd))
 	return instructionExitCode(instr)
 }
 
