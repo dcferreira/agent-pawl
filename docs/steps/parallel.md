@@ -16,7 +16,7 @@ the five kinds compare.
   `max_visits:` or `retry:` — the owning `parallel` step is the sole owner of routing and retry for
   the whole group. A branch may still declare `postcondition:` and `writes:`; those are its own.
 - The `parallel` step itself accepts only `branches:`/`foreach:` plus the common routing fields
-  (`next`, `outcomes`, `catch`, `max_visits`); a `postcondition:` on it is a validate error (rule 30)
+  (`next`, `outcomes`, `catch`, `max_visits`, `attempt_key`); a `postcondition:` on it is a validate error (rule 30)
   — the group outcome (below) is the check. Put a postcondition on a branch, or on a following step.
 
 ## Example

@@ -152,7 +152,7 @@ durations (`5m`, `1h`, `24h`) greater than zero.
 `terminal: {done: …}`/`{blocked: …}` is allowed and overrides the implicit terminal.
 
 **38 — reserved key name.** In `state:`/`args:`: an engine pseudo-key (case-insensitive), a key
-starting with `_`, or one exporting as `PAWL_ENFORCEMENT`/`PAWL_STATE_DIR`. Environment variables
+starting with `_`, or one exporting as `PAWL_ENFORCEMENT`/`PAWL_STATE_DIR`/`PAWL_WRAPPER_ACTIVE`. Environment variables
 `pawl` reads in future are named `PAWL__<NAME>`, which a `_`-free key can never collide with.
 
 **39 — key collision.** The same key in `args:` and `state:`, or two keys equal case-insensitively.

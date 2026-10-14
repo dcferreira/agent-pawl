@@ -6,10 +6,11 @@ import (
 	"strings"
 )
 
-// ReservedEnvNames lists the environment variables pawl itself reads; a
+// ReservedEnvNames lists the environment variables pawl itself reads (plus
+// PAWL_WRAPPER_ACTIVE, which the plugin's bin/pawl launcher reads); a
 // state:/args: key whose PAWL_<KEY> export would shadow one is rejected
 // (rule 38).
-var ReservedEnvNames = []string{"PAWL_ENFORCEMENT", "PAWL_STATE_DIR"}
+var ReservedEnvNames = []string{"PAWL_ENFORCEMENT", "PAWL_STATE_DIR", "PAWL_WRAPPER_ACTIVE"}
 
 // pseudoKeyNames are the engine pseudo-keys (lower-case). A state:/args: key
 // equal to one of them, in any case, would export as the same PAWL_* variable

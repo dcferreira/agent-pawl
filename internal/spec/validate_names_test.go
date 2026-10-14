@@ -91,6 +91,8 @@ func TestRule38_ReservedKeyNames(t *testing.T) {
 			[]string{`rule 38: state: "enforcement" would export as PAWL_ENFORCEMENT, an environment variable pawl itself reads; rename it`}},
 		{"state_dir", namesWF("", "  state_dir: {type: string}\n", "", ""),
 			[]string{`rule 38: args: "state_dir" would export as PAWL_STATE_DIR, an environment variable pawl itself reads; rename it`}},
+		{"wrapper_active", namesWF("  Wrapper_Active: {type: string}\n", "", "", ""),
+			[]string{`rule 38: state: "Wrapper_Active" would export as PAWL_WRAPPER_ACTIVE, an environment variable pawl itself reads; rename it`}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) { expectErrs(t, tc.src, tc.want...) })
@@ -99,7 +101,7 @@ func TestRule38_ReservedKeyNames(t *testing.T) {
 		expectClean(t, namesWF("  attempts_left: {type: string}\n  my_item: {type: string}\n", "", "", ""))
 	})
 	t.Run("exported reserved env list", func(t *testing.T) {
-		if len(ReservedEnvNames) != 2 || ReservedEnvNames[0] != "PAWL_ENFORCEMENT" || ReservedEnvNames[1] != "PAWL_STATE_DIR" {
+		if len(ReservedEnvNames) != 3 || ReservedEnvNames[0] != "PAWL_ENFORCEMENT" || ReservedEnvNames[1] != "PAWL_STATE_DIR" || ReservedEnvNames[2] != "PAWL_WRAPPER_ACTIVE" {
 			t.Errorf("ReservedEnvNames = %v", ReservedEnvNames)
 		}
 	})

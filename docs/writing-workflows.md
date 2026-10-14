@@ -71,7 +71,7 @@ state through the environment: every key a step reads is exported as `PAWL_<KEY>
 `${branch}` is also `$PAWL_BRANCH`.
 
 Those names are reserved as `state:`/`args:` keys (case-insensitively), as are keys starting with `_`
-and keys that would export as `PAWL_ENFORCEMENT` or `PAWL_STATE_DIR`; two keys equal
+and keys that would export as `PAWL_ENFORCEMENT`, `PAWL_STATE_DIR` or `PAWL_WRAPPER_ACTIVE`; two keys equal
 case-insensitively collide on one variable. Promise: any environment variable `pawl` reads in future
 is named `PAWL__<NAME>` (double underscore), which no `state:`/`args:` key can collide with.
 

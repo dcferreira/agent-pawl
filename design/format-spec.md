@@ -108,13 +108,14 @@ by the substitution grammar.
 name, matched case-insensitively (`run_id`, `step`, `attempt`, `visits`, `last_error`,
 `blocked_reason`, `item`, `item_index`; `Attempt` is rejected too, since both export as `PAWL_ATTEMPT`);
 may not start with `_`; and may not export as an environment variable `pawl` itself reads
-(`PAWL_ENFORCEMENT`, `PAWL_STATE_DIR` — reserved by name, so the keys `enforcement` and `state_dir`
-are rejected). Two keys across `state:` ∪ `args:` that are equal case-insensitively, or the same key
+(`PAWL_ENFORCEMENT`, `PAWL_STATE_DIR`, and the plugin launcher's `PAWL_WRAPPER_ACTIVE` — reserved by
+name, so the keys `enforcement`, `state_dir` and `wrapper_active` are rejected). Two keys across `state:` ∪ `args:` that are equal case-insensitively, or the same key
 in both, collide on one `PAWL_<KEY>` and are rejected.
 
 **Forward-compatibility promise.** Any environment variable `pawl` reads in future is named
 `PAWL__<NAME>` (double underscore). `state:`/`args:` keys may not start with `_`, so they can never
-collide with one. `PAWL_ENFORCEMENT` and `PAWL_STATE_DIR` predate this rule and are reserved by name.
+collide with one. `PAWL_ENFORCEMENT`, `PAWL_STATE_DIR` and `PAWL_WRAPPER_ACTIVE` predate this rule and are reserved by
+name.
 
 ### 3. Deterministic steps get named outcomes
 
@@ -808,7 +809,8 @@ work to an agent. See `docs/quickstart.md`.
 38. A reserved key name in `state:` or `args:` (§B.2): an engine pseudo-key (`run_id`, `step`,
     `attempt`, `visits`, `last_error`, `blocked_reason`, `item`, `item_index`), matched
     case-insensitively; a key starting with `_` (the `PAWL__*` namespace is reserved for `pawl`'s own
-    future environment variables); or a key that exports as `PAWL_ENFORCEMENT` or `PAWL_STATE_DIR`.
+    future environment variables); or a key that exports as `PAWL_ENFORCEMENT`, `PAWL_STATE_DIR` or
+    `PAWL_WRAPPER_ACTIVE`.
 39. A key collision: the same key in both `args:` and `state:`, or two keys in `state:` ∪ `args:`
     equal case-insensitively (they would export as the same `PAWL_<KEY>`).
 
