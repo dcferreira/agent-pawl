@@ -148,8 +148,8 @@ session, so it hands every Bash call's payload to the real `pawl` binary instead
 immediately. If `pawl` itself isn't available, this surfaces as a non-blocking error on Bash calls that
 have nothing to do with `pawl`: "the `pawl` binary was not found" (a checkout, `--plugin-dir`, or a v0.6.0
 install with no `libexec/` bundled binary and no `pawl` on `PATH`), or "unsupported platform" / "the agent-pawl plugin has no usable bundled
-binary" (an installed release plugin; see the "exited N; failing open" section above). Fix it with `pawl abandon --run <id>` in the checkout that started the run, or by
-removing the stale entries directly under `~/.claude/pawl/live/`.
+binary" (an installed release plugin; see the "exited N; failing open" section above). Fix it with `pawl abandon --run <id>` (from the checkout that started the run, or, if that checkout was
+deleted, from any other working copy), or by removing the stale entries directly under `~/.claude/pawl/live/`.
 
 ## `pawl run` refuses to start from a different directory than the session is "in"
 
