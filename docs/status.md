@@ -33,8 +33,9 @@ describe:
   hard-failed body — a non-zero exit, the wall-clock timeout, or unintelligible stdout — before any
   outcome is resolved, and is distinct from `attempts:`, which re-runs a step on a postcondition
   failure (see [design/format-spec.md](../design/format-spec.md) §B.16).
-- **The enforcement layer is built.** `pawl hook pre|stop` (`internal/hook`, wired by the plugin's
-  `hooks/hooks.json` → `bin/pawl-hook`) backs a `PreToolUse`/`Stop` pair. `pawl run` refuses to
+- **The enforcement layer is built.** `pawl hook pre|stop|subagent-stop` (`internal/hook`, wired by the plugin's
+  `hooks/hooks.json` → `bin/pawl-hook`) backs a `PreToolUse`/`Stop`/`SubagentStop` set (`SubagentStop` only records a
+  60s single-use marker that excuses one Stop in the background-subagent delivery race). `pawl run` refuses to
   start (exit 4) unless a fresh PreToolUse heartbeat (≤5 minutes old) exists for the session (`CLAUDE_CODE_SESSION_ID`) or, failing that, the working copy, unless
   `--no-enforcement` or `PAWL_ENFORCEMENT=off` is passed; a resume needs no heartbeat and keeps the
   mode bound at run start. The `Stop` hook refuses to end the driving
@@ -63,8 +64,8 @@ describe:
   batched into `CHANGELOG.md` and a `.claude-plugin/plugin.json` version bump, then a merge to
   `main` tags and publishes via goreleaser in the same run — see
   [docs/releasing.md](releasing.md).
-- `pawl poll --run … --step …` drives a `wait` step; `pawl hook pre|stop` is the `PreToolUse`/`Stop`
-  hook entry point (see the enforcement bullet above).
+- `pawl poll --run … --step …` drives a `wait` step; `pawl hook pre|stop|subagent-stop` is the
+  `PreToolUse`/`Stop`/`SubagentStop` hook entry point (see the enforcement bullet above).
 - `pawl graph` (a Mermaid diagram of the parsed workflow) is not built yet.
 
 The workflows under `docs/examples/` beyond `green-tests`, `foreach-fanout` and `foreach-agentic` (all covered by

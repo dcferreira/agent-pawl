@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dcferreira/agent-pawl/internal/spec"
 )
@@ -150,6 +151,8 @@ func stop(session string, active bool) Payload {
 	return Payload{SessionID: session, Cwd: "/w", HookEventName: "Stop", StopHookActive: active}
 }
 
+var stopNow = time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
 func TestDecideStop(t *testing.T) {
 	agentic := LiveRun{RunID: "ab12", WorkflowID: "green-tests", CursorStep: "fix_code", CursorKind: "agentic", DriverSession: "s1"}
 	cases := []struct {
@@ -171,12 +174,12 @@ func TestDecideStop(t *testing.T) {
 		{"session cron allows", []LiveRun{agentic}, func() Payload { p := stop("s1", false); p.SessionCrons = 1; return p }(), true},
 	}
 	for _, c := range cases {
-		d := DecideStop(c.runs, c.p)
+		d := DecideStop(c.runs, c.p, nil, stopNow)
 		if d.Allow != c.allow {
 			t.Errorf("%s: got %+v, want allow=%v", c.name, d, c.allow)
 		}
 	}
-	d := DecideStop([]LiveRun{agentic}, stop("s1", false))
+	d := DecideStop([]LiveRun{agentic}, stop("s1", false), nil, stopNow)
 	want := "pawl run ab12 (green-tests) is at step fix_code awaiting `pawl submit`. Finish it, or: pawl abandon --run ab12"
 	if d.Reason != want {
 		t.Fatalf("reason = %q, want %q", d.Reason, want)
@@ -263,5 +266,57 @@ func TestCompileGuards_FailureNeverYieldsANilTable(t *testing.T) {
 		if d := DecidePre(runs, bash(cmd)); d.Allow || !strings.Contains(d.Reason, "ab12") {
 			t.Fatalf("%q: want fail-closed deny, got %+v", cmd, d)
 		}
+	}
+}
+
+func TestDecideStop_SubagentStopCredit(t *testing.T) {
+	agentic := LiveRun{RunID: "ab12", WorkflowID: "wf", CursorStep: "fix", CursorKind: "agentic", DriverSession: "s1"}
+	mk := func(id, session string, age time.Duration) StopMarker {
+		return StopMarker{ID: id, SessionID: session, Time: stopNow.Add(-age)}
+	}
+	withBG := func() Payload { p := stop("s1", false); p.BackgroundTasks = 1; return p }
+	waitRun := agentic
+	waitRun.CursorKind = "wait"
+	cases := []struct {
+		name     string
+		runs     []LiveRun
+		p        Payload
+		markers  []StopMarker
+		allow    bool
+		consumed string // comma-separated IDs, "" = nothing consumed
+	}{
+		{"fresh marker allows once and is consumed", []LiveRun{agentic}, stop("s1", false), []StopMarker{mk("m1", "s1", 3*time.Second)}, true, "m1"},
+		{"marker at exactly the TTL still counts", []LiveRun{agentic}, stop("s1", false), []StopMarker{mk("m1", "s1", SubagentStopCreditTTL)}, true, "m1"},
+		{"expired marker blocks and is consumed", []LiveRun{agentic}, stop("s1", false), []StopMarker{mk("m1", "s1", SubagentStopCreditTTL+time.Second)}, false, "m1"},
+		{"another session's marker does not count", []LiveRun{agentic}, stop("s1", false), []StopMarker{mk("m1", "s2", time.Second)}, false, ""},
+		{"no markers blocks", []LiveRun{agentic}, stop("s1", false), nil, false, ""},
+		{"every marker of the session is consumed", []LiveRun{agentic}, stop("s1", false),
+			[]StopMarker{mk("new", "s1", 2*time.Second), mk("old", "s1", 20*time.Second), mk("other", "s2", time.Second)}, true, "new,old"},
+		{"stop_hook_active allows and consumes", []LiveRun{agentic}, stop("s1", true), []StopMarker{mk("m1", "s1", time.Second)}, true, "m1"},
+		{"background task allows and consumes", []LiveRun{agentic}, withBG(), []StopMarker{mk("m1", "s1", time.Second)}, true, "m1"},
+		{"no blocking run allows and consumes", []LiveRun{waitRun}, stop("s1", false), []StopMarker{mk("m1", "s1", time.Second)}, true, "m1"},
+		{"no runs allows and consumes", nil, stop("s1", false), []StopMarker{mk("m1", "s1", time.Second)}, true, "m1"},
+	}
+	for _, c := range cases {
+		d := DecideStop(c.runs, c.p, c.markers, stopNow)
+		if d.Allow != c.allow {
+			t.Errorf("%s: got %+v, want allow=%v", c.name, d, c.allow)
+		}
+		var ids []string
+		for _, m := range d.Consumed {
+			ids = append(ids, m.ID)
+		}
+		if got := strings.Join(ids, ","); got != c.consumed {
+			t.Errorf("%s: consumed %q, want %q", c.name, got, c.consumed)
+		}
+	}
+	// One marker, at most one allowed Stop: once the caller deletes it, the
+	// next Stop blocks again.
+	m := []StopMarker{mk("m1", "s1", time.Second)}
+	if d := DecideStop([]LiveRun{agentic}, stop("s1", false), m, stopNow); !d.Allow || len(d.Consumed) != 1 {
+		t.Fatalf("first stop: %+v", d)
+	}
+	if d := DecideStop([]LiveRun{agentic}, stop("s1", false), nil, stopNow); d.Allow {
+		t.Fatalf("second stop must block: %+v", d)
 	}
 }

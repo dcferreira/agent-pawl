@@ -14,8 +14,8 @@ import (
 // nowFunc is the clock the enforcement code reads; tests override it.
 var nowFunc = time.Now
 
-// cmdHook implements `pawl hook pre|stop`, Claude Code's PreToolUse/Stop
-// entry point (enforcement spec): allow = exit 0 silently; deny/block =
+// cmdHook implements `pawl hook pre|stop|subagent-stop`, Claude Code's
+// PreToolUse/Stop/SubagentStop entry point (enforcement spec): allow = exit 0 silently; deny/block =
 // exit 0 with Claude Code's JSON decision on stdout (writeHookDecision);
 // fail open = exit 1 (Claude Code treats any non-zero exit other than 2 as
 // a non-blocking error). This command never exits 2. A bare exit 2 is
@@ -25,15 +25,24 @@ var nowFunc = time.Now
 // the plugin and the binary update separately, and skew between them must
 // never deny tool calls or trap Stop. Stop's own fail-open path stays exit
 // 0, since Stop must never trap a session regardless of why it errored.
+//
+// subagent-stop never decides anything and never writes stdout: when the
+// payload's session drives a live, enforced run it records a marker
+// (journal.WriteSubagentStop), which a later Stop that would block may spend
+// once (hook.DecideStop) — Claude Code fires SubagentStop and drops the task
+// from background_tasks while its completion notification is still queued,
+// so that Stop would otherwise refuse a turn the session is about to be
+// woken for. Like Stop it fails open with exit 0: exit 2 would block the
+// subagent from stopping.
 func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int) {
-	if len(args) != 1 || (args[0] != "pre" && args[0] != "stop") {
-		fmt.Fprintln(stderr, "usage: pawl hook pre|stop  (reads a Claude Code hook payload on stdin)")
+	if len(args) != 1 || (args[0] != "pre" && args[0] != "stop" && args[0] != "subagent-stop") {
+		fmt.Fprintln(stderr, "usage: pawl hook pre|stop|subagent-stop  (reads a Claude Code hook payload on stdin)")
 		return 1
 	}
 	event := args[0]
 	failOpen := func(msg string) int {
 		printLine(stderr, "pawl hook "+event+":", msg)
-		if event == "stop" {
+		if event != "pre" {
 			return 0
 		}
 		return 1
@@ -89,10 +98,24 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 	live = appendDrivenRuns(live, p.SessionID)
 	runs := buildLiveRuns(live)
 	var d hook.Decision
-	if event == "pre" {
+	switch event {
+	case "pre":
 		d = hook.DecidePre(runs, p)
-	} else {
-		d = hook.DecideStop(runs, p)
+	case "subagent-stop":
+		for _, r := range runs {
+			// Only a run awaiting this session's `pawl submit` earns credit:
+			// a blocked run, or one at a wait/human cursor, never blocks a Stop.
+			if r.DriverSession != "" && r.DriverSession == p.SessionID && !r.Blocked &&
+				(r.CursorKind == "agentic" || r.CursorKind == "parallel") {
+				if err := journal.WriteSubagentStop(p.SessionID, p.AgentID, nowFunc(), hook.SubagentStopCreditTTL); err != nil {
+					printLine(stderr, "pawl hook subagent-stop: recording marker:", err.Error())
+				}
+				break
+			}
+		}
+		return 0
+	default:
+		d = stopDecision(runs, p, stderr)
 	}
 	if d.Allow {
 		return 0
@@ -101,6 +124,31 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 		return failOpen(err.Error())
 	}
 	return 0
+}
+
+// stopDecision runs hook.DecideStop with the session's fresh SubagentStop
+// markers, then deletes every one it reports consumed (all of them, whatever
+// the decision) and prunes expired ones. Marker
+// I/O is best-effort: a read error means no markers (so no credit), and a
+// delete or prune failure never changes the decision.
+func stopDecision(runs []hook.LiveRun, p hook.Payload, stderr io.Writer) hook.Decision {
+	now := nowFunc()
+	var markers []hook.StopMarker
+	stored, err := journal.ListSubagentStops(p.SessionID, now, hook.SubagentStopCreditTTL)
+	if err != nil {
+		printLine(stderr, "pawl hook stop: reading subagent-stop markers:", err.Error())
+	}
+	for _, m := range stored {
+		markers = append(markers, hook.StopMarker{ID: m.ID, SessionID: m.SessionID, Time: m.Time})
+	}
+	d := hook.DecideStop(runs, p, markers, now)
+	for _, c := range d.Consumed {
+		if err := journal.DeleteSubagentStop(p.SessionID, c.ID); err != nil {
+			printLine(stderr, "pawl hook stop: consuming subagent-stop marker:", err.Error())
+		}
+	}
+	_ = journal.PruneSubagentStops(now, hook.SubagentStopCreditTTL)
+	return d
 }
 
 // writeHookDecision writes Claude Code's JSON decision for a deny (pre) or

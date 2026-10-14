@@ -10,6 +10,11 @@
       {
         "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/pawl-hook\" stop" }]
       }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/pawl-hook\" subagent-stop" }]
+      }
     ]
   }
 }

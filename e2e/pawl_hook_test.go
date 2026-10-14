@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -83,6 +84,70 @@ func TestPawlHook_LiveRunReachesBinaryForStop(t *testing.T) {
 	log, _ := os.ReadFile(logFile)
 	if !strings.Contains(string(log), "args:hook stop") {
 		t.Fatalf("log=%q", log)
+	}
+}
+
+// subagent-stop fires for every subagent of every session, and its payload's
+// last_assistant_message often mentions pawl: with no live run it must not
+// start the binary regardless (only `pre` has the mention escape).
+func TestPawlHook_SubagentStopFastPathIgnoresPawlMention(t *testing.T) {
+	pathDir, logFile := fakePawl(t)
+	stateDir := filepath.Join(t.TempDir(), "runs")
+	code, _ := runHookScript(t, stateDir, pathDir, "subagent-stop", `{"cwd":"/x","last_assistant_message":"pawl submit done"}`)
+	if code != 0 {
+		t.Fatalf("code=%d", code)
+	}
+	if _, err := os.Stat(logFile); err == nil {
+		t.Fatal("binary invoked for subagent-stop with no live run")
+	}
+}
+
+func TestPawlHook_LiveRunReachesBinaryForSubagentStop(t *testing.T) {
+	pathDir, logFile := fakePawlScript(t, "exit 2\n")
+	base := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(base, "live"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/nonexistent", filepath.Join(base, "live", "x__wf__ab12")); err != nil {
+		t.Fatal(err)
+	}
+	// An old binary exits 2 for the unknown subcommand; on SubagentStop exit 2
+	// would block the subagent, so the wrapper must fail open with exit 1.
+	code, _ := runHookScript(t, filepath.Join(base, "runs"), pathDir, "subagent-stop", `{"cwd":"/x"}`)
+	if code != 1 {
+		t.Fatalf("code=%d, want 1 (fail open)", code)
+	}
+	log, _ := os.ReadFile(logFile)
+	if !strings.Contains(string(log), "args:hook subagent-stop") {
+		t.Fatalf("log=%q", log)
+	}
+}
+
+// The plugin must bind SubagentStop to the same wrapper as Stop.
+func TestHooksJSON_BindsSubagentStop(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(repoRoot(t), "hooks", "hooks.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg struct {
+		Hooks map[string][]struct {
+			Matcher string `json:"matcher"`
+			Hooks   []struct {
+				Type    string `json:"type"`
+				Command string `json:"command"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	entries := cfg.Hooks["SubagentStop"]
+	if len(entries) != 1 || entries[0].Matcher != "" || len(entries[0].Hooks) != 1 {
+		t.Fatalf("SubagentStop entries = %+v", entries)
+	}
+	want := `"${CLAUDE_PLUGIN_ROOT}/bin/pawl-hook" subagent-stop`
+	if h := entries[0].Hooks[0]; h.Type != "command" || h.Command != want {
+		t.Fatalf("SubagentStop hook = %+v, want command %s", h, want)
 	}
 }
 

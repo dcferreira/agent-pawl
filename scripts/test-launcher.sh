@@ -190,6 +190,33 @@ out="$(printf '{"x":"pawl"}' | PATH="$tmp/u-linux-amd64:$tools" PAWL_TEST_EXIT=2
 code=$?
 check "pawl-hook fails open (exit 1) when the binary exits 2" "$([ "$code" -eq 1 ]; echo $?)" "code: $code"
 
+# subagent-stop with no live run exits 0 without starting the binary even when
+# the payload mentions pawl (only `pre` has that escape).
+sr="$(new_plugin subagentstop)"
+cp "$repo/bin/pawl-hook" "$sr/bin/pawl-hook"
+chmod 755 "$sr/bin/pawl-hook"
+mkdir -p "$sr/libexec/linux_amd64"
+printf '#!/bin/sh\necho invoked >> "%s/invoked"\nexit 0\n' "$tmp" > "$sr/libexec/linux_amd64/pawl"
+chmod 755 "$sr/libexec/linux_amd64/pawl"
+rm -f "$tmp/invoked"
+printf '{"hook_event_name":"SubagentStop","last_assistant_message":"ran pawl submit"}' | PATH="$tmp/u-linux-amd64:$tools" PAWL_STATE_DIR="$tmp/state/runs" "$sr/bin/pawl-hook" subagent-stop >/dev/null 2>&1
+code=$?
+check "pawl-hook subagent-stop with no live run exits 0" "$([ "$code" -eq 0 ]; echo $?)" "code: $code"
+check "pawl-hook subagent-stop with no live run does not start the binary, even if the payload mentions pawl" "$([ ! -e "$tmp/invoked" ]; echo $?)"
+# ...and with a live run it does.
+mkdir -p "$tmp/state/live"
+ln -s /nonexistent "$tmp/state/live/x__wf__ab12"
+printf '{}' | PATH="$tmp/u-linux-amd64:$tools" PAWL_STATE_DIR="$tmp/state/runs" "$sr/bin/pawl-hook" subagent-stop >/dev/null 2>&1
+check "pawl-hook subagent-stop with a live run reaches the binary" "$([ -e "$tmp/invoked" ]; echo $?)"
+rm -rf "$tmp/state/live"
+
+# subagent-stop: exit 2 from an older binary must not block the subagent.
+mkdir -p "$tmp/state2/live"
+ln -s /nonexistent "$tmp/state2/live/x__wf__ab12"
+out="$(printf '{"x":"pawl"}' | PATH="$tmp/u-linux-amd64:$tools" PAWL_TEST_EXIT=2 PAWL_STATE_DIR="$tmp/state2/runs" "$hr/bin/pawl-hook" subagent-stop 2>&1 >/dev/null)"
+code=$?
+check "pawl-hook subagent-stop fails open (exit 1) when the binary exits 2" "$([ "$code" -eq 1 ]; echo $?)" "code: $code"
+
 echo
 echo "$tests_run checks, $failures failure(s)"
 [ "$failures" -eq 0 ]

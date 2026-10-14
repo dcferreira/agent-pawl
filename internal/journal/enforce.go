@@ -61,17 +61,26 @@ func ReadHeartbeat(root string) (Heartbeat, bool, error) {
 // id can never name a path outside heartbeat/session/. A bad id simply has
 // no session heartbeat.
 func sessionHeartbeatPath(sessionID string) (string, bool) {
-	if sessionID == "" || len(sessionID) > 128 || sessionID == "." || sessionID == ".." {
+	if !safeFileName(sessionID) {
 		return "", false
 	}
-	for _, c := range sessionID {
+	return filepath.Join(PawlHome(), "heartbeat", "session", sessionID+".json"), true
+}
+
+// safeFileName reports whether s may be used as a single path element:
+// only [A-Za-z0-9._-], 1 to 128 bytes, and not "." or "..".
+func safeFileName(s string) bool {
+	if s == "" || len(s) > 128 || s == "." || s == ".." {
+		return false
+	}
+	for _, c := range s {
 		switch {
 		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '.', c == '_', c == '-':
 		default:
-			return "", false
+			return false
 		}
 	}
-	return filepath.Join(PawlHome(), "heartbeat", "session", sessionID+".json"), true
+	return true
 }
 
 // WriteSessionHeartbeat records that pawl's PreToolUse hook saw a pawl
@@ -98,6 +107,119 @@ func ReadSessionHeartbeat(sessionID string) (Heartbeat, bool, error) {
 	}
 	ok, err := readJSON(path, &h)
 	return h, ok, err
+}
+
+// SubagentStop is one marker left by `pawl hook subagent-stop`: a subagent
+// finished in a session that drives a live run. ID is the marker's file
+// name (without .json), used to consume it.
+type SubagentStop struct {
+	ID        string    `json:"-"`
+	SessionID string    `json:"session_id"`
+	AgentID   string    `json:"agent_id"`
+	Time      time.Time `json:"time"`
+}
+
+func subagentStopsDir() string { return filepath.Join(PawlHome(), "subagent-stops") }
+
+// WriteSubagentStop records that a subagent of sessionID just stopped, in
+// <PawlHome>/subagent-stops/<session>/<agent>.json (a timestamp name when
+// agentID is not a safe file name), and prunes markers older than ttl
+// (PruneSubagentStops) so the directory does not grow. A session id that is not a safe file
+// name writes nothing and is not an error.
+func WriteSubagentStop(sessionID, agentID string, now time.Time, ttl time.Duration) error {
+	if !safeFileName(sessionID) {
+		return nil
+	}
+	name := agentID
+	if !safeFileName(name) {
+		name = fmt.Sprintf("t%d", now.UnixNano())
+	}
+	path := filepath.Join(subagentStopsDir(), sessionID, name+".json")
+	if err := writeJSONAtomic(path, SubagentStop{SessionID: sessionID, AgentID: agentID, Time: now}); err != nil {
+		return err
+	}
+	return PruneSubagentStops(now, ttl)
+}
+
+// ListSubagentStops returns sessionID's markers no older than ttl at now (a
+// marker from the future is not fresh), and deletes that session's expired
+// ones. A bad session id has no markers.
+func ListSubagentStops(sessionID string, now time.Time, ttl time.Duration) ([]SubagentStop, error) {
+	if !safeFileName(sessionID) {
+		return nil, nil
+	}
+	return listSubagentStopsIn(filepath.Join(subagentStopsDir(), sessionID), now, ttl)
+}
+
+func listSubagentStopsIn(dir string, now time.Time, ttl time.Duration) ([]SubagentStop, error) {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("journal: %w", err)
+	}
+	var out []SubagentStop
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".json") || strings.HasPrefix(name, ".") {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		var m SubagentStop
+		if ok, err := readJSON(path, &m); err != nil || !ok {
+			if err != nil {
+				os.Remove(path) // unreadable: never counts, never lingers
+			}
+			continue
+		}
+		m.ID = strings.TrimSuffix(name, ".json")
+		if age := now.Sub(m.Time); age < 0 || age > ttl {
+			if age > ttl {
+				os.Remove(path)
+			}
+			continue
+		}
+		out = append(out, m)
+	}
+	return out, nil
+}
+
+// DeleteSubagentStop consumes one marker; a missing marker or a bad id is
+// not an error.
+func DeleteSubagentStop(sessionID, id string) error {
+	if !safeFileName(sessionID) || !safeFileName(id) {
+		return nil
+	}
+	err := os.Remove(filepath.Join(subagentStopsDir(), sessionID, id+".json"))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("journal: %w", err)
+	}
+	return nil
+}
+
+// PruneSubagentStops deletes every session's expired markers (and any
+// session directory left empty), so subagent-stops/ does not grow.
+func PruneSubagentStops(now time.Time, ttl time.Duration) error {
+	base := subagentStopsDir()
+	sessions, err := os.ReadDir(base)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("journal: %w", err)
+	}
+	for _, s := range sessions {
+		if !s.IsDir() {
+			continue
+		}
+		dir := filepath.Join(base, s.Name())
+		if _, err := listSubagentStopsIn(dir, now, ttl); err != nil {
+			continue
+		}
+		os.Remove(dir) // only succeeds when empty
+	}
+	return nil
 }
 
 // Driver names the Claude Code session currently driving a run; the Stop

@@ -1,7 +1,7 @@
 # A state-machine workflow engine for Claude Code
 
 **Status:** implemented through Milestone 1 — all five kinds, state and resume, `pawl validate`, and
-the enforcement hooks (§5: `pawl hook pre|stop`, `PreToolUse`/`Stop`). The fuller distribution story
+the enforcement hooks (§5: `pawl hook pre|stop|subagent-stop`, `PreToolUse`/`Stop`/`SubagentStop`). The fuller distribution story
 (§9: self-installing pinned release binaries via the hooks) is not built. See docs/status.md for
 the authoritative list of what runs today.
 
@@ -291,24 +291,28 @@ there is nothing about the tree to restore.
 
 ## 5. Enforcement
 
-Two hooks ship with the plugin (`hooks/hooks.json`), bound once at install: `PreToolUse` (matcher
-`Bash`) and `Stop`, both pointed at `bin/pawl-hook`. `pawl-hook` is a short POSIX sh fast-path
+Three hooks ship with the plugin (`hooks/hooks.json`), bound once at install: `PreToolUse` (matcher
+`Bash`), `Stop` and `SubagentStop`, all pointed at `bin/pawl-hook`. `pawl-hook` is a short POSIX sh fast-path
 wrapper: when there is no live run indexed under `live/` *and* the payload doesn't mention `pawl`,
-it exits 0 without invoking the real binary at all; otherwise it pipes stdin to the sibling
-`bin/pawl` launcher's `hook pre|stop`, which execs the plugin's bundled binary (always the plugin's own
+it exits 0 without invoking the real binary at all (for `subagent-stop` the live-run check alone decides:
+that event fires for every subagent of every session and its `last_assistant_message` often mentions
+`pawl`, and only `pre` has a heartbeat to write); otherwise it pipes stdin to the sibling
+`bin/pawl` launcher's `hook pre|stop|subagent-stop`, which execs the plugin's bundled binary (always the plugin's own
 version) or, only in a checkout without `libexec/`, a `pawl` found on `PATH` without recursing. A deny
 or block is always exit 0 with Claude Code's JSON decision on stdout (PreToolUse
 `hookSpecificOutput.permissionDecision: "deny"`, Stop `{"decision":"block"}`), never exit 2, and
 `pawl-hook` turns every non-zero exit from the binary into exit 1 (fail open): in the `PATH`-fallback
 case the plugin and the binary update separately, and a binary older than `pawl hook` exits 2 with
-usage for the unknown subcommand, which would otherwise read as "block" to Claude Code:
+usage for the unknown subcommand, which would otherwise read as "block" to Claude Code (and, on
+`SubagentStop`, would block the subagent from stopping):
 
 ```
 PreToolUse (matcher: Bash) → bin/pawl-hook pre  → (maybe) pawl hook pre
 Stop                       → bin/pawl-hook stop → (maybe) pawl hook stop
+SubagentStop               → bin/pawl-hook subagent-stop → (maybe) pawl hook subagent-stop
 ```
 
-Non-plugin users wire `pawl hook pre`/`pawl hook stop` directly into their own `settings.json` (no
+Non-plugin users wire `pawl hook pre`/`pawl hook stop`/`pawl hook subagent-stop` directly into their own `settings.json` (no
 fast path, since `pawl-hook` isn't on their `PATH`) — see `docs/install.md#hooks`.
 
 **Installation is detected by a heartbeat, not inspected (deviation 1).** There is no way for `pawl
@@ -360,9 +364,9 @@ mid-flight, and an opt-out run needs no heartbeat by design. Terminal transition
 the working-copy root by walking up from cwd for the nearest directory containing a `.git` or `.jj`
 entry (falling back to cwd itself if none is found), never by asking a VCS binary or by
 string-manipulating cwd, and writes the run directory under the slug derived from it. `pawl hook
-pre|stop` reads its own stdin payload for the tool name, input and cwd, derives that call's root by
+pre|stop|subagent-stop` reads its own stdin payload for the tool name, input and cwd, derives that call's root by
 the same algorithm (`journal.ResolveRoot`), loads the live runs under that slug (`journal.Live`) —
-`PreToolUse` and `Stop` additionally load, across every working copy, each run in `live/` whose `driver.json` names
+`PreToolUse`, `Stop` and `SubagentStop` additionally load, across every working copy, each run in `live/` whose `driver.json` names
 the payload's session (verified against its run directory, below) — and
 reads each match's `plan.json` (guards, step kinds — not a separate `guards.json`; deviation 3) and
 `driver.json` off disk. `live/<slug>__<workflow_id>__<run_id>` (a symlink to the run directory,
@@ -433,18 +437,38 @@ turn after 8 consecutive blocks. It also always allows when the Stop payload rep
 still in flight (`background_tasks` non-empty) or a scheduled wakeup (`session_crons` non-empty): the
 session ended its turn to wait for its own background subagent or a `pawl poll` under Monitor, and
 will be woken back up, so refusing would just make it loop. Absent arrays count as empty (unchanged
-current behaviour), and an entry shape pawl doesn't model still parses — only the counts matter. The
-reason always names the way out:
+current behaviour), and an entry shape pawl doesn't model still parses — only the counts matter.
+
+That check has a delivery race, closed by `SubagentStop`. A background subagent can complete after the
+turn's last tool result but before the turn ends: Claude Code fires `SubagentStop` and immediately drops
+the task from `background_tasks`, yet its completion notification is still queued and will wake the
+session. The Stop payload then has `background_tasks: []` although nothing is being walked away from
+(7 of 7 captured occurrences: the last branch subagent finished 0–5s before the block). `pawl hook
+subagent-stop` therefore records a marker — `<pawl home>/subagent-stops/<session_id>/<agent_id>.json`,
+`{session_id, agent_id, time}` — but only when the session drives a live, enforced run whose cursor is
+at an `agentic`/`parallel` step awaiting `pawl submit` (not `BLOCKED`, not `wait`/`human`; it cannot know
+which run the subagent belonged to, so the marker is keyed on the session alone); it never emits a
+decision, never writes stdout, and fails open with exit 0 on every error, since blocking a subagent from
+stopping is never its job. `DecideStop` stays pure: it is handed the session's markers and `now`, and
+only when the Stop would otherwise be refused (after `stop_hook_active`, `background_tasks` and
+`session_crons` have had their say) it allows if the session has a marker no older than
+`hook.SubagentStopCreditTTL` (60s). Whatever the decision — allowed by `background_tasks`/`session_crons`,
+by `stop_hook_active`, by a marker, or blocked — every Stop evaluation reports **all** of the session's
+markers as consumed, and `pawl hook stop` deletes them all (best-effort — a delete failure never changes
+the decision) and prunes expired markers. A marker never outlives the next Stop, so at most one Stop per
+turn-end is excused, however many subagents finished. The worst case is a foreground subagent's result
+delivered mid-turn: its marker survives to that turn's own Stop and excuses it if the driver forgot
+`pawl submit` within 60s. The reason always names the way out:
 
 ```
 pawl run <id> (<workflow>) is at step <step> awaiting `pawl submit`. Finish it, or: pawl abandon --run <id>
 ```
 
-Both hooks fail toward the least surprising side on an internal error: `pawl hook pre` fails **open**
+The hooks fail toward the least surprising side on an internal error: `pawl hook pre` fails **open**
 (exit 1, message on stderr — a non-blocking Claude Code error) on an unparseable payload or a
 `journal.Live` I/O error, except that a run whose guards fail to compile still fails **closed** for
 that run (above); `pawl hook stop` never fails closed — any error allows, so a bug in the hook can
-never trap a session mid-turn.
+never trap a session mid-turn; `pawl hook subagent-stop` fails open with exit 0 and no output.
 
 **Invariants are engine checks, not a hook**, evaluated after every step completion and every `pawl
 submit`. A violation journals the reason into `RUN_END` and sets the run `BLOCKED`.
@@ -458,7 +482,7 @@ submit`. A violation journals the reason into `RUN_END` and sets the run `BLOCKE
 | Subagent mutates VCS | `PreToolUse` deny on `agent_id` | invariant | — |
 | Well-formed but wrong agentic output | — | postcondition + maker ≠ checker | the core residual of any LLM step |
 | Loop forever | `max_visits:`, `max_steps:`, validator | — | — |
-| End the driving session's turn mid-dispatch | `Stop` blocks, names `pawl abandon` | — | a harness that drops the hook, or a session that isn't the recorded driver; also, a session that owes a `pawl submit` but has *any* unrelated `background_tasks`/`session_crons` entry in the Stop payload — the exemption doesn't check that the in-flight work is the dispatched step's, so it can be used to end the turn while genuinely walking away |
+| End the driving session's turn mid-dispatch | `Stop` blocks, names `pawl abandon` | — | a harness that drops the hook, or a session that isn't the recorded driver; also, a session that owes a `pawl submit` but has *any* unrelated `background_tasks`/`session_crons` entry in the Stop payload — the exemption doesn't check that the in-flight work is the dispatched step's, so it can be used to end the turn while genuinely walking away; likewise the `SubagentStop` credit is keyed on the session, not the run or the step, and every Stop consumes all of it: at most one excused `Stop` per turn-end, the worst case being a foreground subagent's result delivered mid-turn plus a forgotten `pawl submit` within the 60s TTL |
 | Half-edit the tree, then die | — | — | fix-forward: the next attempt is told and inspects |
 | Two live runs in one working copy edit the same files | — | — | not prevented; the author's own idempotency only |
 | Guarded or VCS-mutating command run from outside the working copy (`cd /elsewhere`, `git -C /repo push`) | — | invariant, if it changed observable state | guards and the subagent VCS rule apply to the payload cwd's working copy plus every run (in any working copy) whose `driver.json` names the calling session; a command aimed elsewhere (`git -C /repo push`) is checked against those runs' guards by its text only |
@@ -481,7 +505,7 @@ of the spec's attempt rules; the validator, one fixture per rule with a golden-f
 *message*; identity resolution from a subdirectory, a git worktree, a jj workspace and a non-repo
 directory, with cwd ≠ root.
 
-Hook tests pipe synthetic payloads to `pawl hook pre|stop` against a constructed run directory and
+Hook tests pipe synthetic payloads to `pawl hook pre|stop|subagent-stop` against a constructed run directory and
 assert the decision, with the fixture corpus split into *must deny* (canonical spellings) and
 *asserted allowed* (indirection, base64, renamed binary). Resume is a property test: for every prefix
 of a completed run's journal, truncate, resume, and assert the same terminal and the same state.

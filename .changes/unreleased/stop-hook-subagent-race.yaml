@@ -1,0 +1,3 @@
+kind: fixed
+body: "The `Stop` hook no longer blocks the driving session's turn when a background subagent has just finished but its result has not been delivered yet (the reviewer race at a `parallel`/`agentic` step). Claude Code drops a finished subagent from `background_tasks` before its result reaches the session. A new `SubagentStop` hook (`pawl hook subagent-stop`, wired in the plugin's `hooks/hooks.json`) records the finish, and the next `Stop` that would block is allowed once, within 60 seconds. Non-plugin users must also wire `SubagentStop` to `pawl hook subagent-stop` in their `settings.json` (see `docs/install.md#hooks`), or the race remains."
+time: 2026-10-14T13:30:00.000000000+02:00

@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/dcferreira/agent-pawl/internal/hook"
 	"github.com/dcferreira/agent-pawl/internal/journal"
 )
 
@@ -436,3 +438,214 @@ func TestHookStop_BlocksDriverAtForeachWithPendingAgenticItems(t *testing.T) {
 		t.Fatalf("code=%d out=%q err=%q", code, o, errs)
 	}
 }
+
+// subagentStopPayload is shaped from a real Claude Code 2.1.299 capture.
+func subagentStopPayload(cwd, session, agent string) string {
+	return fmt.Sprintf(`{"session_id":%q,"transcript_path":"/x/t.jsonl","cwd":%q,"agent_id":%q,"agent_type":"general-purpose",`+
+		`"agent_transcript_path":"/x/agent.jsonl","permission_mode":"auto","effort":{"level":"medium"},`+
+		`"hook_event_name":"SubagentStop","stop_hook_active":false,"last_assistant_message":"{\"a\": \"alpha\"}",`+
+		`"background_tasks":[{"id":"a74eb877ca71c25c2","type":"subagent","status":"running","description":"pawl branch_b","agent_type":"general-purpose"}],`+
+		`"session_crons":[]}`, session, cwd, agent)
+}
+
+// raceStopPayload is the Stop that follows the last subagent's completion:
+// background_tasks is already empty.
+func raceStopPayload(cwd, session string) string {
+	return fmt.Sprintf(`{"session_id":%q,"cwd":%q,"hook_event_name":"Stop","stop_hook_active":false,`+
+		`"last_assistant_message":"waiting","background_tasks":[],"session_crons":[]}`, session, cwd)
+}
+
+func stopMarkers(t *testing.T, session string) []journal.SubagentStop {
+	t.Helper()
+	m, err := journal.ListSubagentStops(session, nowFunc(), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+func TestHookSubagentStop_RecordsMarkerForDrivingSession(t *testing.T) {
+	root, runID := startHookRun(t)
+	if err := journal.WriteDriver(journal.RunDir(root, "hookwf", runID), "s1", nowFunc()); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errs := hookCall(t, "subagent-stop", subagentStopPayload(root, "s1", "a28e36b12a278f0f4"))
+	if code != 0 || out != "" || errs != "" {
+		t.Fatalf("code=%d out=%q err=%q", code, out, errs)
+	}
+	m := stopMarkers(t, "s1")
+	if len(m) != 1 || m[0].AgentID != "a28e36b12a278f0f4" || m[0].SessionID != "s1" {
+		t.Fatalf("markers = %+v", m)
+	}
+}
+
+func TestHookSubagentStop_NoDrivenRunWritesNothing(t *testing.T) {
+	root, runID := startHookRun(t)
+	if err := journal.WriteDriver(journal.RunDir(root, "hookwf", runID), "s1", nowFunc()); err != nil {
+		t.Fatal(err)
+	}
+	// A different session does not drive the run.
+	code, out, _ := hookCall(t, "subagent-stop", subagentStopPayload(root, "s2", "a1"))
+	if code != 0 || out != "" {
+		t.Fatalf("code=%d out=%q", code, out)
+	}
+	if m := stopMarkers(t, "s2"); len(m) != 0 {
+		t.Fatalf("markers = %+v", m)
+	}
+	// No run at all.
+	root2 := setupWorkingCopy(t)
+	if code, out, _ := hookCall(t, "subagent-stop", subagentStopPayload(root2, "s1", "a1")); code != 0 || out != "" {
+		t.Fatalf("code=%d out=%q", code, out)
+	}
+	if m := stopMarkers(t, "s1"); len(m) != 0 {
+		t.Fatalf("markers = %+v", m)
+	}
+}
+
+func TestHookSubagentStop_OptedOutRunWritesNothing(t *testing.T) {
+	root := setupWorkingCopy(t) // PAWL_ENFORCEMENT=off: the run starts opted out
+	writeWorkflow(t, root, "hookwf", hookWF)
+	var out, errb bytes.Buffer
+	if code := Run([]string{"pawl", "run", "hookwf"}, &out, &errb); code != 0 {
+		t.Fatalf("run: %d %s", code, errb.String())
+	}
+	live, _ := journal.Live(root)
+	if err := journal.WriteDriver(live[0].Dir, "s1", nowFunc()); err != nil {
+		t.Fatal(err)
+	}
+	if code, o, _ := hookCall(t, "subagent-stop", subagentStopPayload(root, "s1", "a1")); code != 0 || o != "" {
+		t.Fatalf("code=%d out=%q", code, o)
+	}
+	if m := stopMarkers(t, "s1"); len(m) != 0 {
+		t.Fatalf("markers = %+v", m)
+	}
+}
+
+func TestHookSubagentStop_FailsOpenSilently(t *testing.T) {
+	setupWorkingCopy(t)
+	code, out, _ := hookCall(t, "subagent-stop", "not json")
+	if code != 0 || out != "" {
+		t.Fatalf("must never block a subagent; code=%d out=%q", code, out)
+	}
+}
+
+func TestHookStop_SubagentStopMarkerAllowsOnceThenBlocks(t *testing.T) {
+	root, runID := startHookRun(t)
+	if err := journal.WriteDriver(journal.RunDir(root, "hookwf", runID), "s1", nowFunc()); err != nil {
+		t.Fatal(err)
+	}
+	// Without a marker the race Stop blocks.
+	if code, out, _ := hookCall(t, "stop", raceStopPayload(root, "s1")); out == "" || code != 0 {
+		t.Fatalf("precondition: stop must block; code=%d out=%q", code, out)
+	}
+	hookCall(t, "subagent-stop", subagentStopPayload(root, "s1", "a1"))
+	if len(stopMarkers(t, "s1")) != 1 {
+		t.Fatal("marker not written")
+	}
+	code, out, errs := hookCall(t, "stop", raceStopPayload(root, "s1"))
+	if code != 0 || out != "" || errs != "" {
+		t.Fatalf("marker must excuse one stop; code=%d out=%q err=%q", code, out, errs)
+	}
+	if m := stopMarkers(t, "s1"); len(m) != 0 {
+		t.Fatalf("marker must be deleted once consumed: %+v", m)
+	}
+	if _, ok := stopBlockReason(t, 0, mustOut(hookCall(t, "stop", raceStopPayload(root, "s1")))); !ok {
+		t.Fatal("second stop must block again")
+	}
+}
+
+// A run at a non-agentic cursor never blocks a Stop, so a subagent
+// finishing under it earns no credit.
+func TestHookSubagentStop_NonAgenticCursorWritesNothing(t *testing.T) {
+	root := setupWorkingCopy(t)
+	t.Setenv("PAWL_ENFORCEMENT", "")
+	if err := journal.WriteHeartbeat(root, "s1", nowFunc()); err != nil {
+		t.Fatal(err)
+	}
+	writeWorkflow(t, root, "human-approval-cli", humanApprovalWorkflow)
+	var out, errb bytes.Buffer
+	if code := Run([]string{"pawl", "run", "human-approval-cli"}, &out, &errb); code != 0 {
+		t.Fatalf("run: %d %s", code, errb.String())
+	}
+	live, err := journal.Live(root)
+	if err != nil || len(live) != 1 {
+		t.Fatalf("live: %v %v", live, err)
+	}
+	if err := journal.WriteDriver(live[0].Dir, "s1", nowFunc()); err != nil {
+		t.Fatal(err)
+	}
+	if code, o, _ := hookCall(t, "subagent-stop", subagentStopPayload(root, "s1", "a1")); code != 0 || o != "" {
+		t.Fatalf("code=%d out=%q", code, o)
+	}
+	if m := stopMarkers(t, "s1"); len(m) != 0 {
+		t.Fatalf("markers = %+v", m)
+	}
+}
+
+// A wake-up turn's Stop that is allowed because background work is still in
+// flight burns the session's markers, so they cannot excuse a later Stop
+// where the driver genuinely forgot to submit.
+func TestHookStop_BackgroundAllowedStopBurnsMarkers(t *testing.T) {
+	root, runID := startHookRun(t)
+	if err := journal.WriteDriver(journal.RunDir(root, "hookwf", runID), "s1", nowFunc()); err != nil {
+		t.Fatal(err)
+	}
+	hookCall(t, "subagent-stop", subagentStopPayload(root, "s1", "a1"))
+	hookCall(t, "subagent-stop", subagentStopPayload(root, "s1", "a2"))
+	if len(stopMarkers(t, "s1")) != 2 {
+		t.Fatal("markers not written")
+	}
+	bg := fmt.Sprintf(`{"session_id":"s1","cwd":%q,"hook_event_name":"Stop","stop_hook_active":false,`+
+		`"background_tasks":[{"id":"x","type":"subagent","status":"running"}],"session_crons":[]}`, root)
+	if code, out, errs := hookCall(t, "stop", bg); code != 0 || out != "" || errs != "" {
+		t.Fatalf("background stop must be allowed; code=%d out=%q err=%q", code, out, errs)
+	}
+	if m := stopMarkers(t, "s1"); len(m) != 0 {
+		t.Fatalf("every marker must be consumed by any stop: %+v", m)
+	}
+	if _, ok := stopBlockReason(t, 0, mustOut(hookCall(t, "stop", raceStopPayload(root, "s1")))); !ok {
+		t.Fatal("next stop with no background work must block")
+	}
+}
+
+// N markers and one Stop leave none: one race excuses one Stop.
+func TestHookStop_ManyMarkersOneStopLeavesNone(t *testing.T) {
+	root, runID := startHookRun(t)
+	if err := journal.WriteDriver(journal.RunDir(root, "hookwf", runID), "s1", nowFunc()); err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range []string{"a1", "a2", "a3"} {
+		hookCall(t, "subagent-stop", subagentStopPayload(root, "s1", a))
+	}
+	if len(stopMarkers(t, "s1")) != 3 {
+		t.Fatal("markers not written")
+	}
+	if code, out, _ := hookCall(t, "stop", raceStopPayload(root, "s1")); code != 0 || out != "" {
+		t.Fatalf("race stop must be allowed; code=%d out=%q", code, out)
+	}
+	if m := stopMarkers(t, "s1"); len(m) != 0 {
+		t.Fatalf("markers left: %+v", m)
+	}
+	if _, ok := stopBlockReason(t, 0, mustOut(hookCall(t, "stop", raceStopPayload(root, "s1")))); !ok {
+		t.Fatal("second stop must block")
+	}
+}
+
+func TestHookStop_ExpiredMarkerBlocksAndIsPruned(t *testing.T) {
+	root, runID := startHookRun(t)
+	if err := journal.WriteDriver(journal.RunDir(root, "hookwf", runID), "s1", nowFunc()); err != nil {
+		t.Fatal(err)
+	}
+	old := nowFunc().Add(-2 * hook.SubagentStopCreditTTL)
+	if err := journal.WriteSubagentStop("s1", "a1", old, hook.SubagentStopCreditTTL); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := stopBlockReason(t, 0, mustOut(hookCall(t, "stop", raceStopPayload(root, "s1")))); !ok {
+		t.Fatal("expired marker must not excuse a stop")
+	}
+	if m := stopMarkers(t, "s1"); len(m) != 0 {
+		t.Fatalf("expired marker must be pruned: %+v", m)
+	}
+}
+
+func mustOut(_ int, out, _ string) string { return out }

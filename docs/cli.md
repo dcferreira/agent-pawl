@@ -6,7 +6,7 @@
 |---|---|
 | **You** (terminal or `/pawl`) | `pawl validate`, `pawl list`, `pawl status`, `pawl abandon`, `pawl update`, `pawl run` (in a session, type `/pawl run`) |
 | **The model** (via `/pawl`, you don't type these) | `pawl run`, `pawl submit`, `pawl poll` |
-| **The hooks** (nobody types these) | `pawl hook pre`, `pawl hook stop` |
+| **The hooks** (nobody types these) | `pawl hook pre`, `pawl hook stop`, `pawl hook subagent-stop` |
 
 A human typing `pawl run` for an agentic workflow in a plain terminal gets one `DISPATCH` block, then
 the process exits with nothing driving it — deterministic-only workflows, or inspection, only.
@@ -339,6 +339,7 @@ race) is a refusal, exit 4, like every other "not what the run is waiting on" ca
 ```
 pawl hook pre
 pawl hook stop
+pawl hook subagent-stop
 ```
 
 Bound once at install, called by Claude Code with a JSON payload on stdin. `pre` writes the session's
@@ -352,7 +353,16 @@ a run that is at an `agentic`/`parallel` step awaiting `pawl submit` (not `BLOCK
 `wait`/`human`), at most once per turn, printing `pawl abandon --run <id>` — unless the Stop payload
 reports background work still in flight (`background_tasks`/`session_crons` non-empty), in which
 case it always allows: the session dispatched a background subagent or is polling under Monitor and
-will be woken back up. Exit protocol: allow = exit 0 with no output; `pre` deny = exit 0 with
+will be woken back up. A Stop that would still block is also allowed, once, by a fresh (≤60s) marker
+that `subagent-stop` left for the same session when a subagent finished (Claude Code drops a finished
+subagent from `background_tasks` before its completion notification is delivered, so the Stop payload can
+already look idle). Every `stop` consumes all of the session's markers, whatever it decides, so a marker
+never outlives the next Stop; the one hole left is a foreground subagent's result delivered mid-turn,
+whose marker excuses that turn's Stop if the driver forgot `pawl submit` within 60s. `subagent-stop`
+records a marker only when the session drives a live, enforced run whose cursor is at an
+`agentic`/`parallel` step awaiting `pawl submit`, never writes stdout, never decides, and fails open
+with exit 0.
+Exit protocol: allow = exit 0 with no output; `pre` deny = exit 0 with
 `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"<reason>"}}`
 on stdout; `stop` block = exit 0 with `{"decision":"block","reason":"<reason>"}` on stdout;
 unparseable input or an I/O error = exit 1 for `pre` (fail open, non-blocking), while `stop` never

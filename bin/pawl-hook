@@ -1,11 +1,15 @@
 #!/bin/sh
 # Claude Code hook entry point shipped by the agent-pawl plugin
-# (hooks/hooks.json): PreToolUse(Bash) -> `pawl-hook pre`, Stop -> `pawl-hook stop`.
+# (hooks/hooks.json): PreToolUse(Bash) -> `pawl-hook pre`, Stop -> `pawl-hook stop`,
+# SubagentStop -> `pawl-hook subagent-stop`.
 #
 # Fast path: with no live run and no mention of pawl in the payload there is
 # nothing to enforce and no heartbeat to write, so exit 0 without starting the
-# Go binary. The live/ directory is only a cache for this check — `pawl hook`
-# itself always re-derives the live runs from the run directories.
+# Go binary (subagent-stop never takes the mention escape: it fires for every
+# subagent of every session and its last_assistant_message often says "pawl",
+# while only pre has a heartbeat to write). The live/ directory is only a
+# cache for this check — `pawl hook` itself always re-derives the live runs
+# from the run directories.
 #
 # Otherwise hand the payload to the real binary through the sibling bin/pawl
 # launcher (called by absolute path): it execs the binary bundled in the plugin
@@ -17,13 +21,14 @@
 # always matches the plugin, but in the PATH-fallback case (a checkout or
 # --plugin-dir) the binary can be older than `pawl hook` and exit 2 for the
 # unknown subcommand — passing that through would deny every pawl-mentioning
-# Bash call (including the reinstall that fixes it).
+# Bash call (including the reinstall that fixes it) and, on SubagentStop, would
+# block the subagent from stopping.
 case "${1:-}" in
-  pre|stop) ;;
+  pre|stop|subagent-stop) ;;
   # A usage mistake fails open (exit 1), never exit 2: exit 2 means "block"
   # to Claude Code, and a bad/missing event is not a considered block
   # decision (this matches cmdHook's own usage exit).
-  *) echo "usage: pawl-hook pre|stop" >&2; exit 1 ;;
+  *) echo "usage: pawl-hook pre|stop|subagent-stop" >&2; exit 1 ;;
 esac
 
 if [ -n "${PAWL_STATE_DIR:-}" ]; then
@@ -45,6 +50,7 @@ for f in "$home"/live/*; do
 done
 
 if [ "$live" = no ]; then
+  if [ "$1" = subagent-stop ]; then exit 0; fi
   case "$payload" in
     *pawl*) ;;
     *) exit 0 ;;

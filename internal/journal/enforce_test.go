@@ -382,3 +382,130 @@ func TestSessionHeartbeat_BadIDsNeverEscape(t *testing.T) {
 		t.Fatalf("files written anywhere: %v", found)
 	}
 }
+
+func TestSubagentStops_RoundTrip(t *testing.T) {
+	t.Setenv(EnvStateDir, t.TempDir())
+	ttl := time.Minute
+	now := time.Now().UTC().Truncate(time.Second)
+	if got, err := ListSubagentStops("s1", now, ttl); err != nil || len(got) != 0 {
+		t.Fatalf("empty list: %v %v", got, err)
+	}
+	if err := WriteSubagentStop("s1", "agent-b", now.Add(-5*time.Second), ttl); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteSubagentStop("s1", "agent-a", now.Add(-20*time.Second), ttl); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteSubagentStop("s2", "agent-c", now, ttl); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(PawlHome(), "subagent-stops", "s1", "agent-a.json")
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("expected marker at %s: %v", want, err)
+	}
+	got, err := ListSubagentStops("s1", now, ttl)
+	if err != nil || len(got) != 2 {
+		t.Fatalf("list s1: %+v %v", got, err)
+	}
+	for _, m := range got {
+		if m.SessionID != "s1" || m.ID == "" || m.Time.IsZero() {
+			t.Fatalf("bad marker %+v", m)
+		}
+	}
+	if err := DeleteSubagentStop("s1", "agent-a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := DeleteSubagentStop("s1", "agent-a"); err != nil {
+		t.Fatalf("deleting a missing marker is not an error: %v", err)
+	}
+	got, _ = ListSubagentStops("s1", now, ttl)
+	if len(got) != 1 || got[0].ID != "agent-b" {
+		t.Fatalf("after delete: %+v", got)
+	}
+}
+
+func TestSubagentStops_EmptyAgentIDStillRecords(t *testing.T) {
+	t.Setenv(EnvStateDir, t.TempDir())
+	now := time.Now().UTC()
+	ttl := time.Minute
+	for i, agent := range []string{"", "../evil"} {
+		if err := WriteSubagentStop("s1", agent, now.Add(time.Duration(-i)*time.Millisecond), ttl); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := ListSubagentStops("s1", now, time.Minute)
+	if err != nil || len(got) != 2 {
+		t.Fatalf("got %+v %v", got, err)
+	}
+}
+
+func TestSubagentStops_ExpiredIgnoredAndPruned(t *testing.T) {
+	t.Setenv(EnvStateDir, t.TempDir())
+	ttl := time.Minute
+	now := time.Now().UTC().Truncate(time.Second)
+	if err := WriteSubagentStop("s1", "old", now.Add(-2*ttl), ttl); err != nil {
+		t.Fatal(err)
+	}
+	// Writing another marker prunes expired ones (any session).
+	if err := WriteSubagentStop("s2", "old2", now.Add(-2*ttl), ttl); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteSubagentStop("s1", "new", now, ttl); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(PawlHome(), "subagent-stops")
+	if _, err := os.Stat(filepath.Join(dir, "s1", "old.json")); err == nil {
+		t.Fatal("expired marker not pruned on write")
+	}
+	if err := WriteSubagentStop("s1", "stale", now.Add(-3*ttl), ttl); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ListSubagentStops("s1", now, ttl)
+	if err != nil || len(got) != 1 || got[0].ID != "new" {
+		t.Fatalf("list must skip expired: %+v %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "s1", "stale.json")); err == nil {
+		t.Fatal("expired marker not pruned on read")
+	}
+	if err := PruneSubagentStops(now.Add(10*ttl), ttl); err != nil {
+		t.Fatal(err)
+	}
+	var files []string
+	filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			files = append(files, p)
+		}
+		return nil
+	})
+	if len(files) != 0 {
+		t.Fatalf("prune left %v", files)
+	}
+}
+
+func TestSubagentStops_BadSessionIDsNeverEscape(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv(EnvStateDir, filepath.Join(base, "state"))
+	now := time.Now()
+	ttl := time.Minute
+	for _, id := range []string{"", "..", ".", "../evil", "a/b", `a\b`, "a b", "x\x00y", "../../evil", "é"} {
+		if err := WriteSubagentStop(id, "agent", now, ttl); err != nil {
+			t.Fatalf("id %q: a bad id is skipped, not an error: %v", id, err)
+		}
+		if got, err := ListSubagentStops(id, now, time.Minute); err != nil || len(got) != 0 {
+			t.Fatalf("id %q: %v %v", id, got, err)
+		}
+		if err := DeleteSubagentStop(id, "agent"); err != nil {
+			t.Fatalf("id %q: %v", id, err)
+		}
+	}
+	var found []string
+	filepath.WalkDir(base, func(p string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			found = append(found, p)
+		}
+		return nil
+	})
+	if len(found) != 0 {
+		t.Fatalf("files written anywhere: %v", found)
+	}
+}
