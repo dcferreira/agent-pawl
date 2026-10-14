@@ -148,3 +148,26 @@ func TestBlockedTerminal_SubmitResumes(t *testing.T) {
 		t.Errorf("exit %d:\n%s", code, stdout)
 	}
 }
+
+func TestBlockedResumeHint_SymlinkedWorkflows(t *testing.T) {
+	root := setupWorkingCopy(t)
+	shared := filepath.Join(root, "dotfiles", "workflows")
+	if err := os.MkdirAll(shared, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(shared, "wf.yaml"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Whole .claude/workflows directory symlinked elsewhere.
+	if err := os.MkdirAll(filepath.Join(root, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(shared, filepath.Join(root, ".claude", "workflows")); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	p := filepath.Join(root, ".claude", "workflows", "wf.yaml")
+	h := blockedResumeHint(p, "ab12", root)
+	if h.Field != "resume" || h.Text != "pawl run wf --run ab12" {
+		t.Errorf("symlinked dir: got %+v", h)
+	}
+}

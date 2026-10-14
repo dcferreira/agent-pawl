@@ -871,8 +871,11 @@ func resumeName(wfPath, cwd string) string {
 		return ""
 	}
 	// Nearest ancestor directory named .claude/workflows.
-	dir := filepath.Dir(real)
-	rel := filepath.Base(real)
+	// Walk the unresolved path: a symlinked workflows dir or file would
+	// otherwise resolve away from the .claude/workflows spelling.
+	clean := filepath.Clean(wfPath)
+	dir := filepath.Dir(clean)
+	rel := filepath.Base(clean)
 	for {
 		if filepath.Base(dir) == "workflows" && filepath.Base(filepath.Dir(dir)) == ".claude" {
 			break
