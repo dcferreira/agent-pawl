@@ -109,6 +109,7 @@ description:
 context:
   [1] git diff (0 bytes)
     (empty)
+  (context command exited 129)
 return: a JSON object with exactly these keys (key order does not matter)
   fix_summary: string
 subagent_args: {"model":"sonnet","tools":["Read","Edit","Bash"]}
@@ -125,7 +126,7 @@ then substituted into the rendered `description:`. The `DISPATCH` writer keeps a
 indented beneath its header, so it can never forge a column-0 instruction or sentinel line.
 
 `[1] git diff (0 bytes)` is empty because `/tmp/pawl-dogfood` isn't a git (or jj) working copy in
-this walkthrough; per `docs/examples/green-tests/NOTES.md`, a `!cmd` context entry that fails or is
+this walkthrough (`git diff` exits 129 there, hence the `(context command exited 129)` line); per `docs/examples/green-tests/NOTES.md`, a `!cmd` context entry that fails or is
 unavailable doesn't block the run: a non-zero exit or timeout keeps the command's stdout and adds an
 engine line `(context command exited N)` / `(context command timed out)` under the item.
 
