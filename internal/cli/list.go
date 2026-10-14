@@ -23,13 +23,13 @@ import (
 func cmdList(args []string, cwd string, stdout, stderr io.Writer) int {
 	if len(args) > 0 {
 		fmt.Fprintln(stderr, "usage: pawl list")
-		return 2
+		return exitUsage
 	}
 
 	root, err := journal.ResolveRoot(cwd)
 	if err != nil {
 		printLine(stderr, err.Error())
-		return 1
+		return exitNotFound
 	}
 
 	type entry struct {
@@ -59,5 +59,5 @@ func cmdList(args []string, cwd string, stdout, stderr io.Writer) int {
 		w.line(0, fmt.Sprintf("%s\t%s\t%s", e.name, e.source, e.path))
 	}
 	fmt.Fprint(stdout, w.String())
-	return 0
+	return exitOK
 }

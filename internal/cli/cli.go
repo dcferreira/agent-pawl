@@ -65,15 +65,20 @@ func Run(args []string, stdout, stderr io.Writer) int {
 
 // RunIO is Run plus a stdin reader for the one command that needs it:
 // `pawl hook pre|stop` reads a Claude Code hook payload from stdin.
-func RunIO(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+func RunIO(args []string, stdin io.Reader, stdout, stderr io.Writer) (exit int) {
+	defer RecoverPanic(stderr, &exit)
 	if len(args) < 2 {
 		fmt.Fprint(stderr, usage)
-		return 2
+		return exitUsage
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		printLine(stderr, "pawl: resolving working directory:", err.Error())
-		return 1
+		return exitNotFound
+	}
+	// hook runs its own fail-open recover and calls commandHook itself.
+	if commandHook != nil && args[1] != "hook" {
+		commandHook(args[1])
 	}
 	var code int
 	switch args[1] {
@@ -95,7 +100,7 @@ func RunIO(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return cmdHook(args[2:], stdin, stdout, stderr)
 	default:
 		fmt.Fprint(stderr, usage)
-		return 2
+		return exitUsage
 	}
 	// Best-effort: a refused run has nothing to link, a failed submit/poll
 	// still leaves the index consistent with what actually happened, and a

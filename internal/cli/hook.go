@@ -37,21 +37,24 @@ var nowFunc = time.Now
 func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int) {
 	if len(args) != 1 || (args[0] != "pre" && args[0] != "stop" && args[0] != "subagent-stop") {
 		fmt.Fprintln(stderr, "usage: pawl hook pre|stop|subagent-stop  (reads a Claude Code hook payload on stdin)")
-		return 1
+		return hookExitFailOpen
 	}
 	event := args[0]
 	failOpen := func(msg string) int {
 		printLine(stderr, "pawl hook "+event+":", msg)
 		if event != "pre" {
-			return 0
+			return hookExitOK
 		}
-		return 1
+		return hookExitFailOpen
 	}
 	defer func() {
 		if r := recover(); r != nil {
 			code = failOpen(fmt.Sprintf("recovered from a panic: %v", r))
 		}
 	}()
+	if commandHook != nil {
+		commandHook("hook")
+	}
 	data, err := io.ReadAll(stdin)
 	if err != nil {
 		return failOpen(err.Error())
@@ -113,17 +116,17 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 				break
 			}
 		}
-		return 0
+		return hookExitOK
 	default:
 		d = stopDecision(runs, p, stderr)
 	}
 	if d.Allow {
-		return 0
+		return hookExitOK
 	}
 	if err := writeHookDecision(stdout, event, d.Reason); err != nil {
 		return failOpen(err.Error())
 	}
-	return 0
+	return hookExitOK
 }
 
 // stopDecision runs hook.DecideStop with the session's fresh SubagentStop

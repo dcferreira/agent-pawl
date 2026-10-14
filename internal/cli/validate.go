@@ -50,7 +50,7 @@ func cmdValidate(args []string, cwd string, stdout, stderr io.Writer) int {
 			i++
 			if i >= len(args) {
 				fmt.Fprintln(stderr, "pawl validate: --path needs a value")
-				return 2
+				return exitUsage
 			}
 			if havePath {
 				// A repeated --path used to silently keep the last value —
@@ -58,7 +58,7 @@ func cmdValidate(args []string, cwd string, stdout, stderr io.Writer) int {
 				// failure the name/--path mutual-exclusion check below
 				// exists to refuse (reviewer finding 10).
 				printLine(stderr, "pawl validate: --path given more than once")
-				return 2
+				return exitUsage
 			}
 			path = args[i]
 			havePath = true
@@ -72,11 +72,11 @@ func cmdValidate(args []string, cwd string, stdout, stderr io.Writer) int {
 			// instead of the usage error (exit 2) an unrecognised flag is
 			// everywhere else in this package (reviewer finding 9).
 			printLine(stderr, "pawl validate: unrecognised argument", arg)
-			return 2
+			return exitUsage
 		default:
 			if haveName {
 				printLine(stderr, "pawl validate: unrecognised argument", arg)
-				return 2
+				return exitUsage
 			}
 			name = arg
 			haveName = true
@@ -84,11 +84,11 @@ func cmdValidate(args []string, cwd string, stdout, stderr io.Writer) int {
 	}
 	if haveName && havePath {
 		fmt.Fprintln(stderr, "usage: pawl validate <workflow-name> | --path <file> — a name and --path are mutually exclusive")
-		return 2
+		return exitUsage
 	}
 	if !haveName && !havePath {
 		fmt.Fprintln(stderr, "usage: pawl validate <workflow-name> | --path <file>")
-		return 2
+		return exitUsage
 	}
 
 	var rw *resolvedWorkflow
@@ -103,7 +103,7 @@ func cmdValidate(args []string, cwd string, stdout, stderr io.Writer) int {
 		}
 		if !fileExists(abs) {
 			printLine(stderr, fmt.Sprintf("pawl: no workflow file at %q", abs))
-			return 1
+			return exitNotFound
 		}
 		rw = &resolvedWorkflow{Path: abs, Source: "path"}
 	} else {
@@ -129,7 +129,7 @@ func cmdValidate(args []string, cwd string, stdout, stderr io.Writer) int {
 				}
 			}
 			printLine(stderr, msg)
-			return 1
+			return exitNotFound
 		}
 	}
 
@@ -153,10 +153,10 @@ func cmdValidate(args []string, cwd string, stdout, stderr io.Writer) int {
 	fmt.Fprint(stdout, w.String())
 
 	if len(report.Errors) > 0 {
-		// docs/cli.md's exit-code table (~line 33): "validation failed" is
+		// the frozen exit-code table (exitcode.go): "validation failed" is
 		// its own clause under 2 (usage/validation), not 1 (resolution) —
 		// the file resolved fine; spec.Validate is what refused it.
-		return 2
+		return exitUsage
 	}
-	return 0
+	return exitOK
 }

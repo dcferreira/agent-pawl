@@ -28,21 +28,21 @@ func cmdStatus(args []string, cwd string, stdout, stderr io.Writer) int {
 			i++
 			if i >= len(args) {
 				fmt.Fprintln(stderr, "pawl status: --run needs a value")
-				return 2
+				return exitUsage
 			}
 			runID = args[i]
 		case "--json":
 			asJSON = true
 		default:
 			printLine(stderr, "pawl status: unrecognised argument", args[i])
-			return 2
+			return exitUsage
 		}
 	}
 
 	root, err := journal.ResolveRoot(cwd)
 	if err != nil {
 		printLine(stderr, err.Error())
-		return 1
+		return exitNotFound
 	}
 
 	var ref *journal.RunRef
@@ -70,7 +70,7 @@ func cmdStatus(args []string, cwd string, stdout, stderr io.Writer) int {
 				w.literal("no live runs for this working copy\n")
 				fmt.Fprint(stdout, w.String())
 			}
-			return 0
+			return exitOK
 		case 1:
 			ref = &live[0]
 		default:
@@ -83,7 +83,7 @@ func cmdStatus(args []string, cwd string, stdout, stderr io.Writer) int {
 			}
 			sort.Strings(ids)
 			printLine(stderr, fmt.Sprintf("pawl status: multiple runs are live for this working copy; disambiguate with --run <id>: %s", strings.Join(ids, ", ")))
-			return 1
+			return exitNotFound
 		}
 	}
 
@@ -100,7 +100,7 @@ func cmdStatus(args []string, cwd string, stdout, stderr io.Writer) int {
 			w.line(0, "detail:", opaqueSentence(ref))
 			fmt.Fprint(stdout, w.String())
 		}
-		return 0
+		return exitOK
 	}
 
 	// C1: read the workflow from plan.json, never by re-resolving the run
@@ -111,12 +111,12 @@ func cmdStatus(args []string, cwd string, stdout, stderr io.Writer) int {
 	pinned, err := loadPinnedWorkflow(ref.Dir)
 	if err != nil {
 		printLine(stderr, err.Error())
-		return 5
+		return exitInternal
 	}
 	report, err := spec.Validate(pinned.Workflow)
 	if err != nil {
 		printLine(stderr, err.Error())
-		return 5
+		return exitInternal
 	}
 
 	warning := ""
@@ -155,7 +155,7 @@ func cmdStatus(args []string, cwd string, stdout, stderr io.Writer) int {
 	// on an ended run reaches this same line, and an abandoned or otherwise
 	// terminal run is not an error to have looked up either. --json matches
 	// this on purpose rather than inventing a status-only exit code.
-	return 0
+	return exitOK
 }
 
 func formatVisits(visits map[string]int) string {

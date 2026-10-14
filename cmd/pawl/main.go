@@ -26,7 +26,8 @@ func main() {
 // other command — including the usage text printed for no/unknown
 // subcommand — is internal/cli.Run's single source of truth, so it is not
 // duplicated here.
-func run(args []string, stdout, stderr io.Writer) int {
+func run(args []string, stdout, stderr io.Writer) (code int) {
+	defer cli.RecoverPanic(stderr, &code)
 	if len(args) >= 2 && args[1] == "version" {
 		fmt.Fprintf(stdout, "pawl %s\n", Version)
 		return 0

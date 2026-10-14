@@ -32,21 +32,21 @@ func cmdSubmit(args []string, cwd string, stdout, stderr io.Writer) int {
 			i++
 			if i >= len(args) {
 				fmt.Fprintln(stderr, "pawl submit: --run needs a value")
-				return 2
+				return exitUsage
 			}
 			runID = args[i]
 		case "--step":
 			i++
 			if i >= len(args) {
 				fmt.Fprintln(stderr, "pawl submit: --step needs a value")
-				return 2
+				return exitUsage
 			}
 			stepID = args[i]
 		case "--json":
 			i++
 			if i >= len(args) {
 				fmt.Fprintln(stderr, "pawl submit: --json needs a value")
-				return 2
+				return exitUsage
 			}
 			result = args[i]
 			haveResult = true
@@ -54,28 +54,28 @@ func cmdSubmit(args []string, cwd string, stdout, stderr io.Writer) int {
 			i++
 			if i >= len(args) {
 				fmt.Fprintln(stderr, "pawl submit: --item needs a value")
-				return 2
+				return exitUsage
 			}
 			n, err := strconv.Atoi(args[i])
 			if err != nil || n < 0 {
 				printLine(stderr, "pawl submit: --item needs a non-negative integer, got", args[i])
-				return 2
+				return exitUsage
 			}
 			item = &n
 		default:
 			printLine(stderr, "pawl submit: unrecognised argument", args[i])
-			return 2
+			return exitUsage
 		}
 	}
 	if runID == "" || stepID == "" || !haveResult {
 		fmt.Fprintln(stderr, "usage: pawl submit --run <id> --step <id> [--item <n>] --json '<result>'")
-		return 2
+		return exitUsage
 	}
 
 	root, err := journal.ResolveRoot(cwd)
 	if err != nil {
 		printLine(stderr, err.Error())
-		return 1
+		return exitNotFound
 	}
 	ref, err := findRunByID(root, runID)
 	if err != nil {
@@ -110,13 +110,13 @@ func cmdSubmit(args []string, cwd string, stdout, stderr io.Writer) int {
 		// findLiveRun already confirmed this run exists and is live; a
 		// plan.json that has since become unreadable or unparsable is not
 		// "unknown run" (exit 1) but a broken run directory (exit 5) —
-		// docs/cli.md's exit-code table (~line 33).
-		return printEngineErr(stderr, "pawl submit", runID, err, 5)
+		// the frozen exit-code table (exitcode.go).
+		return printEngineErr(stderr, "pawl submit", runID, err, exitInternal)
 	}
 	if pinned.Changed {
 		printLine(stderr, fmt.Sprintf("pawl submit: workflow file changed since run %s started (changed: %s); this run cannot continue safely — abandon it with `pawl abandon --run %s` and start a fresh run", runID, pinned.Detail, runID))
 		// Same refusal engine.ErrDigestMismatch names for pawl run — exit 4.
-		return 4
+		return exitRefused
 	}
 	w := pinned.Workflow
 	step := w.StepByID(stepID)
@@ -139,7 +139,7 @@ func cmdSubmit(args []string, cwd string, stdout, stderr io.Writer) int {
 		instr, err = e.Submit(runID, stepID, ref.State.Cursor.Attempt, json.RawMessage(result))
 	}
 	if err != nil {
-		return printEngineErr(stderr, "pawl submit", runID, err, 5)
+		return printEngineErr(stderr, "pawl submit", runID, err, exitInternal)
 	}
 	stampDriver(root, w.Workflow, runID)
 	fmt.Fprint(stdout, formatInstruction(instr, w, root, cwd))
@@ -167,5 +167,5 @@ func itemAttempt(w *spec.Workflow, rs *journal.RunState, bodyID string, index in
 			return rs.ItemAttempt[w.Steps[i].ID][index]
 		}
 	}
-	return 0
+	return exitOK
 }

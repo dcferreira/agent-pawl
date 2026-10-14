@@ -10,7 +10,7 @@ import (
 	"github.com/dcferreira/agent-pawl/internal/journal"
 )
 
-// TestSubmit_LockHeldExitsRefused pins docs/cli.md's exit-code table
+// TestSubmit_LockHeldExitsRefused pins the frozen exit-code table (exitcode.go)
 // (~line 33): a run lock held by another live process is a refusal, exit 4
 // — not a resolution error (1) and not an engine bug (5). It simulates a
 // live holder the way journal.LockHolder itself checks liveness: a lock

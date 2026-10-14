@@ -583,7 +583,7 @@ func TestRun_DigestMismatchOffersFresh(t *testing.T) {
 
 	_, stderr, code2 := runCLI(t, []string{"pawl", "run", "sample"})
 	if code2 != 4 {
-		t.Fatalf("exit = %d, want 4 (a refusal, docs/cli.md's exit-code table); stderr = %q", code2, stderr)
+		t.Fatalf("exit = %d, want 4 (a refusal, the frozen exit-code table (exitcode.go)); stderr = %q", code2, stderr)
 	}
 	if !strings.Contains(stderr, "--fresh") || !strings.Contains(stderr, "greet") {
 		t.Errorf("stderr = %q, want it to name step %q and offer --fresh", stderr, "greet")
@@ -646,7 +646,7 @@ steps:
 `)
 	stdout, _, code := runCLI(t, []string{"pawl", "validate", "broken"})
 	if code != 2 {
-		t.Fatalf("exit = %d, want 2 (validation failed, docs/cli.md's exit-code table)", code)
+		t.Fatalf("exit = %d, want 2 (validation failed, the frozen exit-code table (exitcode.go))", code)
 	}
 	if !strings.Contains(stdout, `step "a"`) {
 		t.Errorf("stdout missing the failing step id: %q", stdout)
@@ -983,7 +983,7 @@ func TestSubmitRefusesMidRunEdit(t *testing.T) {
 
 	stdout2, stderr2, code2 := runCLI(t, []string{"pawl", "submit", "--run", runID, "--step", "greet", "--json", `{"greeting":"hi"}`})
 	if code2 != 4 {
-		t.Fatalf("exit = %d, want 4 (a refusal, docs/cli.md's exit-code table); stdout = %q", code2, stdout2)
+		t.Fatalf("exit = %d, want 4 (a refusal, the frozen exit-code table (exitcode.go)); stdout = %q", code2, stdout2)
 	}
 	if !strings.Contains(stderr2, "changed") || !strings.Contains(stderr2, "abandon") {
 		t.Errorf("stderr = %q, want it to say the workflow changed and suggest abandon", stderr2)
@@ -1026,7 +1026,7 @@ func TestTerminalBlockedSurfacesDetail(t *testing.T) {
 
 	stdout, _, code := runCLI(t, []string{"pawl", "run", "blocked-demo"})
 	if code != 3 {
-		t.Fatalf("pawl run: exit %d, want 3 (BLOCKED terminal, docs/cli.md's exit-code table); stdout = %q", code, stdout)
+		t.Fatalf("pawl run: exit %d, want 3 (BLOCKED terminal, the frozen exit-code table (exitcode.go)); stdout = %q", code, stdout)
 	}
 	if !strings.Contains(stdout, "TERMINAL") || !strings.Contains(stdout, " blocked") {
 		t.Fatalf("expected a blocked TERMINAL; stdout = %q", stdout)
