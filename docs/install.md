@@ -176,7 +176,7 @@ pawl
 with no arguments prints the command list — `run`, `validate`, `status`, `abandon`, `list`,
 `submit`, `poll`, `hook`, `version`, `update`. That is the complete command surface of this build. In particular:
 
-- **`pawl hook pre|stop`** is the enforcement hooks' entry point — see [#hooks](#hooks) below.
+- **`pawl hook pre|stop|subagent-stop`** is the enforcement hooks' entry point — see [#hooks](#hooks) below.
 - **`pawl run` refuses to start (exit 4) without a live `PreToolUse` heartbeat**, unless you pass
   `--no-enforcement` or set `PAWL_ENFORCEMENT=off` — see [#hooks](#hooks) and
   [dogfood.md](dogfood.md) for what that means in practice.
@@ -203,24 +203,31 @@ to the Bash call — so a session may `cd` into another working copy and still s
 and fall back to the working-copy one otherwise.
 
 **The Claude Code plugin wires the hooks automatically.** Once installed (see the README's
-Install section), the plugin's `hooks/hooks.json` binds `PreToolUse` (matcher `Bash`) and `Stop`
-to `${CLAUDE_PLUGIN_ROOT}/bin/pawl-hook pre|stop` — a fast-path wrapper that hands the payload to
-`pawl hook pre|stop` once anything is actually live, or once the payload itself mentions `pawl` (so a
-fresh heartbeat is written even before any run is live). Nothing further to configure; restart the
+Install section), the plugin's `hooks/hooks.json` binds `PreToolUse` (matcher `Bash`), `Stop` and
+`SubagentStop` to `${CLAUDE_PLUGIN_ROOT}/bin/pawl-hook pre|stop|subagent-stop` — a fast-path wrapper that
+hands the payload to `pawl hook pre|stop|subagent-stop` once anything is actually live, or (for `pre`/`stop`
+only) once the payload itself mentions `pawl` (so a fresh heartbeat is written even before any run is
+live). Nothing further to configure; restart the
 session after installing so the hooks bind.
 
-**Without the plugin**, add the same two hooks to your own `settings.json` directly — there is no
-`pawl-hook` on your `PATH` to fast-path through, so these call `pawl hook pre`/`pawl hook stop`
-straight:
+**Without the plugin**, add the same three hooks to your own `settings.json` directly — there is no
+`pawl-hook` on your `PATH` to fast-path through, so these call `pawl hook pre`/`pawl hook stop`/
+`pawl hook subagent-stop` straight:
 
 ```json
 {
   "hooks": {
     "PreToolUse": [{ "matcher": "Bash", "hooks": [{ "type": "command", "command": "pawl hook pre" }] }],
-    "Stop": [{ "hooks": [{ "type": "command", "command": "pawl hook stop" }] }]
+    "Stop": [{ "hooks": [{ "type": "command", "command": "pawl hook stop" }] }],
+    "SubagentStop": [{ "hooks": [{ "type": "command", "command": "pawl hook subagent-stop" }] }]
   }
 }
 ```
+
+Without the `SubagentStop` entry the `Stop` hook still works, but you keep a race: a background subagent
+that finishes just before the turn ends is already gone from the Stop payload's `background_tasks` while
+its completion notification is still queued, so `Stop` refuses a turn Claude Code was about to wake
+anyway. `subagent-stop` records a short-lived (60s), single-use marker that lets that one Stop through.
 
 **Opting out**: pass `--no-enforcement` to `pawl run`, or set `PAWL_ENFORCEMENT=off` — the banner
 says so (`enforcement: off (--no-enforcement)` / `enforcement: off (PAWL_ENFORCEMENT=off)`), and any

@@ -35,12 +35,13 @@ yet" list names what isn't built — and its sample output is illustrative, not 
   distinct from `attempts:`, which re-runs a step on a postcondition failure (see
   `design/format-spec.md` §B.16).
 - **The enforcement layer is built.** `internal/hook` (pure decisions) plus `internal/cli/hook.go`
-  (`pawl hook pre|stop`) back a `PreToolUse`/`Stop` pair the plugin wires via `hooks/hooks.json` →
+  (`pawl hook pre|stop|subagent-stop`) back a `PreToolUse`/`Stop`/`SubagentStop` set the plugin wires via `hooks/hooks.json` →
   `bin/pawl-hook`. `pawl run` refuses to start (exit 4) unless a PreToolUse heartbeat for the
   session (`CLAUDE_CODE_SESSION_ID`) or, failing that, the working copy is on disk and no older than 5 minutes, unless `--no-enforcement`/`PAWL_ENFORCEMENT=off` is
   passed. `Stop` refuses to end the driving session's turn while its run's cursor is at an
   `agentic`/`parallel` step awaiting `pawl submit` (`wait`/`human` cursors and `BLOCKED` runs are
-  exempt, at most once per turn); a subagent (`agent_id` present) may not mutate VCS while any run
+  exempt, at most once per turn; one fresh <=60s `SubagentStop` marker per session also excuses one
+  Stop, covering the background-subagent delivery race, `hook.SubagentStopCreditTTL`); a subagent (`agent_id` present) may not mutate VCS while any run
   is live. See `docs/dogfood.md`.
 - Top-level `invariants:` IS engine-checked: `internal/engine` evaluates every declared invariant,
   in declaration order, after every step completion and after every `pawl submit`/`pawl poll` call
@@ -51,7 +52,7 @@ yet" list names what isn't built — and its sample output is illustrative, not 
   event kind). For a `kind: parallel` step, invariants are evaluated once at the group join, not
   after each branch's own submit. `pawl run`'s banner prints a separate `invariants: N
   (engine-checked after every step)` line whenever N > 0.
-- `pawl poll --run … --step …` drives a `wait` step; `pawl hook pre|stop` is the `PreToolUse`/`Stop`
+- `pawl poll --run … --step …` drives a `wait` step; `pawl hook pre|stop|subagent-stop` is the `PreToolUse`/`Stop`/`SubagentStop`
   hook entry point (see above).
 - `install.sh` and goreleaser-built release binaries exist (tagged releases are published on
   GitHub), and each release also publishes a plugin zip bundling those binaries plus a
@@ -85,8 +86,9 @@ it by writing the design doc's version of reality into code comments or docs.
 - `internal/engine` — cursor, outcome routing, counters, shell execution, postcondition
   evaluation.
 - `internal/hook` — pure `PreToolUse`/`Stop` decisions (`DecidePre`/`DecideStop`) for `pawl hook
-  pre|stop`: no filesystem I/O, just `[]LiveRun` + a parsed payload in, a `Decision` out.
-- `internal/cli` — the `pawl` subcommands, including `hook.go` (`pawl hook pre|stop`) and
+  pre|stop`: no filesystem I/O or clock reads, just `[]LiveRun` + a parsed payload (+ for Stop, the session's
+  `SubagentStop` markers and `now`) in, a `Decision` out.
+- `internal/cli` — the `pawl` subcommands, including `hook.go` (`pawl hook pre|stop|subagent-stop`) and
   `enforce.go` (`pawl run`'s heartbeat check and refusal).
 - `e2e/` — end-to-end tests that actually run `docs/examples/green-tests`,
   `docs/examples/foreach-fanout` and `docs/examples/foreach-agentic`.
@@ -138,13 +140,14 @@ it by writing the design doc's version of reality into code comments or docs.
   symlink-resolved path is `<root>/libexec/<os>_<arch>/pawl` with `<root>/.claude-plugin/plugin.json`
   present) and says to run `claude plugin update agent-pawl@agent-pawl`.
 - `bin/pawl-hook` is the committed POSIX sh entry point `hooks/hooks.json` binds `PreToolUse`
-  (matcher `Bash`) and `Stop` to (`${CLAUDE_PLUGIN_ROOT}/bin/pawl-hook pre|stop`): a cheap fast path
-  that exits 0 with no live run and no `pawl` mention in the payload, otherwise pipes stdin to the
-  sibling `bin/pawl` launcher's `hook pre|stop`. A deny/block is exit 0 with Claude Code's JSON
+  (matcher `Bash`), `Stop` and `SubagentStop` to (`${CLAUDE_PLUGIN_ROOT}/bin/pawl-hook pre|stop|subagent-stop`): a cheap fast path
+  that exits 0 with no live run and no `pawl` mention in the payload (for `subagent-stop`, with no live run
+  alone), otherwise pipes stdin to the
+  sibling `bin/pawl` launcher's `hook pre|stop|subagent-stop`. A deny/block is exit 0 with Claude Code's JSON
   decision on stdout, never exit 2: `pawl-hook` maps every non-zero binary exit to exit 1 (fail
   open), because a `pawl` binary older than the plugin exits 2 (usage) for the unknown `hook`
   subcommand, which Claude Code would read as "block". Non-plugin users wire `pawl hook pre`/`pawl hook
-  stop` directly in their own `settings.json` — see `docs/install.md#hooks`.
+  stop`/`pawl hook subagent-stop` directly in their own `settings.json` — see `docs/install.md#hooks`.
 
 ## Build / test / verify
 

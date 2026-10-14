@@ -29,10 +29,10 @@ session id in `CLAUDE_CODE_SESSION_ID`, then the one for this working copy; each
 - `no heartbeat for working copy <path>` — nothing was ever recorded for this directory.
 
 Check: the plugin is installed and enabled; you restarted the session after installing it (hooks bind
-at session start); the plugin's `hooks/hooks.json` exists and wires `PreToolUse`/`Stop` to
+at session start); the plugin's `hooks/hooks.json` exists and wires `PreToolUse`/`Stop`/`SubagentStop` to
 `bin/pawl-hook`. A `brew`- or `go`-installed `pawl` alone always fails this check — it ships no hooks;
 either install the plugin (see [install.md#hooks](install.md#hooks)) or add the equivalent
-`PreToolUse`/`Stop` entries to your own `settings.json`. If you don't want the check at all, pass
+`PreToolUse`/`Stop`/`SubagentStop` entries to your own `settings.json`. If you don't want the check at all, pass
 `--no-enforcement` to `pawl run`, or set `PAWL_ENFORCEMENT=off`.
 
 This check gates only a fresh start. Resuming an existing run needs no heartbeat: an enforced run
@@ -117,7 +117,8 @@ that run's cursor is at an `agentic`/`parallel` step awaiting `pawl submit` (`wa
 and `BLOCKED` runs are exempt, since ending the turn there is legitimate — and so is ending the turn
 with a `background_tasks` or `session_crons` entry still in the Stop payload, since Claude Code will
 wake the session back up: that's the case where you dispatched the agentic step to a background
-subagent, or are polling a `wait` step under Monitor, and paused rather than walked away). It prints:
+subagent, or are polling a `wait` step under Monitor, and paused rather than walked away — and so is a Stop within 60s of a subagent finishing, once, via the
+`SubagentStop` hook's marker). It prints:
 
 ```
 pawl run <id> (<workflow>) is at step <step> awaiting `pawl submit`. Finish it, or: pawl abandon --run <id>

@@ -3,6 +3,7 @@ package hook
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/dcferreira/agent-pawl/internal/guard"
 	"github.com/dcferreira/agent-pawl/internal/spec"
@@ -50,6 +51,10 @@ func CompileGuards(decls []spec.GuardDecl) ([]Guard, error) {
 type Decision struct {
 	Allow  bool
 	Reason string
+	// Consumed is the SubagentStop marker a Stop allow used up, nil when the
+	// allow did not rest on one. The caller must delete it, so that one
+	// marker excuses at most one Stop.
+	Consumed *StopMarker
 }
 
 var allow = Decision{Allow: true}
@@ -144,6 +149,24 @@ func decideGuards(runs []LiveRun, cmd string) Decision {
 	return allow
 }
 
+// SubagentStopCreditTTL is how long a SubagentStop marker may excuse a Stop.
+// In every captured real failure (7 of 7) the last background subagent
+// completed 0-5s before the blocked Stop: Claude Code fires SubagentStop and
+// drops the task from background_tasks, but the completion notification is
+// still queued and will wake the session. 60s is generous over that evidence.
+// The bound exists because a result delivered mid-turn never has its marker
+// consumed; without expiry that stale marker would later excuse a Stop where
+// the agent genuinely forgot to submit.
+const SubagentStopCreditTTL = 60 * time.Second
+
+// StopMarker is one recorded SubagentStop for a session. ID names it for
+// deletion by the caller; DecideStop never interprets it.
+type StopMarker struct {
+	ID        string
+	SessionID string
+	Time      time.Time
+}
+
 // DecideStop refuses a Stop only for the session driving a run that is
 // blocked waiting on its `pawl submit` (cursor at an agentic or parallel
 // step), and at most once per turn (Claude Code sets stop_hook_active on
@@ -153,7 +176,17 @@ func decideGuards(runs []LiveRun, cmd string) Decision {
 // wakeup (SessionCrons): the session is legitimately paused waiting to be
 // woken back up, not walking away — e.g. it dispatched the agentic step's
 // work to a background subagent and ended its turn to wait for it.
-func DecideStop(runs []LiveRun, p Payload) Decision {
+//
+// Those rules miss a delivery race: a background subagent can finish after
+// the turn's last tool result but before the turn ends, so the Stop payload
+// already omits it while its completion notification is still queued and
+// will wake the session. markers are the SubagentStops recorded for sessions
+// (by `pawl hook subagent-stop`); only if the Stop would otherwise be
+// refused, the oldest marker for p's session no older than
+// SubagentStopCreditTTL at now excuses it, and is reported in
+// Decision.Consumed. Residual hole: any subagent finishing in the session
+// grants one Stop within the TTL. DecideStop does no I/O and reads no clock.
+func DecideStop(runs []LiveRun, p Payload, markers []StopMarker, now time.Time) Decision {
 	if p.StopHookActive || p.BackgroundTasks > 0 || p.SessionCrons > 0 {
 		return allow
 	}
@@ -163,6 +196,21 @@ func DecideStop(runs []LiveRun, p Payload) Decision {
 		}
 		if r.CursorKind != "agentic" && r.CursorKind != "parallel" {
 			continue
+		}
+		var oldest *StopMarker
+		for i := range markers {
+			m := &markers[i]
+			age := now.Sub(m.Time)
+			if m.SessionID != p.SessionID || age < 0 || age > SubagentStopCreditTTL {
+				continue
+			}
+			if oldest == nil || m.Time.Before(oldest.Time) {
+				oldest = m
+			}
+		}
+		if oldest != nil {
+			c := *oldest
+			return Decision{Allow: true, Consumed: &c}
 		}
 		return Decision{Reason: fmt.Sprintf(
 			"pawl run %s (%s) is at step %s awaiting `pawl submit`. Finish it, or: pawl abandon --run %s",
