@@ -143,5 +143,5 @@ func itemAttempt(w *spec.Workflow, rs *journal.RunState, bodyID string, index in
 			return rs.ItemAttempt[w.Steps[i].ID][index]
 		}
 	}
-	return 0
+	return exitOK
 }

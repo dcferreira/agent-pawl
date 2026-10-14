@@ -201,14 +201,21 @@ The JSON contract:
   several live runs and no `--run`, every live run is listed (in run-id order) and the exit is 0;
   text mode prints nothing for them and exits 1 instead. A run whose `plan.json` is unreadable or
   whose pinned workflow fails validation does not hide the others: it is left out of `runs`, one
-  stderr line names its run id and the error, and the exit is 5.
+  stderr line names its run id and the error, and the exit is 5. Once opaque runs are reported as
+  `unreadable`/`newer-format` entries, such a run will be listed instead and the exit will stay 0;
+  exit 5 is then reserved for an I/O error that stops `pawl status` from listing runs at all.
 - `workflow` is the name `pawl run` accepts to start that workflow (for example `manage-mr/foo` for
   `.claude/workflows/manage-mr/foo.yaml`), or `""` when the run's pinned file no longer resolves to
   that name (moved, deleted, or shadowed by a different file of the same name). `workflow_path` is the
   absolute path of the file the run pinned. A consumer that needs the file reads `workflow_path`, and
   one that wants to resume reads `workflow`. `workflow_path` may be empty for a run whose workflow
-  can't be read back.
-- `status` is one of `running`, `ok`, `blocked` or `abandoned`. Values may be added; treat an unknown
+  can't be read back, notably a `newer-format` or `unreadable` run, where `workflow` is the run's
+  workflow-id directory name instead and `workflow_path` is read from its `plan.json` when possible.
+- `status` is one of `running`, `ok`, `blocked` or `abandoned`. Two more values may appear for a run
+  this pawl can't replay: `newer-format` (the run was written by a newer pawl) and `unreadable` (its
+  journal can't be read or replayed). With `--run`, such a run is listed like any other entry. Its `reason` carries
+  the same sentence `pawl run`/`submit`/`poll` would refuse with. Fields that can't be known are zero
+  values (`""`, `0`, `{}`, `[]`), and the key set is unchanged. Values may be added; treat an unknown
   value as not running.
 - `warning` and `reason` are empty strings, not omitted, when there is nothing to say. `warning` is set
   when the workflow file has changed since a still-live run started.

@@ -191,13 +191,8 @@ func formatVisits(visits map[string]int) string {
 	return strings.Join(parts, ", ")
 }
 
-// formatStatusOpaqueJSON is --json output for a run this build cannot replay:
+// opaqueStatusRunJSON is the runs[] entry for a run this build cannot replay:
 // the documented envelope, with empty values for what cannot be known.
-func formatStatusOpaqueJSON(root string, ref *journal.RunRef) string {
-	return formatStatusJSON(root, []statusRunJSON{opaqueStatusRunJSON(ref)})
-}
-
-// opaqueStatusRunJSON is the runs[] entry for a run this build cannot replay.
 // workflow is the workflow-id directory name; workflow_path is the path
 // recorded in the run's own plan.json (decoded leniently, so a newer-format
 // plan still yields it), or "" when absent or unreadable. The workflow ID is
