@@ -31,8 +31,8 @@ Every command uses the same table (`pawl status` is the one deliberate exception
 | 1 | resolution error: unknown workflow, or another non-flag problem hit while resolving it |
 | 2 | usage error: bad/unrecognised flag, missing a flag's value, missing required arg, or validation failed |
 | 3 | run is `BLOCKED` — paused, resumable, not an error (`pawl run`/`pawl submit`/`pawl poll` only) |
-| 4 | refused: `pawl run` with no fresh `PreToolUse` heartbeat and enforcement not opted out, lock held, file changed, submit for a non-current step or kind, a poll of a current step that is not `kind: wait`, or a run that has already finished (the last one is `pawl submit`/`pawl abandon` only — `pawl poll` exits 0 quietly instead for the same case, see below), or `pawl abandon` of a non-blocked run in another working copy that another active session is driving; separately, `pawl update` refusing to overwrite a source/`go install` build without `--force`, and refusing outright (even with `--force`) when the running binary is the one shipped by the agent-pawl Claude Code plugin |
-| 5 | engine error — a bug, or a broken/unreadable run directory or journal; for `pawl update`, any failure resolving, downloading, verifying or installing the release |
+| 4 | refused: `pawl run` with no fresh `PreToolUse` heartbeat and enforcement not opted out, lock held, file changed, submit for a non-current step or kind, a poll of a current step that is not `kind: wait`, or a run that has already finished (the last one is `pawl submit`/`pawl abandon` only — `pawl poll` exits 0 quietly instead for the same case, see below), or `pawl abandon` of a non-blocked run in another working copy that another active session is driving, or `pawl run`/`submit`/`poll` of a run written by a newer pawl (format newer than this binary reads; upgrade or abandon it); separately, `pawl update` refusing to overwrite a source/`go install` build without `--force`, and refusing outright (even with `--force`) when the running binary is the one shipped by the agent-pawl Claude Code plugin |
+| 5 | engine error — a bug, or a broken/unreadable run directory or journal (including `pawl run`/`submit`/`poll` of a run whose journal cannot be replayed in a known format; repair `events.jsonl` or abandon it); for `pawl update`, any failure resolving, downloading, verifying or installing the release |
 
 ---
 
@@ -213,7 +213,8 @@ e.g. one whose checkout was deleted — printing a one-line note on stderr namin
 matches elsewhere are refused (exit 1, nothing abandoned); a non-blocked run that looks actively
 driven (live lock holder, or a fresh heartbeat from its driving session) is refused with exit 4 —
 end that other session, or wait for its heartbeat to go stale, and retry. The calling session
-abandoning its own run is never refused for its own heartbeat.
+abandoning its own run is never refused for its own heartbeat. A run pawl cannot replay (written by a
+newer pawl, or with a corrupt journal) can still be abandoned: the end is appended without replaying it.
 
 ## `pawl version` — human
 

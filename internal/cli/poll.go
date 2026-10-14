@@ -62,6 +62,15 @@ func cmdPoll(args []string, cwd string, stdout, stderr io.Writer) int {
 		printLine(stderr, "pawl poll:", err.Error())
 		return exitForLookupErr(err)
 	}
+	if ref.Opaque != nil {
+		if ref.Opaque.Ended {
+			// Abandoned (or otherwise ended) without being replayable: the
+			// same quiet no-op as an ended run.
+			printLine(stdout, fmt.Sprintf("poll: nothing to do: run %s has already ended", runID))
+			return 0
+		}
+		return opaqueRefusal(stderr, "pawl poll", ref)
+	}
 	if ref.State.Terminal() {
 		// The run existed and has already ended — the same expected race
 		// engine.ErrPollNotCurrent covers below (another process finished or
@@ -82,8 +91,7 @@ func cmdPoll(args []string, cwd string, stdout, stderr io.Writer) int {
 		// Same reasoning as pawl submit's: findLiveRun already confirmed
 		// this run exists and is live, so a plan.json that has since become
 		// unreadable is a broken run directory (exit 5), not an unknown run.
-		printLine(stderr, "pawl poll:", err.Error())
-		return 5
+		return printEngineErr(stderr, "pawl poll", runID, err, 5)
 	}
 	if pinned.Changed {
 		printLine(stderr, fmt.Sprintf("pawl poll: workflow file changed since run %s started (changed: %s); this run cannot continue safely — abandon it with `pawl abandon --run %s` and start a fresh run", runID, pinned.Detail, runID))
@@ -106,8 +114,7 @@ func cmdPoll(args []string, cwd string, stdout, stderr io.Writer) int {
 			printLine(stdout, "poll: nothing to do:", err.Error())
 			return 0
 		}
-		printLine(stderr, "pawl poll:", err.Error())
-		return exitForEngineErr(err)
+		return printEngineErr(stderr, "pawl poll", runID, err, 5)
 	}
 	stampDriver(root, w.Workflow, runID)
 	fmt.Fprint(stdout, formatInstruction(instr, w, root, cwd))

@@ -81,6 +81,10 @@ func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 		}
 	}
 
+	if ref != nil && ref.Opaque != nil {
+		return opaqueRefusal(stderr, "pawl run", ref)
+	}
+
 	var mode enforcementMode
 	if ref != nil {
 		mode, err = resumeEnforcement(root, ref, flags.NoEnforcement)
@@ -164,8 +168,7 @@ func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 	runID := newRunID()
 	instr, err := e.Start(runID, boundArgs)
 	if err != nil {
-		printLine(stderr, "pawl run:", err.Error())
-		return exitForEngineErr(err)
+		return printEngineErr(stderr, "pawl run", runID, err, 5)
 	}
 	fmt.Fprint(stdout, formatInstruction(instr, w, root, cwd))
 	return instructionExitCode(instr)
@@ -223,8 +226,7 @@ func handleRunErr(err error, stderr io.Writer, root string, w *spec.Workflow, ru
 		// offered way out, not a typo to go fix and retype.
 		return 4
 	}
-	printLine(stderr, "pawl run:", err.Error())
-	return exitForEngineErr(err)
+	return printEngineErr(stderr, "pawl run", runID, err, 5)
 }
 
 // diffChangedSteps compares the workflow plan.json recorded when runID

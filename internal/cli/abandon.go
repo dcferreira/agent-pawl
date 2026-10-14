@@ -31,7 +31,7 @@ func findAbandonFallback(runID, cwdSlug string, stderr io.Writer) (*journal.RunR
 	default:
 		names := make([]string, len(cands))
 		for i, c := range cands {
-			names[i] = fmt.Sprintf("%s/%s/%s (%s)", c.Slug, c.WorkflowID, c.RunID, c.State.Status())
+			names[i] = fmt.Sprintf("%s/%s/%s (%s)", c.Slug, c.WorkflowID, c.RunID, c.StatusText())
 		}
 		sort.Strings(names)
 		printLine(stderr, fmt.Sprintf("pawl abandon: run id %q matches live runs in several other working copies; abandon nothing: %s", runID, strings.Join(names, ", ")))
@@ -39,7 +39,7 @@ func findAbandonFallback(runID, cwdSlug string, stderr io.Writer) (*journal.RunR
 	}
 	c := cands[0]
 	// A blocked run is paused, nobody is mid-step in it: always abandonable.
-	if c.State.Status() != "blocked" && runBeingDriven(c.Dir) {
+	if c.StatusText() != "blocked" && runBeingDriven(c.Dir) {
 		printLine(stderr, fmt.Sprintf("pawl abandon: run %s in %s (workflow %s) is being driven by another active session; end that session (or wait for its heartbeat to go stale) and retry", runID, c.Slug, c.WorkflowID))
 		return nil, exitForEngineErr(fmt.Errorf("%w: run %q is being driven", journal.ErrHeld, runID))
 	}
@@ -131,6 +131,9 @@ func cmdAbandon(args []string, cwd string, stdout, stderr io.Writer) int {
 		printLine(stderr, "pawl abandon:", err.Error())
 		return exitForLookupErr(err)
 	}
+	if ref.Opaque != nil {
+		return abandonOpaque(ref, runID, reason, elsewhere, stdout, stderr)
+	}
 	if ref.State.Terminal() {
 		// Unlike pawl submit/poll, pawl abandon has no engine call to let
 		// discover this on its own (it appends RUN_END directly) — a
@@ -184,6 +187,40 @@ func cmdAbandon(args []string, cwd string, stdout, stderr io.Writer) int {
 		StepID:  ref.State.Cursor.Step,
 		Outcome: "abandoned",
 		Message: fmt.Sprintf("run %s abandoned at step %q by user request.", runID, ref.State.Cursor.Step),
+	}, "", resumeHint{}))
+	return 0
+}
+
+// abandonOpaque ends a run this build cannot replay (newer format, or a
+// corrupt journal) by appending a RUN_END without replaying it
+// (journal.AppendRunEndRaw). The "being driven" check needs no replay, so it
+// applies as for any run; an already-ended run gets today's refusal.
+func abandonOpaque(ref *journal.RunRef, runID, reason string, elsewhere bool, stdout, stderr io.Writer) int {
+	if ref.Opaque.Ended {
+		printLine(stderr, fmt.Sprintf("pawl abandon: run %s has already ended (%s); nothing to abandon", runID, ref.StatusText()))
+		return exitForEngineErr(fmt.Errorf("%w: run %q already ended", engine.ErrAlreadyTerminal, runID))
+	}
+	lock, err := journal.AcquireLock(ref.Dir, false)
+	if err != nil {
+		printLine(stderr, "pawl abandon:", err.Error())
+		return exitForEngineErr(err)
+	}
+	defer lock.Release()
+	if elsewhere {
+		printLine(stderr, fmt.Sprintf("pawl abandon: run %s is not in this working copy; abandoning it in %s (workflow %s)", runID, ref.Slug, ref.WorkflowID))
+	}
+	if err := journal.AppendRunEndRaw(ref.Dir, runID, ref.Opaque.LastSeq+1, "abandoned", reason); err != nil {
+		printLine(stderr, "pawl abandon:", err.Error())
+		return exitForEngineErr(err)
+	}
+	if elsewhere {
+		_ = journal.SyncLiveIndexSlug(ref.Slug)
+	}
+	fmt.Fprint(stdout, formatTerminal(engine.Terminal{
+		RunID:   runID,
+		Status:  "abandoned",
+		Outcome: "abandoned",
+		Message: fmt.Sprintf("run %s abandoned by user request.", runID),
 	}, "", resumeHint{}))
 	return 0
 }

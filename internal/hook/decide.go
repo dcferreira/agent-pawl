@@ -23,6 +23,13 @@ type LiveRun struct {
 	Guards            []Guard // empty when the workflow has no guards
 	GuardsErr         error   // non-nil → fail closed for this run
 	DriverSession     string  // "" when no driver.json
+	// Opaque marks a run whose journal this build cannot read (written by a
+	// newer pawl, or corrupt); OpaqueStatus is journal.RunRef.StatusText()
+	// for it ("newer-format" or "unreadable"). Its cursor, guards and
+	// enforcement setting are unknowable, so only the subagent VCS rule
+	// applies to it: no guards, never a Stop block.
+	Opaque       bool
+	OpaqueStatus string
 }
 
 // Guard is one compiled guards[] entry. Each is its own single-guard
@@ -86,6 +93,9 @@ func DecidePre(runs []LiveRun, p Payload) Decision {
 	cmd := p.Command
 	if !IsPawlOnlyCommand(cmd) {
 		for _, r := range runs {
+			if r.Opaque {
+				continue // guards are unknowable for an unreadable run
+			}
 			if r.GuardsErr != nil {
 				return Decision{Reason: fmt.Sprintf(
 					"pawl: run %s's guards could not be loaded (%v); every command is denied until it is fixed or abandoned: pawl abandon --run %s",
@@ -98,6 +108,11 @@ func DecidePre(runs []LiveRun, p Payload) Decision {
 	}
 	if p.AgentID != "" && IsVCSMutation(cmd) {
 		r := runs[0]
+		if r.Opaque {
+			return Decision{Reason: fmt.Sprintf(
+				"pawl: a subagent may not mutate VCS while run %s (%s) is live; that run's journal is %s (written by a newer pawl, or unreadable) so pawl cannot tell what it is doing. Upgrade pawl, or end it: pawl abandon --run %s",
+				r.RunID, r.WorkflowID, r.OpaqueStatus, r.RunID)}
+		}
 		return Decision{Reason: fmt.Sprintf(
 			"pawl: a subagent may not mutate VCS while run %s is live (step %s); leave commits to the workflow's own steps",
 			r.RunID, r.CursorStep)}
@@ -121,6 +136,9 @@ func decideGuards(runs []LiveRun, cmd string) Decision {
 	permitted := map[string]bool{}
 	for i := range runs {
 		r := &runs[i]
+		if r.Opaque {
+			continue
+		}
 		for _, g := range r.Guards {
 			if g.table.Denied(nil, cmd) == nil {
 				continue // match: does not hit cmd
@@ -208,7 +226,7 @@ func DecideStop(runs []LiveRun, p Payload, markers []StopMarker, now time.Time) 
 		return allowed
 	}
 	for _, r := range runs {
-		if r.Blocked || r.DriverSession == "" || r.DriverSession != p.SessionID {
+		if r.Opaque || r.Blocked || r.DriverSession == "" || r.DriverSession != p.SessionID {
 			continue
 		}
 		if r.CursorKind != "agentic" && r.CursorKind != "parallel" {

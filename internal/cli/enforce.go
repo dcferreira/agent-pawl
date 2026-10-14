@@ -117,7 +117,7 @@ func checkEnforcement(root string, flagOff bool) (enforcementMode, error) {
 //     fresh heartbeat (a hooked session resuming) makes this invocation's
 //     session the run's new driver.
 func resumeEnforcement(root string, ref *journal.RunRef, flagOff bool) (enforcementMode, error) {
-	if ref.State.EnforcementOff() {
+	if ref.State != nil && ref.State.EnforcementOff() {
 		reason := strings.TrimSuffix(strings.TrimPrefix(ref.State.Enforcement, "off ("), ")")
 		return enforcementMode{OffReason: "bound at run start: " + reason}, nil
 	}

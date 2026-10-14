@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"sort"
@@ -74,11 +75,30 @@ func cmdStatus(args []string, cwd string, stdout, stderr io.Writer) int {
 			ids := make([]string, len(live))
 			for i, r := range live {
 				ids[i] = r.RunID
+				if r.Opaque != nil {
+					ids[i] += " (" + r.StatusText() + ")"
+				}
 			}
 			sort.Strings(ids)
 			printLine(stderr, fmt.Sprintf("pawl status: multiple runs are live for this working copy; disambiguate with --run <id>: %s", strings.Join(ids, ", ")))
 			return 1
 		}
+	}
+
+	if ref.Opaque != nil {
+		// Read-only: show the run and why it cannot be driven, exit 0.
+		if asJSON {
+			fmt.Fprint(stdout, formatStatusOpaqueJSON(root, ref))
+		} else {
+			w := &blockWriter{}
+			w.line(0, "root:", root)
+			w.line(0, "run:", ref.RunID)
+			w.line(0, "workflow:", ref.WorkflowID)
+			w.line(0, "status:", ref.StatusText())
+			w.line(0, "detail:", opaqueSentence(ref))
+			fmt.Fprint(stdout, w.String())
+		}
+		return 0
 	}
 
 	// C1: read the workflow from plan.json, never by re-resolving the run
@@ -150,4 +170,16 @@ func formatVisits(visits map[string]int) string {
 		parts[i] = fmt.Sprintf("%s=%d", n, visits[n])
 	}
 	return strings.Join(parts, ", ")
+}
+
+// formatStatusOpaqueJSON is --json output for a run this build cannot replay.
+func formatStatusOpaqueJSON(root string, ref *journal.RunRef) string {
+	b, _ := json.Marshal(map[string]any{
+		"root":     root,
+		"run_id":   ref.RunID,
+		"workflow": ref.WorkflowID,
+		"status":   ref.StatusText(),
+		"detail":   opaqueSentence(ref),
+	})
+	return string(b) + "\n"
 }
