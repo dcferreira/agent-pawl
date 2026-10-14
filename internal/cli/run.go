@@ -57,6 +57,12 @@ func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 		return exitUsage
 	}
 
+	// Before anything is resolved, printed or gated (start and resume alike):
+	// a binary that is not the plugin's version must not drive its skill.
+	if !checkPluginVersion(stderr) {
+		return exitRefused
+	}
+
 	rw, err := resolveWorkflowFile(cwd, name)
 	if err != nil {
 		printLine(stderr, err.Error())

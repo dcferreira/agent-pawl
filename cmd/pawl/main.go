@@ -27,6 +27,7 @@ func main() {
 // duplicated here.
 func run(args []string, stdout, stderr io.Writer) (code int) {
 	defer cli.RecoverPanic(stderr, &code)
+	cli.Version = Version
 	if len(args) >= 2 && args[1] == "version" {
 		return cli.CmdVersion(args[2:], stdout, stderr, Version)
 	}
