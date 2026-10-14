@@ -171,9 +171,10 @@ func TestAbandon_NoRunAnywhere(t *testing.T) {
 	}
 }
 
-func driveFallback(t *testing.T, status string, hbAge time.Duration, withHeartbeat bool) (code int, errs, runStatus string, rootB string) {
+func driveFallback(t *testing.T, self, status string, hbAge time.Duration, withHeartbeat bool) (code int, errs, runStatus string, rootB string) {
 	t.Helper()
 	setupWorkingCopy(t)
+	t.Setenv(envSessionID, self) // the session calling pawl abandon
 	rootB = t.TempDir()
 	dir := seedRun(t, rootB, "wf", "0617", status)
 	if err := journal.WriteDriver(dir, "sess-x", time.Now()); err != nil {
@@ -189,15 +190,22 @@ func driveFallback(t *testing.T, status string, hbAge time.Duration, withHeartbe
 }
 
 func TestAbandon_FallbackRefusesActivelyDrivenRun(t *testing.T) {
-	code, errs, st, rootB := driveFallback(t, "", 0, true)
-	want := "pawl abandon: run 0617 in " + journal.Slug(rootB) + " (workflow wf) is being driven by an active session; run pawl abandon from its working copy\n"
+	code, errs, st, rootB := driveFallback(t, "sess-other", "", 0, true)
+	want := "pawl abandon: run 0617 in " + journal.Slug(rootB) + " (workflow wf) is being driven by another active session; end that session (or wait for its heartbeat to go stale) and retry\n"
 	if code != 4 || errs != want || st != "running" {
 		t.Fatalf("code=%d err=%q status=%q", code, errs, st)
 	}
 }
 
+func TestAbandon_FallbackDriverAbandoningOwnRunAllowed(t *testing.T) {
+	code, errs, st, _ := driveFallback(t, "sess-x", "", 0, true)
+	if code != 0 || st != "abandoned" {
+		t.Fatalf("code=%d err=%q status=%q", code, errs, st)
+	}
+}
+
 func TestAbandon_FallbackStaleHeartbeatAllowed(t *testing.T) {
-	code, errs, st, _ := driveFallback(t, "", journal.HeartbeatTTL+time.Minute, true)
+	code, errs, st, _ := driveFallback(t, "", "", journal.HeartbeatTTL+time.Minute, true)
 	if code != 0 || st != "abandoned" {
 		t.Fatalf("code=%d err=%q status=%q", code, errs, st)
 	}
@@ -216,7 +224,7 @@ func TestAbandon_FallbackNoDriverAllowed(t *testing.T) {
 }
 
 func TestAbandon_FallbackBlockedAllowedDespiteFreshHeartbeat(t *testing.T) {
-	code, errs, st, _ := driveFallback(t, "blocked", 0, true)
+	code, errs, st, _ := driveFallback(t, "", "blocked", 0, true)
 	if code != 0 || st != "abandoned" {
 		t.Fatalf("code=%d err=%q status=%q", code, errs, st)
 	}
@@ -232,7 +240,7 @@ func TestAbandon_FallbackRefusesLiveLockHolder(t *testing.T) {
 	}
 	defer lock.Release()
 	code, _, errs := runPawl("abandon", "--run", "0617")
-	if code != 4 || !strings.Contains(errs, "is being driven by an active session") {
+	if code != 4 || !strings.Contains(errs, "is being driven by another active session") {
 		t.Fatalf("code=%d err=%q", code, errs)
 	}
 	if runStatusOf(t, rootB, "0617") != "running" {

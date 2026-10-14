@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -39,7 +40,7 @@ func findAbandonFallback(runID, cwdSlug string, stderr io.Writer) (*journal.RunR
 	c := cands[0]
 	// A blocked run is paused, nobody is mid-step in it: always abandonable.
 	if c.State.Status() != "blocked" && runBeingDriven(c.Dir) {
-		printLine(stderr, fmt.Sprintf("pawl abandon: run %s in %s (workflow %s) is being driven by an active session; run pawl abandon from its working copy", runID, c.Slug, c.WorkflowID))
+		printLine(stderr, fmt.Sprintf("pawl abandon: run %s in %s (workflow %s) is being driven by another active session; end that session (or wait for its heartbeat to go stale) and retry", runID, c.Slug, c.WorkflowID))
 		return nil, exitForEngineErr(fmt.Errorf("%w: run %q is being driven", journal.ErrHeld, runID))
 	}
 	return &c, 0
@@ -47,13 +48,19 @@ func findAbandonFallback(runID, cwdSlug string, stderr io.Writer) (*journal.RunR
 
 // runBeingDriven reports whether dir's run looks actively driven: its lock is
 // held by a live pid, or driver.json names a session whose heartbeat is
-// fresh (journal.HeartbeatTTL). Unreadable evidence counts as "not driven".
+// fresh (journal.HeartbeatTTL). A driver that is the calling session
+// (CLAUDE_CODE_SESSION_ID) abandoning its own run does not count: its own
+// PreToolUse hook just refreshed that heartbeat. Unreadable evidence counts as
+// "not driven".
 func runBeingDriven(dir string) bool {
 	if _, alive, err := journal.LockHolder(dir); err == nil && alive {
 		return true
 	}
 	d, ok, err := journal.ReadDriver(dir)
 	if err != nil || !ok {
+		return false
+	}
+	if self := os.Getenv(envSessionID); self != "" && d.SessionID == self {
 		return false
 	}
 	hb, ok, err := journal.ReadSessionHeartbeat(d.SessionID)
