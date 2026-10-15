@@ -51,6 +51,8 @@
 #                              `claude plugin update agent-pawl@agent-pawl`; sets OLD_PLUGIN_DIR
 #                              (the dir before) and PLUGIN_DIR (the dir after); returns 1 on failure
 #   fetch_release_binary <ver> <dest-file>   download + checksum-verify the release tarball's pawl
+#   ver_ge <A> <B>             true when version A >= B (X.Y.Z; see the function)
+#   PAWL_FIRST_HEARTBEAT_CHECK  first release that has PR #75's heartbeat-based plugin check
 # Globals after e2e_init: SCEN ROOT SB_HOME SB_CFG SB_BIN SB_GOPATH SB_WORK
 #   REPORT_DIR TRANSCRIPT SUMMARY CLAUDE_BIN GO_DIR
 
@@ -326,6 +328,38 @@ install_plugin() {
     return 1
   fi
   note "installed plugin dir: $PLUGIN_DIR"
+  return 0
+}
+
+# PAWL_FIRST_HEARTBEAT_CHECK: the first release that contains PR #75 (`pawl hook
+# pre` records plugin_version in its heartbeat, `pawl run` refuses when it differs
+# from its own version, and the launcher exports PAWL__LAUNCHER for the
+# `submit with:` lines). The fix was unreleased when this was written and is
+# EXPECTED to ship in 0.9.0: if it ships in a different release, correct this
+# value (scenario F's F5 checks gate on it).
+# shellcheck disable=SC2034 # read by scenario-f.sh
+PAWL_FIRST_HEARTBEAT_CHECK="0.9.0"
+
+# ver_ge <A> <B>: succeeds when version A >= version B. Both are X.Y.Z with an
+# optional leading "v"; a pre-release suffix ("-rc1", anything after the first
+# "-") is IGNORED for ordering, so 0.9.0-rc1 compares equal to 0.9.0 (a release
+# candidate carries the fixes of the release it precedes). Missing components
+# count as 0; a non-numeric component compares as 0.
+ver_ge() {
+  local a="${1#v}" b="${2#v}" i x y
+  a="${a%%-*}"
+  b="${b%%-*}"
+  local -a pa pb
+  IFS=. read -r -a pa <<<"$a"
+  IFS=. read -r -a pb <<<"$b"
+  for i in 0 1 2; do
+    x="${pa[$i]:-0}"
+    y="${pb[$i]:-0}"
+    case "$x" in '' | *[!0-9]*) x=0 ;; esac
+    case "$y" in '' | *[!0-9]*) y=0 ;; esac
+    [ "$((10#$x))" -gt "$((10#$y))" ] && return 0
+    [ "$((10#$x))" -lt "$((10#$y))" ] && return 1
+  done
   return 0
 }
 

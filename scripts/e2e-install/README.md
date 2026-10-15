@@ -29,7 +29,13 @@ the FROM plugin dir is deleted, and the harness records verbatim what the stale
 launcher/hooks print, then finishes the run through the TO launcher; `f`
 plugin/binary version-mismatch UX (a source checkout as plugin dir with a
 different-version `pawl` on PATH, both directions, plus synthetic plugin.json
-edits to exercise the check TO has).
+edits to exercise the check TO hasedits to exercise the check TO has). F5 (PR #75: the heartbeat records the
+plugin version, so a stale `pawl` shadowing the plugin's binary on PATH is refused with exit 4,
+and `submit with:` lines name the launcher) has three variants, each SKIPped unless the
+relevant release is >= `PAWL_FIRST_HEARTBEAT_CHECK` (lib.sh, 0.9.0): F5a synthetic 99.0.0 plugin
+(TO), F5b the FROM binary shadowing the TO plugin (FROM), F5c launcher-path `submit with:` (TO).
+Pre-release testing hooks: `E2E_TO_PLUGIN_DIR=<plugin dir>` (replaces the marketplace install of
+TO for F5) and `E2E_FROM_BINARY=<pawl file>` (replaces the FROM release download for F5b).
 
 Releases before the one that added a check cannot enforce it: FROM (0.7.0) has
 no PAWL__PLUGIN_VERSION export and no version check, so F records that honestly

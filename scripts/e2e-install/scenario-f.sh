@@ -7,6 +7,8 @@
 #   F3/F4 (synthetic): TO checkout whose plugin.json is edited to a different
 #       version, with the TO binary on PATH, to exercise the check that exists
 #       in TO.
+#   F5a/b/c: the heartbeat-recorded plugin version (PR #75) and PAWL__LAUNCHER;
+#       each gated on PAWL_FIRST_HEARTBEAT_CHECK (lib.sh), SKIP before it.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
@@ -143,6 +145,225 @@ mk_variant "0.9.0" "$ROOT/co-to-as-next"
 note "F4: SYNTHETIC. TO checkout with plugin.json edited to 0.9.0 (a NEWER plugin, as after a Claude Code plugin update) + the $TO binary on PATH: binary older than plugin, same check."
 run_case "F4" "$ROOT/co-to-as-next" "$ROOT/tobin"
 check_refusal "F4 (plugin 0.9.0, binary $TO)" "0.9.0" "$TO"
+
+# --- F5: heartbeat-recorded plugin version (PR #75) ---------------------------
+# A stale `pawl` earlier on PATH shadows the plugin's binary (Claude Code appends
+# a plugin's bin/ to the END of PATH). The fix: `pawl hook pre`, always run through
+# the plugin's own bin/pawl-hook + launcher, records plugin_version in the
+# heartbeat; `pawl run` refuses (exit 4) when that differs from its own version,
+# before it loads or validates the workflow; and the launcher exports
+# PAWL__LAUNCHER, which pawl prints as the command in `submit with:` lines.
+#
+# PRE-RELEASE TESTING HOOKS (documented in README.md; unset in normal use):
+#   E2E_TO_PLUGIN_DIR=<dir>   use this plugin dir (bin/ hooks/ .claude-plugin/
+#                             libexec/<plat>/pawl) as "the installed TO plugin"
+#                             instead of installing TO from the marketplace; the
+#                             F5a/F5c gate then uses that dir's plugin.json version.
+#   E2E_FROM_BINARY=<file>    use this pawl binary as "the FROM release binary"
+#                             for F5b (gate = the version it reports).
+f5_wf_setup() {
+  cat >"$PROJ/.claude/workflows/f5-agentic.yaml" <<'YAML'
+workflow: f5-agentic
+description: >
+  Harness-local fixture - one agentic step, then done.
+start: work
+state: {note: {type: string}}
+
+steps:
+  - id: work
+    kind: agentic
+    description: |
+      Harness fixture; nobody submits this step.
+    writes: {note: {type: string}}
+    postcondition: {command: "true"}
+    next: done
+
+terminal:
+  done:    {status: ok,      message: "done"}
+  blocked: {status: blocked, message: "blocked"}
+YAML
+  cat >"$PROJ/.claude/workflows/f5-blocked.yaml" <<'YAML'
+workflow: f5-blocked
+description: >
+  Harness-local fixture - routes straight to a blocked terminal.
+start: hello
+
+steps:
+  - id: hello
+    kind: deterministic
+    run: 'echo hello'
+    next: blocked
+
+terminal:
+  done:    {status: ok,      message: "done"}
+  blocked: {status: blocked, message: "blocked on purpose"}
+YAML
+  cat >"$PROJ/.claude/workflows/f5-invalid.yaml" <<'YAML'
+workflow: f5-invalid
+description: >
+  Harness-local fixture - deliberately invalid (unknown top-level field).
+start: hello
+this_field_does_not_exist: true
+
+steps:
+  - id: hello
+    kind: deterministic
+    run: 'echo hello'
+    next: done
+
+terminal:
+  done:    {status: ok,      message: "done"}
+  blocked: {status: blocked, message: "blocked"}
+YAML
+}
+
+# f5_install_to_plugin: sets F5_PLUGIN (installed TO plugin dir) and F5_TO_VER.
+f5_install_to_plugin() {
+  F5_PLUGIN=""
+  F5_TO_VER="$TO"
+  if [ -n "${E2E_TO_PLUGIN_DIR:-}" ]; then
+    [ -f "$E2E_TO_PLUGIN_DIR/.claude-plugin/plugin.json" ] || { check FAIL "E2E_TO_PLUGIN_DIR is a plugin dir" "$E2E_TO_PLUGIN_DIR"; return 1; }
+    F5_PLUGIN="$ROOT/prerelease-plugin"
+    cp -R "$E2E_TO_PLUGIN_DIR" "$F5_PLUGIN"
+    F5_TO_VER="$(jq -r .version "$F5_PLUGIN/.claude-plugin/plugin.json")"
+    note "F5: PRE-RELEASE HOOK: using E2E_TO_PLUGIN_DIR=$E2E_TO_PLUGIN_DIR (copied to $F5_PLUGIN, version $F5_TO_VER) instead of a marketplace install of $TO."
+    return 0
+  fi
+  install_plugin_version "$TO" || return 1
+  F5_PLUGIN="$PLUGIN_DIR"
+}
+
+# f5_write_heartbeat <plugin-dir> <session-id>: run that plugin's bin/pawl-hook pre
+# with a synthetic PreToolUse payload for a pawl command, cwd = the fixture project.
+f5_write_heartbeat() {
+  local payload="$ROOT/f5-payload-$2.json"
+  jq -n --arg s "$2" --arg c "$PROJ" \
+    '{session_id: $s, cwd: $c, hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: {command: "pawl run trivial"}}' >"$payload"
+  # shellcheck disable=SC2016 # $1/$2 expand in the inner sh, not here
+  step "F5: $1/bin/pawl-hook pre (session $2) writes the heartbeat" \
+    sb sh -c '"$1/bin/pawl-hook" pre <"$2"' f5 "$1" "$payload"
+  note "heartbeat file: $(cat "$SB_HOME/.claude/pawl/heartbeat/session/$2.json" 2>/dev/null || echo '(none)')"
+}
+
+f5_check_refusal() { # <label> <bin-ver> <plugin-ver>
+  if [ "$STEP_RC" -eq 4 ]; then
+    check PASS "$1: exit code is 4" "stderr: $STEP_ERR"
+  else
+    check FAIL "$1: exit code is 4" "exit $STEP_RC stdout=$STEP_OUT stderr=$STEP_ERR"
+    return
+  fi
+  if printf '%s' "$STEP_ERR" | grep -q "refusing to start: this pawl binary" &&
+    printf '%s' "$STEP_ERR" | grep -q "is $2 but the agent-pawl plugin expects $3"; then
+    check PASS "$1: version refusal names binary $2 and plugin $3" "$STEP_ERR"
+  else
+    check FAIL "$1: version refusal names binary $2 and plugin $3" "$STEP_ERR"
+  fi
+}
+
+f5_gate_note() {
+  note "F5 gate: $1 needs PR #75's heartbeat check, first shipped in $PAWL_FIRST_HEARTBEAT_CHECK (PAWL_FIRST_HEARTBEAT_CHECK in lib.sh; correct it there if that fix shipped in a different release). $2"
+}
+
+SB_CWD="$PROJ"
+f5_wf_setup
+F5_PLUGIN=""
+F5_TO_VER="$TO"
+F5_READY=0
+if [ -n "${E2E_TO_PLUGIN_DIR:-}" ] || ver_ge "$TO" "$PAWL_FIRST_HEARTBEAT_CHECK"; then
+  if f5_install_to_plugin; then F5_READY=1; else check FAIL "F5: TO plugin installed" "see transcript"; fi
+fi
+F5_TO_BIN="$F5_PLUGIN/libexec/$(plat)/pawl"
+
+# F5a (synthetic): the hook's launcher says 99.0.0; the binary that runs `pawl run`
+# is the real TO binary invoked directly (no launcher, PAWL__PLUGIN_VERSION unset),
+# i.e. what a shadowing `pawl` looks like. Enforcement stays ON so the heartbeat is used.
+f5_gate_note "F5a (TO=$F5_TO_VER)" "F5a: SYNTHETIC. The installed plugin is copied with plugin.json edited to 99.0.0; its bin/pawl-hook writes the heartbeat; the real TO libexec binary then runs \`pawl run\` directly with CLAUDE_CODE_SESSION_ID set."
+if ver_ge "$F5_TO_VER" "$PAWL_FIRST_HEARTBEAT_CHECK"; then
+  if [ "$F5_READY" -eq 1 ] && [ -x "$F5_TO_BIN" ]; then
+    cp -R "$F5_PLUGIN" "$ROOT/plugin-as-99"
+    sed -i.bak 's/"version"[[:space:]]*:[[:space:]]*"[^"]*"/"version": "99.0.0"/' "$ROOT/plugin-as-99/.claude-plugin/plugin.json" && rm -f "$ROOT/plugin-as-99/.claude-plugin/plugin.json.bak"
+    f5_write_heartbeat "$ROOT/plugin-as-99" e2e-f5-session
+    hbv="$(jq -r '.plugin_version // empty' "$SB_HOME/.claude/pawl/heartbeat/session/e2e-f5-session.json" 2>/dev/null)"
+    if [ "$hbv" = "99.0.0" ]; then
+      check PASS "F5a: hook heartbeat records plugin_version 99.0.0" "$hbv"
+    else
+      check FAIL "F5a: hook heartbeat records plugin_version 99.0.0" "plugin_version='$hbv'"
+    fi
+    f5_bv="$(version_of "$F5_TO_BIN")"
+    step "F5a: real TO binary: pawl run $WF (session e2e-f5-session, enforcement ON, no PAWL__PLUGIN_VERSION)" \
+      sb CLAUDE_CODE_SESSION_ID=e2e-f5-session "$F5_TO_BIN" run "$WF"
+    f5_check_refusal "F5a (valid workflow; binary $f5_bv, heartbeat plugin 99.0.0)" "$f5_bv" "99.0.0"
+    step "F5a: real TO binary: pawl run f5-invalid (same session; check must precede validation)" \
+      sb CLAUDE_CODE_SESSION_ID=e2e-f5-session "$F5_TO_BIN" run f5-invalid
+    f5_check_refusal "F5a (invalid workflow; version check runs before validation)" "$f5_bv" "99.0.0"
+  else
+    check FAIL "F5a: TO plugin and its libexec binary available" "plugin='$F5_PLUGIN' bin='$F5_TO_BIN'"
+  fi
+else
+  check SKIP "F5a: heartbeat-recorded plugin version refusal (synthetic 99.0.0 plugin)" "TO=$F5_TO_VER < $PAWL_FIRST_HEARTBEAT_CHECK (PAWL_FIRST_HEARTBEAT_CHECK): TO has no heartbeat check to exercise"
+fi
+
+# F5b (real): the FROM binary shadows the TO plugin's on PATH, as Claude Code would
+# have it (plugin bin/ last). The heartbeat is written by the TO plugin's own hook.
+f5_from_ver="$FROM"
+[ -n "${E2E_FROM_BINARY:-}" ] && f5_from_ver="$(version_of "$E2E_FROM_BINARY")"
+f5_gate_note "F5b (FROM=$f5_from_ver)" "F5b: REAL. The FROM release binary must itself contain the check to refuse; a FROM older than that gate cannot, which is why this skips."
+if ver_ge "$f5_from_ver" "$PAWL_FIRST_HEARTBEAT_CHECK"; then
+  if [ "$F5_READY" -eq 1 ] && [ "$f5_from_ver" != "$F5_TO_VER" ]; then
+    mkdir -p "$ROOT/f5-shadow"
+    if [ -n "${E2E_FROM_BINARY:-}" ]; then
+      cp "$E2E_FROM_BINARY" "$ROOT/f5-shadow/pawl" && chmod +x "$ROOT/f5-shadow/pawl"
+      note "F5b: PRE-RELEASE HOOK: shadow binary is E2E_FROM_BINARY=$E2E_FROM_BINARY"
+    else
+      fetch_release_binary "$FROM" "$ROOT/f5-shadow/pawl" || check FAIL "F5b: fetch $FROM release binary" "see transcript"
+    fi
+    if [ -x "$ROOT/f5-shadow/pawl" ]; then
+      f5_write_heartbeat "$F5_PLUGIN" e2e-f5b-session
+      SB_EXTRA_PATH=("$ROOT/f5-shadow" "$F5_PLUGIN/bin")
+      step "F5b: which pawl on PATH (shadow first, plugin bin last)" sb sh -c 'command -v pawl'
+      step "F5b: pawl run $WF via PATH (session e2e-f5b-session, enforcement ON)" sb CLAUDE_CODE_SESSION_ID=e2e-f5b-session pawl run "$WF"
+      SB_EXTRA_PATH=()
+      f5_check_refusal "F5b ($f5_from_ver binary shadowing the $F5_TO_VER plugin)" "$f5_from_ver" "$F5_TO_VER"
+    fi
+  else
+    check SKIP "F5b: shadowing FROM binary vs TO plugin" "F5b needs a TO plugin installed and FROM ($f5_from_ver) different from TO ($F5_TO_VER)"
+  fi
+else
+  check SKIP "F5b: FROM release binary shadowing the TO plugin on PATH" "FROM=$f5_from_ver < $PAWL_FIRST_HEARTBEAT_CHECK (PAWL_FIRST_HEARTBEAT_CHECK): the FROM binary predates the check and cannot refuse"
+fi
+
+# F5c: instruction lines through the installed TO plugin's own launcher. Enforcement
+# is OFF here (PAWL_ENFORCEMENT=off): only the printed command names matter, and no
+# hook heartbeat is needed for that.
+f5_gate_note "F5c (TO=$F5_TO_VER)" "F5c: through the TO plugin's bin/pawl launcher (enforcement OFF: only the printed command names are examined)."
+if ver_ge "$F5_TO_VER" "$PAWL_FIRST_HEARTBEAT_CHECK"; then
+  if [ "$F5_READY" -eq 1 ]; then
+    f5_launcher="$(cd "$F5_PLUGIN/bin" && pwd -P)/pawl"
+    step "F5c: $f5_launcher run f5-agentic" sb PAWL_ENFORCEMENT=off "$f5_launcher" run f5-agentic
+    f5_submit="$(printf '%s\n' "$STEP_OUT" | grep -m1 'submit with:' || true)"
+    case "$(printf '%s' "$f5_submit" | sed 's/^[[:space:]]*submit with:[[:space:]]*//')" in
+      "'$f5_launcher' submit "*) check PASS "F5c: submit with: line begins with the shell-quoted launcher path" "$f5_submit" ;;
+      *) check FAIL "F5c: submit with: line begins with the shell-quoted launcher path" "expected '$f5_launcher' submit ...; got: ${f5_submit:-(no submit with: line) exit $STEP_RC stdout=$STEP_OUT stderr=$STEP_ERR}" ;;
+    esac
+    step "F5c: $f5_launcher run f5-blocked (blocked TERMINAL)" sb PAWL_ENFORCEMENT=off "$f5_launcher" run f5-blocked
+    # the TERMINAL prints "resume:" / "abandon:" alone on a line, the command on the next
+    f5_res="$(printf '%s\n' "$STEP_OUT" | grep -E -A1 '^[[:space:]]*resume:' | tr '\n' ' ' || true)"
+    f5_aba="$(printf '%s\n' "$STEP_OUT" | grep -E -A1 '^[[:space:]]*abandon:' | tr '\n' ' ' || true)"
+    if [ -z "$f5_res" ] || [ -z "$f5_aba" ]; then
+      check SKIP "F5c: TERMINAL resume:/abandon: lines use plain pawl" "no resume:/abandon: line in the blocked TERMINAL (exit $STEP_RC): $STEP_OUT"
+    elif printf '%s\n%s\n' "$f5_res" "$f5_aba" | grep -qF "$f5_launcher"; then
+      check FAIL "F5c: TERMINAL resume:/abandon: lines use plain pawl" "launcher path leaked: $f5_res | $f5_aba"
+    elif printf '%s' "$f5_res" | grep -Eq 'resume:[[:space:]]+pawl ' && printf '%s' "$f5_aba" | grep -Eq 'abandon:[[:space:]]+pawl '; then
+      check PASS "F5c: TERMINAL resume:/abandon: lines use plain pawl" "$f5_res | $f5_aba"
+    else
+      check FAIL "F5c: TERMINAL resume:/abandon: lines use plain pawl" "$f5_res | $f5_aba"
+    fi
+  else
+    check FAIL "F5c: TO plugin available" "see transcript"
+  fi
+else
+  check SKIP "F5c: launcher path in submit with: lines" "TO=$F5_TO_VER < $PAWL_FIRST_HEARTBEAT_CHECK (PAWL_FIRST_HEARTBEAT_CHECK): TO's pawl does not print PAWL__LAUNCHER"
+fi
 
 # --- is the stated fix right for a --plugin-dir / source-checkout user? ------
 note "FIX FIT [inferred]: the refusal says: \"Reinstall the plugin (/plugin marketplace update agent-pawl, then reinstall it), or install pawl <plugin version> on PATH.\" For a --plugin-dir / source-checkout user the first half does not apply (that dir is not marketplace-managed; reinstalling the marketplace plugin does not change what --plugin-dir points at), the second half applies but names no command (install.sh with PAWL_VERSION=v<ver>, or go install github.com/dcferreira/agent-pawl/cmd/pawl@v<ver>, are the actual means)."
