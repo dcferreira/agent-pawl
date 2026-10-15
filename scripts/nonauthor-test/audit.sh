@@ -3,6 +3,8 @@
 #
 #   bash scripts/nonauthor-test/audit.sh <ROOT>
 #
+# Only tool_use blocks (the tester's own tool calls: Bash commands, Read paths, WebFetch, ...) are
+# searched, never tool results or system/skill text, so reading the shipped docs is not a hit.
 # Prints each hit as file:line plus a ~200-char excerpt, then the distinct model id(s) used.
 # Exit 0: no hits. Exit 1: hits (a person must review each; a real source read invalidates the run).
 # Exit 2: no transcripts found. Reading DESIGN.md / design/format-spec.md under ~/pawl-docs is
@@ -12,6 +14,16 @@ set -euo pipefail
 ROOT="$(cd "$1" && pwd -P)"
 CFG="$ROOT/claude-config"
 [ -d "$CFG" ] || { echo "audit.sh: $CFG missing" >&2; exit 2; }
+command -v jq >/dev/null || { echo "audit.sh: jq is required" >&2; exit 2; }
+
+# tool_uses <file>: one "line:<tool_use JSON>" per tool_use block anywhere in the file.
+tool_uses() {
+  if [[ "$1" == *.jsonl ]]; then
+    jq -Rr 'input_line_number as $n | (fromjson? // empty) | .. | objects | select(.type == "tool_use") | "\($n):\(tostring)"' "$1" 2>/dev/null || true
+  else
+    jq -r '.. | objects | select(.type == "tool_use") | "1:\(tostring)"' "$1" 2>/dev/null || true
+  fi
+}
 
 files=()
 while IFS= read -r -d '' f; do files+=("$f"); done < <(find "$CFG" -type f \( -name '*.jsonl' -o -name '*.json' -path '*/projects/*' \) -print0 2>/dev/null | sort -z)
@@ -40,7 +52,7 @@ for pat in "${PATTERNS[@]}"; do
       ex="$(printf '%s' "$rest" | grep -oE ".{0,100}($pat).{0,100}" | head -n1 || true)"
       printf '[%s] %s:%s: %s\n' "$pat" "$f" "$n" "${ex:-$(printf '%s' "$rest" | cut -c1-200)}"
       hits=$((hits + 1))
-    done < <(grep -nE -e "$pat" "$f" 2>/dev/null || true)
+    done < <(tool_uses "$f" | grep -E -e "^[0-9]+:.*($pat)" || true)
   done
 done
 

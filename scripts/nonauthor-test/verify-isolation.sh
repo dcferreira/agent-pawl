@@ -147,7 +147,12 @@ extra="$(find "$D" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort | tr '\n' ' ')"
 chk "~/BRIEF.md says version $TO" grep -qF "its version is $TO" "$HOME/BRIEF.md"
 chk "~/FRICTION.md present" test -s "$HOME/FRICTION.md"
 chk "~/textstats is a git repo with one commit" sh -c "test \"\$(git -C $HOME/textstats rev-list --count HEAD)\" = 1"
-(cd "$HOME/textstats" && go vet ./... >/dev/null 2>&1) && fail "textstats go vet unexpectedly passes" || pass "textstats go vet fails as planted (go works offline)"
+chk "go runs offline (go version)" go version
+vet_out="$(cd "$HOME/textstats" && go vet ./... 2>&1 || true)"
+case "$vet_out" in
+  *"result of fmt.Sprintf call not used"*) pass "textstats go vet fails as planted (go works offline)" ;;
+  *) fail "textstats go vet lacks the planted unusedresult diagnostic: $(printf '%s' "$vet_out" | tail -n 3)" ;;
+esac
 chk "DNS resolves (api.anthropic.com)" getent hosts api.anthropic.com
 
 echo "---"
