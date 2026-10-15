@@ -17,7 +17,7 @@ workflow: .claude/workflows/manage-mr.yaml (repo-local)
 soft: 6/23 steps (26.1%): changelog, entry, fix_issues, fix_issues_push, route_reviewers, trigger_coderabbit
 ```
 
-Every error names the file and line, the step, the rule and the fix.
+Every error names the step and what is wrong; most also name the file, line, rule and fix.
 
 ## The checks
 

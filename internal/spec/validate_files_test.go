@@ -87,6 +87,14 @@ func TestCheckFiles(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.name == "plain context unreadable" {
+				// root (e.g. a dev container) can open a 0o000 file, so the
+				// case can't be produced there.
+				if f, err := os.Open(filepath.Join(dir, "secret.md")); err == nil {
+					f.Close()
+					t.Skip("0o000 file is readable (running as root?)")
+				}
+			}
 			tt.w.Path = wfPath
 			got := CheckFiles(tt.w)
 			if len(got) != len(tt.want) {
