@@ -1,5 +1,0 @@
-kind: fixed
-body: '`pawl list` with no workflows now says where it looked (on stderr; stdout stays empty). Errors for a missing script or context file now follow the same one-line `<file>: step "<id>": rule 16: <what>; <how to fix>` shape as every other validation error.'
-time: 2026-10-15T18:00:00.000000000+02:00
-custom:
-    PR: "82"

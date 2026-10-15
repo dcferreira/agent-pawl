@@ -1,5 +1,0 @@
-kind: fixed
-body: A crash resume no longer restarts a `human` step's `timeout:`. A crash just before re-entering a looped `wait` step no longer skips that visit or reuses the old deadline. Resuming a blocked `wait` step now counts as a new visit toward `max_visits:`, like every other kind; a wait step blocked and resumed repeatedly can now exhaust. A crash just before an `agentic` step is entered no longer dispatches it flagged as interrupted. A crash just before a `parallel` step is entered no longer routes it to `failure` (blocking the run) instead of dispatching its branches.
-time: 2026-10-15T16:00:00.000000000+02:00
-custom:
-  PR: "76"
