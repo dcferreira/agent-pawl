@@ -1,5 +1,0 @@
-kind: breaking
-body: 'pawl validate is stricter, so a workflow it previously accepted may now fail (new format-spec §H rules 30–39): each step kind accepts only its own fields (one per-kind table; e.g. question:/poll: on deterministic, attempts: on wait/human/parallel, postcondition: on human/parallel are errors; attempt_key: is allowed on every kind); soft: requires postcondition:; state/args type: is required and must be string|integer|number|boolean|json; default: must match type:; catch[] entries accept only on:/next:, on: must be a failure-type outcome the kind can produce (failure, exhausted, plus timeout on wait/human and partial on foreach), and duplicate or outcomes:-shadowed catch entries are errors; wait/human durations must parse and be > 0; step ids done/blocked and ids equal to a terminal: key are reserved; state/args keys may not be a pseudo-key name (case-insensitive), start with "_" (PAWL__* is reserved for future pawl env vars), or export as PAWL_ENFORCEMENT/PAWL_STATE_DIR; keys equal ignoring case, or declared in both args: and state:, are errors.'
-time: 2026-10-14T16:52:36.86983053+02:00
-custom:
-  PR: "58"
