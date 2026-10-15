@@ -1,5 +1,7 @@
 # NOTES — authoring brain-dispatch as a declarative workflow
 
+> **Authoring exercise, not run.** This workflow is a design sketch: it validates (`pawl validate`), but no test runs it and its external dependencies are not stubbed. See [../README.md](../README.md).
+
 ## Current format
 
 `brain-dispatch` is now 2 agentic / 6 deterministic of 8 steps. `identify_action`
@@ -430,3 +432,11 @@ codes stay token-only). `write_worker_note`'s `[Read, Write]` allowlist and
 `flip_today_action`'s typed `writes: {flipped: {type: boolean}}` were both
 already correct: errata 6a allows `Write` on `kind: tool`, and errata 6b
 confirms typed `writes:` is supported there too.
+
+## External dependencies (not shipped)
+
+- `~/projects/brain/skills/brain-dispatch/scripts/preflight-wrapped.sh`
+- `~/projects/brain/skills/brain-dispatch/scripts/wait-for-brief.sh`
+- `~/projects/brain/skills/brain-dispatch/scripts/launch-worker.sh`
+- `~/Obsidian/vault/` (`00-home/top-of-mind.md`, `workers/<slug>.md`)
+- the `qmd` CLI

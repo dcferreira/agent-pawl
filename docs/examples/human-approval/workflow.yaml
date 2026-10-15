@@ -6,7 +6,7 @@ description: >
 start: summarize
 
 args:
-  doc_path: {type: string, default: "notes.md"}
+  doc_path: {type: string, default: "NOTES.md"}
 
 state:
   summary:  {type: string, default: ""}

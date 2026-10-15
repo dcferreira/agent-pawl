@@ -77,3 +77,5 @@ result — the join doesn't care which branch reports last.
 - **Nested `parallel` groups.** `checkParallelBranches` explicitly forbids
   a branch step whose own `kind` is `parallel` ("no nesting") — out of
   scope for the format as it stands, not just for this example.
+
+This example is driven end to end by `e2e/parallel_fanout_test.go` against stub README.md/DESIGN.md files. The two agentic branch answers there are canned submits: no live subagent ran.

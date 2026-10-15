@@ -3,9 +3,8 @@
 `wait-for-build` is a minimal `deterministic → wait → agentic` chain: `kick_off_build` starts a
 background "CI run" and returns immediately, `wait_for_build` polls for it to finish, and
 `summarize_build` (only reached on a pass) writes a short prose summary. `kind: wait` is implemented
-by the engine; this example is not part of `docs/examples/green-tests` and so is not covered by
-`e2e/` — it is an authoring exercise, not a verified-runnable artefact (see AGENTS.md's Layout
-section).
+by the engine; this example is driven end to end by `e2e/wait_for_build_test.go` (PASSED and
+FAILED routes; the `summarize_build` agentic answer there is a canned submit, no live subagent ran).
 
 ## The status file
 
@@ -14,6 +13,8 @@ section).
 `kick_off_build` truncates it fresh on every run so a stale `PASSED`/`FAILED` line from a previous
 invocation of this example can never be mistaken for the current run's result. `simulate_build.sh`
 appends exactly one line to it, ~17s after being launched.
+
+`SIMULATE_BUILD_SECONDS` (env var, default 17) overrides the simulated build's duration; `e2e/wait_for_build_test.go` sets it to 1.
 
 ## Forcing the FAILED path
 
