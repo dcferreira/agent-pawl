@@ -17,6 +17,8 @@ file by hand; see `docs/releasing.md`.
 
 ### Fixed
 
+Fixes that can change how an existing workflow behaves: `pawl validate` and a new `pawl run` now enforce format-spec rule 16 (referenced scripts must exist and be executable; context files must exist) (#69); resuming a blocked `wait` step now counts as a visit toward `max_visits:` (#76); a `human` step's deadline now survives a crash resume (#76); a stale terminal `pawl` is now refused when the plugin's hooks are active (#75).
+
 * The docs' sample output is now captured from real runs (and a test keeps it current); earlier examples showed output pawl never printed. ([#70](https://github.com/dcferreira/agent-pawl/pull/70))
 * When a resume is refused because the workflow file changed, the refusal now names only the steps that actually changed; it listed unchanged steps too. ([#72](https://github.com/dcferreira/agent-pawl/pull/72))
 * A crash resume no longer restarts a `human` step's `timeout:`. A crash just before re-entering a looped `wait` step no longer skips that visit or reuses the old deadline. Resuming a blocked `wait` step now counts as a new visit toward `max_visits:`, like every other kind; a wait step blocked and resumed repeatedly can now exhaust. A crash just before an `agentic` step is entered no longer dispatches it flagged as interrupted. A crash just before a `parallel` step is entered no longer routes it to `failure` (blocking the run) instead of dispatching its branches. ([#76](https://github.com/dcferreira/agent-pawl/pull/76))
