@@ -799,10 +799,8 @@ steps:
 		// (excluding) the TRANSITION out, ungrouped events only.
 		visit1  []journal.Event
 		outcome string // outcome of the TRANSITION s -> x in visit 1
-		// skip, when set, parks a kind whose behaviour here is a known gap.
-		skip string
 		// check runs after the resume (journal already backdated before it).
-		check func(t *testing.T, e *Engine, instr Instruction, visit int)
+		check func(t *testing.T, e *Engine, instr Instruction)
 	}
 	enter := journal.Event{Kind: journal.KindStepEnter, RunID: "run1", Step: "s", Attempt: 1}
 	asked := journal.Event{Kind: journal.KindHumanAsked, RunID: "run1", Step: "s", Attempt: 1}
@@ -830,7 +828,7 @@ steps:
     max_visits: 3
     outcomes: {alice: x, bob: done, timeout: blocked}`),
 			visit1: []journal.Event{enter, asked}, outcome: "alice",
-			check: func(t *testing.T, e *Engine, instr Instruction, _ int) {
+			check: func(t *testing.T, e *Engine, instr Instruction) {
 				a, ok := instr.(Ask)
 				if !ok {
 					t.Fatalf("got %#v, want Ask", instr)
@@ -854,7 +852,7 @@ steps:
     max_visits: 3
     next: x`),
 			visit1: []journal.Event{enter}, outcome: "success",
-			check: func(t *testing.T, e *Engine, instr Instruction, _ int) {
+			check: func(t *testing.T, e *Engine, instr Instruction) {
 				if _, ok := instr.(Dispatch); !ok {
 					t.Fatalf("got %#v, want Dispatch", instr)
 				}
@@ -870,7 +868,7 @@ steps:
     max_visits: 3
     outcomes: {STOP: done, GO: x}`),
 			visit1: []journal.Event{enter}, outcome: "GO",
-			check: func(t *testing.T, e *Engine, instr Instruction, _ int) {
+			check: func(t *testing.T, e *Engine, instr Instruction) {
 				if term, ok := instr.(Terminal); !ok || term.Status != "ok" {
 					t.Fatalf("got %#v, want Terminal{ok}", instr)
 				}
@@ -894,7 +892,7 @@ steps:
     writes: {out: {type: json}}
     postcondition: "true"`),
 			visit1: []journal.Event{enter}, outcome: "success",
-			check: func(t *testing.T, e *Engine, instr Instruction, _ int) {
+			check: func(t *testing.T, e *Engine, instr Instruction) {
 				if _, ok := instr.(DispatchParallel); !ok {
 					t.Fatalf("got %#v, want DispatchParallel", instr)
 				}
@@ -914,7 +912,7 @@ steps:
     writes: {res: {type: string}}
     postcondition: "true"`),
 			visit1: []journal.Event{enter}, outcome: "success",
-			check: func(t *testing.T, e *Engine, instr Instruction, _ int) {
+			check: func(t *testing.T, e *Engine, instr Instruction) {
 				if _, ok := instr.(DispatchParallel); !ok {
 					t.Fatalf("got %#v, want DispatchParallel", instr)
 				}
@@ -932,7 +930,7 @@ steps:
     max_visits: 3
     outcomes: {PASSED: x, timeout: blocked}`),
 			visit1: []journal.Event{enter}, outcome: "PASSED",
-			check: func(t *testing.T, e *Engine, instr Instruction, _ int) {
+			check: func(t *testing.T, e *Engine, instr Instruction) {
 				if _, ok := instr.(Wait); !ok {
 					t.Fatalf("got %#v, want Wait", instr)
 				}
@@ -959,9 +957,6 @@ steps:
 				wantVisits = 2
 			}
 			t.Run(name, func(t *testing.T) {
-				if c.skip != "" {
-					t.Skip(c.skip)
-				}
 				evs := append([]journal.Event{}, pre...)
 				if loop {
 					evs = append(evs, c.visit1...)
@@ -990,8 +985,132 @@ steps:
 				if rs.ResumedInFlight != "" {
 					t.Errorf("ResumedInFlight = %q after the step's STEP_ENTER, want empty (not a crash re-entry)", rs.ResumedInFlight)
 				}
-				c.check(t, e, instr, wantVisits)
+				c.check(t, e, instr)
 			})
 		}
+	}
+}
+
+// TestResume_CrashAfterInterventionKeepsInterrupted: a blocked run whose
+// intervention RESUME is durable but whose fresh STEP_ENTER is not (crash in
+// between). The next plain crash resume is no longer a blocked resume, but a
+// person did intervene after the block, so the agentic and parallel
+// dispatches must still carry Interrupted.
+func TestResume_CrashAfterInterventionKeepsInterrupted(t *testing.T) {
+	const head = `
+workflow: intervene
+start: s
+state:
+  out: {type: json, default: []}
+steps:
+`
+	const tail = `
+terminal:
+  done: {status: ok}
+  blocked: {status: blocked}
+`
+	cases := []struct {
+		name, yaml string
+	}{
+		{"agentic", head + `  - id: s
+    kind: agentic
+    description: "do it"
+    writes: {out: {type: json}}
+    postcondition: "true"
+    next: done` + tail},
+		{"parallel", head + `  - id: s
+    kind: parallel
+    branches: [b1, b2]
+    next: done
+  - id: b1
+    kind: agentic
+    description: "b1"
+    writes: {out: {type: json}}
+    postcondition: "true"
+  - id: b2
+    kind: agentic
+    description: "b2"
+    writes: {out: {type: json}}
+    postcondition: "true"` + tail},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			e, _ := journalRun(t, c.yaml,
+				journal.Event{Kind: journal.KindStepEnter, RunID: "run1", Step: "s", Attempt: 1},
+				journal.Event{Kind: journal.KindRunEnd, RunID: "run1", Step: "s", Status: "blocked", Reason: "s: failure"},
+				journal.Event{Kind: journal.KindResume, RunID: "run1", Step: "s", Attempt: 1, Intervention: true},
+			)
+			instr, err := e.Resume("run1", false) // plain crash resume
+			if err != nil {
+				t.Fatalf("Resume: %v", err)
+			}
+			switch v := instr.(type) {
+			case Dispatch:
+				if !v.Interrupted {
+					t.Errorf("Dispatch.Interrupted = false after an intervention: %+v", v)
+				}
+			case DispatchParallel:
+				// dispatchParallel carries the flag on each branch Dispatch.
+				if len(v.Agentic) == 0 {
+					t.Fatalf("no branch dispatches: %+v", v)
+				}
+				for _, d := range v.Agentic {
+					if !d.Interrupted {
+						t.Errorf("branch %s Interrupted = false after an intervention", d.Step)
+					}
+				}
+			default:
+				t.Fatalf("got %#v, want a dispatch", instr)
+			}
+		})
+	}
+}
+
+// TestSubmitHuman_AnswerWrittenBeforeCrashSurvivesDeadline: SubmitHuman
+// accepted an answer in time and journaled its WRITES, then crashed before the
+// TRANSITION. After the deadline passes, the crash resume re-asks and the
+// re-submitted answer must route its own outcome, not timeout (§B.5: nothing
+// is written on timeout).
+func TestSubmitHuman_AnswerWrittenBeforeCrashSurvivesDeadline(t *testing.T) {
+	const yaml = `
+workflow: human-writes-crash
+start: ask
+state:
+  who: {type: string, default: ""}
+steps:
+  - id: ask
+    kind: human
+    question: "Who reviews?"
+    options: [alice, bob]
+    timeout: 10s
+    writes: {who: {type: string}}
+    outcomes:
+      alice: done
+      bob: done
+      timeout: blocked
+terminal:
+  done: {status: ok}
+  blocked: {status: blocked}
+`
+	e, _ := journalRun(t, yaml,
+		journal.Event{Kind: journal.KindStepEnter, RunID: "run1", Step: "ask", Attempt: 1},
+		journal.Event{Kind: journal.KindHumanAsked, RunID: "run1", Step: "ask", Attempt: 1},
+		journal.Event{Kind: journal.KindWrites, RunID: "run1", Step: "ask", Attempt: 1, Writes: map[string]any{"who": "alice"}},
+	)
+	backdateJournal(t, e, "run1", 11*time.Second)
+	instr, err := e.Resume("run1", false)
+	if err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	a, ok := instr.(Ask)
+	if !ok {
+		t.Fatalf("got %#v, want Ask", instr)
+	}
+	instr, err = e.SubmitHuman("run1", "ask", a.Attempt, []byte(`{"selected":["alice"]}`))
+	if err != nil {
+		t.Fatalf("SubmitHuman: %v", err)
+	}
+	if term, ok := instr.(Terminal); !ok || term.Status != "ok" {
+		t.Fatalf("got %#v, want Terminal{ok}: the in-time answer was already written", instr)
 	}
 }

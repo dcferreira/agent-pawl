@@ -277,11 +277,18 @@ func (e *Engine) SubmitHuman(runID, stepID string, attempt int, result json.RawM
 		return nil, fmt.Errorf("%w: step %q is not a human step awaiting an answer", ErrRefused, stepID)
 	}
 
+	// An answer already accepted in time (its WRITES journaled after the
+	// latest HUMAN_ASKED, then a crash before the TRANSITION) is not
+	// re-judged against the deadline on the re-answer.
+	accepted, aerr := humanAnswerWrittenSinceAsked(dir, stepID, attempt)
+	if aerr != nil {
+		return nil, aerr
+	}
 	timedOut, terr := e.humanDeadlinePassed(dir, stepID, attempt, step.Timeout)
 	if terr != nil {
 		return nil, terr
 	}
-	if timedOut {
+	if timedOut && !accepted {
 		// §B.5: "On timeout nothing is written" — unconditional, regardless
 		// of what answer was actually submitted.
 		return e.routeHuman(dir, log, runID, step, "timeout", attempt)
@@ -340,6 +347,29 @@ func (e *Engine) SubmitHuman(runID, stepID string, attempt int, result json.RawM
 	}
 
 	return e.routeHuman(dir, log, runID, step, outcome, attempt)
+}
+
+// humanAnswerWrittenSinceAsked reports whether a WRITES for (stepID, attempt)
+// is journaled after the latest HUMAN_ASKED for it: SubmitHuman accepted an
+// answer in time and crashed before routeHuman's TRANSITION.
+func humanAnswerWrittenSinceAsked(dir, stepID string, attempt int) (bool, error) {
+	events, err := journal.ReadEvents(dir)
+	if err != nil {
+		return false, err
+	}
+	for i := len(events) - 1; i >= 0; i-- {
+		ev := events[i]
+		if ev.Step != stepID || ev.Attempt != attempt {
+			continue
+		}
+		switch ev.Kind {
+		case journal.KindWrites:
+			return true, nil
+		case journal.KindHumanAsked:
+			return false, nil
+		}
+	}
+	return false, nil
 }
 
 // humanDeadlinePassed reports whether stepID's most recent HUMAN_ASKED event

@@ -247,8 +247,10 @@ func (e *Engine) Resume(runID string, force bool) (Instruction, error) {
 	case "agentic":
 		// Interrupted only for a genuine re-dispatch: a crash RESUME of an
 		// in-flight step, or a blocked-run intervention. A crash before this
-		// visit's STEP_ENTER is a first entry, not an interruption.
-		return e.dispatchAgentic(dir, log, runID, step, rs.Cursor, rs.ResumedInFlight == step.ID || resumeEvent.Intervention)
+		// visit's STEP_ENTER is a first entry, not an interruption — unless a
+		// person intervened after a block (rs.PendingIntervention survives a
+		// crash before the STEP_ENTER).
+		return e.dispatchAgentic(dir, log, runID, step, rs.Cursor, rs.ResumedInFlight == step.ID || resumeEvent.Intervention || rs.PendingIntervention)
 	case "human":
 		if !resumeEvent.Intervention && rs.ResumedInFlight == step.ID {
 			// A crash resume of a step already parked on its ask is an
@@ -296,7 +298,7 @@ func (e *Engine) Resume(runID string, force bool) (Instruction, error) {
 			// A crash before this visit's STEP_ENTER (e.g. just after the
 			// predecessor's TRANSITION): nothing is in flight, so resumeParallel
 			// would find no pending branches and route failure. Enter afresh.
-			return e.dispatchParallel(dir, log, runID, step, rs.Cursor, false)
+			return e.dispatchParallel(dir, log, runID, step, rs.Cursor, rs.PendingIntervention)
 		}
 		if step.Foreach != nil {
 			return e.resumeForeach(dir, log, runID, step, rs)
