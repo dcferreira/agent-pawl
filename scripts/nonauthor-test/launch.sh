@@ -7,7 +7,7 @@
 #
 # The tester uses the claude CLI's default model (no --model), as a stranger would. This script types
 # exactly one command line into the pane and nothing else. Never `send-keys` anything further by
-# hand: that would be coaching (see the WP10 protocol).
+# hand: that would be coaching (see PROTOCOL.md).
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ $# -lt 2 ] || [ $# -gt 3 ]; then
