@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# enter.sh - run a command (default: an interactive login shell) inside the WP10 sandbox.
+# enter.sh - run a command (default: an interactive login shell) inside the non-author sandbox.
 #
 #   bash scripts/nonauthor-test/enter.sh <ROOT> [cmd args...]
 #
 # bubblewrap layout (see README.md, "Safety model"): the host filesystem read-only, /home /root /tmp
-# /var/tmp /run /mnt /media replaced by empty tmpfs (so the real home, other workers' clones, the tmux
-# socket and the ssh/gpg agents vanish), ROOT bound back at the SAME absolute path (Claude Code's
+# /var/tmp /run /mnt /media replaced by empty tmpfs (so the real home, other users' or processes'
+# temp files, the tmux socket and the ssh/gpg agents vanish), ROOT bound back at the SAME absolute path (Claude Code's
 # installed_plugins.json records absolute paths), a fresh /proc in its own pid namespace, and an
 # explicit environment (--clearenv). Network stays on. Deliberately no --new-session: that breaks the
 # interactive tty claude needs.

@@ -5,7 +5,7 @@ given only what a stranger gets (the released plugin, and the docs reachable fro
 authors a workflow, runs it to `TERMINAL ok`, and writes a friction log. Not run in CI, no tests of
 its own. Reuses `scripts/e2e-install/lib.sh` (sandbox, env, abort guard, local marketplace).
 Needs network, bwrap, tmux, curl, jq, unzip, zip, tar, git, go and claude. The full protocol
-(observation, triage, success criteria) lives with the maintainers: see the WP10 protocol.
+(observation, triage, success criteria) is in [PROTOCOL.md](PROTOCOL.md).
 
     REF=main bash scripts/nonauthor-test/prep.sh                      # 1. build the sandbox (snapshot of a ref)
     SOURCE=local TO=0.9.0 bash scripts/nonauthor-test/prep.sh         #    ... or of a published release
@@ -21,7 +21,7 @@ Needs network, bwrap, tmux, curl, jq, unzip, zip, tar, git, go and claude. The f
 the release version), `E2E_TMP` (default `$HOME/sandboxes`). The sandbox is always kept.
 
 - **snapshot** (primary): a fresh shallow clone of the GitHub repo in a staging dir outside the
-  sandbox; `plugin.json` is patched there to `<version>-wp10.<shortsha>` (pawl's plugin/binary version
+  sandbox; `plugin.json` is patched there to `<version>-nonauthor.<shortsha>` (pawl's plugin/binary version
   check is plain string equality, so a prerelease suffix is accepted); goreleaser (the version pinned
   in `release.yml`) builds the stamped binaries in snapshot mode; `build-plugin-archive.sh` makes the
   zip and marketplace.json; the plugin is installed through the real `claude plugin` CLI from a

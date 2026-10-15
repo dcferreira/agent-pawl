@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# prep.sh - build the WP10 non-author-test sandbox (see README.md).
+# prep.sh - build the non-author-test sandbox (see README.md).
 #
 #   REF=main bash scripts/nonauthor-test/prep.sh                       # snapshot of a git ref (default)
 #   SOURCE=local TO=<x.y.z> bash scripts/nonauthor-test/prep.sh        # a published release
@@ -41,7 +41,7 @@ for t in curl jq unzip zip tar git sha256sum go bwrap; do
 done
 
 # --- staging: OUTSIDE the sandbox root, removed on exit -------------------------------------------
-STAGE="$(mktemp -d "${TMPDIR:-/tmp}/wp10-stage.XXXXXX")"
+STAGE="$(mktemp -d "${TMPDIR:-/tmp}/nonauthor-stage.XXXXXX")"
 # shellcheck disable=SC2317 # reached only via the EXIT trap handlers below
 rm_stage() {
   if [ -n "${STAGE:-}" ] && [ -d "$STAGE" ]; then
@@ -75,7 +75,7 @@ if [ "$MODE" = snapshot ]; then
   # Semver prerelease: distinct from every published release. pawl's version check
   # (internal/cli/version_check.go) is plain string equality between the binary's stamped version and
   # the plugin.json version, and bin/pawl exports any [A-Za-z0-9._+-] version, so a suffix is fine.
-  TO="${base}-wp10.${COMMIT:0:7}"
+  TO="${base}-nonauthor.${COMMIT:0:7}"
   echo "== snapshot commit $COMMIT, version $TO"
   # Patch the STAGING clone only.
   jq --arg v "$TO" '.version = $v' "$SRC/.claude-plugin/plugin.json" >"$STAGE/plugin.json.new"
@@ -128,7 +128,7 @@ if [ "$MODE" = snapshot ]; then
   }
 fi
 
-e2e_init wp10
+e2e_init nonauthor
 trap prep_exit EXIT # e2e_init installs its own trap; this one also removes $STAGE
 install_plugin || die "plugin install failed (see $TRANSCRIPT)"
 [ -n "${PLUGIN_DIR:-}" ] || die "PLUGIN_DIR not set"
@@ -155,7 +155,7 @@ cp -R "$HERE/seed/textstats" "$SB_HOME/textstats"
 find "$SB_HOME/textstats" -type f -name '*.seed' -print0 | while IFS= read -r -d '' f; do mv "$f" "${f%.seed}"; done
 cat >"$SB_HOME/.gitconfig" <<'GC'
 [user]
-	name = WP10 Tester
+	name = Non-author Tester
 	email = tester@example.invalid
 [init]
 	defaultBranch = main

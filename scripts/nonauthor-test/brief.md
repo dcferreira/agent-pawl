@@ -31,4 +31,4 @@ Deliverables (both in your home directory):
   the tool misbehaved or its messages didn't help. Small things count. Do not tidy it up at the end.
 - the final-report section at the bottom of `~/FRICTION.md`: the workflow file's path, the run id,
   the final line pawl printed, and a 3–5 sentence verdict on how learnable pawl is.
-When both are written, say "WP10 TESTER DONE" and stop.
+When both are written, say "NON-AUTHOR TEST DONE" and stop.

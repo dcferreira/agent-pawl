@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# verify-isolation.sh - check, from INSIDE the sandbox, that the WP10 tester cannot reach anything it
+# verify-isolation.sh - check, from INSIDE the sandbox, that the non-author tester cannot reach anything it
 # must not (see README.md). Run by prep.sh, and again right before launch.
 #
 #   bash scripts/nonauthor-test/verify-isolation.sh <ROOT>
