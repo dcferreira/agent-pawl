@@ -141,7 +141,7 @@ names the steps it found different from that pinned copy):
 $ pawl run hello
 workflow: /home/you/project/.claude/workflows/hello.yaml (repo-local)
 enforcement: off (bound at run start: PAWL_ENFORCEMENT=off)
-soft: 0/1 steps (0.0%): (none)
+soft: 0/2 steps (0.0%): (none)
 pawl run: workflow file has changed since run 7f3a started (changed: greet); use --fresh to start a new run
 exit 4
 ```

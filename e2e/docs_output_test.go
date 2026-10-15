@@ -93,19 +93,6 @@ terminal: {done: {status: ok, message: "Wrote hello.txt for ${name}."}}
 // helloBlocked is helloWorkflow with greet's postcondition broken.
 var helloBlocked = strings.Replace(helloWorkflow, "test -s hello.txt", "test -s nothing.txt", 1)
 
-const oneStepBlocked = `workflow: hello
-start: greet
-args:
-  name: {type: string, required: true}
-steps:
-  - id: greet
-    kind: deterministic
-    run: echo hello from ${name} > hello.txt
-    postcondition: test -s nothing.txt
-    next: done
-terminal: {done: {status: ok, message: "Wrote hello.txt for ${name}."}}
-`
-
 const sampleWorkflow = `workflow: sample
 start: greet
 args:
@@ -309,13 +296,11 @@ var docScenarios = map[string]docScenario{
 			exits(4, pawlCmd("run", "hello", "--no-enforcement")),
 		},
 	},
-	// A one-step workflow, so the step named in the refusal is exactly the
-	// step that was edited.
 	"cli/workflow-changed": {
-		files: map[string]string{".claude/workflows/hello.yaml": oneStepBlocked},
+		files: map[string]string{".claude/workflows/hello.yaml": helloBlocked},
 		cmds: []docCmd{
 			hidden(exits(3, pawlCmd("run", "hello", "name=ada"))),
-			hidden(docCmd{sh: "true", write: map[string]string{".claude/workflows/hello.yaml": strings.Replace(oneStepBlocked, "echo hello from", "echo hi from", 1)}}),
+			hidden(docCmd{sh: "true", write: map[string]string{".claude/workflows/hello.yaml": strings.Replace(helloBlocked, "echo hello from", "echo hi from", 1)}}),
 			exits(4, pawlCmd("run", "hello")),
 		},
 	},

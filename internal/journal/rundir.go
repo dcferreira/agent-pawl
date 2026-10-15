@@ -141,36 +141,57 @@ func newDigestWorkflow(w *spec.Workflow) *digestWorkflow {
 		Terminal:    w.Terminal,
 	}
 	for _, s := range w.Steps {
-		dw.Steps = append(dw.Steps, digestStep{
-			ID:            s.ID,
-			Kind:          s.Kind,
-			Run:           s.Run,
-			Emits:         s.Emits,
-			Description:   s.Description,
-			Context:       s.Context,
-			SubagentArgs:  s.SubagentArgs,
-			Poll:          s.Poll,
-			Every:         s.Every,
-			Timeout:       s.Timeout,
-			Question:      s.Question,
-			Options:       s.Options,
-			OptionsFrom:   s.OptionsFrom,
-			Multi:         s.Multi,
-			Writes:        s.Writes,
-			Postcondition: s.Postcondition,
-			AttemptsRaw:   s.AttemptsRaw,
-			AttemptKey:    s.AttemptKey,
-			MaxVisitsRaw:  s.MaxVisitsRaw,
-			Retry:         s.Retry,
-			Catch:         s.Catch,
-			Next:          s.Next,
-			Outcomes:      s.Outcomes,
-			Branches:      s.Branches,
-			Foreach:       s.Foreach,
-			UnknownFields: s.UnknownFields,
-		})
+		dw.Steps = append(dw.Steps, newDigestStep(s))
 	}
 	return dw
+}
+
+func newDigestStep(s spec.Step) digestStep {
+	return digestStep{
+		ID:            s.ID,
+		Kind:          s.Kind,
+		Run:           s.Run,
+		Emits:         s.Emits,
+		Description:   s.Description,
+		Context:       s.Context,
+		SubagentArgs:  s.SubagentArgs,
+		Poll:          s.Poll,
+		Every:         s.Every,
+		Timeout:       s.Timeout,
+		Question:      s.Question,
+		Options:       s.Options,
+		OptionsFrom:   s.OptionsFrom,
+		Multi:         s.Multi,
+		Writes:        s.Writes,
+		Postcondition: s.Postcondition,
+		AttemptsRaw:   s.AttemptsRaw,
+		AttemptKey:    s.AttemptKey,
+		MaxVisitsRaw:  s.MaxVisitsRaw,
+		Retry:         s.Retry,
+		Catch:         s.Catch,
+		Next:          s.Next,
+		Outcomes:      s.Outcomes,
+		Branches:      s.Branches,
+		Foreach:       s.Foreach,
+		UnknownFields: s.UnknownFields,
+	}
+}
+
+// StepDigests returns, per step id, a hex sha256 of the step's canonical
+// digest form: the same per-step canonicalisation Digest applies to the whole
+// workflow, so a step whose digest form is unchanged is never reported as
+// changed (fields outside that form, such as source positions, are ignored).
+func StepDigests(w *spec.Workflow) (map[string]string, error) {
+	out := make(map[string]string, len(w.Steps))
+	for _, s := range w.Steps {
+		data, err := json.Marshal(newDigestStep(s))
+		if err != nil {
+			return nil, fmt.Errorf("journal: digesting step %q: %w", s.ID, err)
+		}
+		sum := sha256.Sum256(data)
+		out[s.ID] = hex.EncodeToString(sum[:])
+	}
+	return out, nil
 }
 
 // Digest returns a hex-encoded sha256 digest of w's authored content (see

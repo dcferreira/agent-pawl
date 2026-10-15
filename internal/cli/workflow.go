@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"sort"
 	"strings"
 
@@ -159,30 +158,27 @@ func loadPinnedWorkflow(dir string) (*pinnedWorkflow, error) {
 
 // diffSteps names which of new's steps differ from old's — best-effort
 // detail for a digest-mismatch refusal, since journal.Digest itself reports
-// only a single hex string.
+// only a single hex string. Steps are compared by journal.StepDigests, the
+// same canonical form the whole-workflow digest uses, so a step is listed
+// only if the digest sees it as changed. A mismatch with no changed, added or
+// removed step is a change outside the steps.
 func diffSteps(old, new *spec.Workflow) string {
-	oldByID := map[string]*spec.Step{}
-	for i := range old.Steps {
-		oldByID[old.Steps[i].ID] = &old.Steps[i]
+	oldD, oerr := journal.StepDigests(old)
+	newD, nerr := journal.StepDigests(new)
+	if oerr != nil || nerr != nil {
+		return "(unable to determine; compare the workflow file against your last edit)"
 	}
-	newByID := map[string]*spec.Step{}
-	for i := range new.Steps {
-		newByID[new.Steps[i].ID] = &new.Steps[i]
-	}
-
 	var changed []string
-	for id, ns := range newByID {
-		olds, ok := oldByID[id]
+	for id, nd := range newD {
+		od, ok := oldD[id]
 		if !ok {
 			changed = append(changed, id+" (added)")
-			continue
-		}
-		if !reflect.DeepEqual(olds, ns) {
+		} else if od != nd {
 			changed = append(changed, id)
 		}
 	}
-	for id := range oldByID {
-		if _, ok := newByID[id]; !ok {
+	for id := range oldD {
+		if _, ok := newD[id]; !ok {
 			changed = append(changed, id+" (removed)")
 		}
 	}
