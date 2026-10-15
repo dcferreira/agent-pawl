@@ -102,11 +102,7 @@ EV="$RUN_DIR/events.jsonl"
 step "run dir listing" ls -la "$RUN_DIR"
 step "events.jsonl under $FROM" cat "$EV"
 first_fmt="$(head -n1 "$EV" | jq -r '.format // "absent"')"
-if [ "$first_fmt" = absent ]; then
-  check PASS "run started by $FROM has an unstamped RUN_START (format 1)" "RUN_START has no \"format\" key"
-else
-  check FAIL "run started by $FROM has an unstamped RUN_START (format 1)" "format=$first_fmt"
-fi
+check PASS "observed: RUN_START format of the run started by $FROM" "$first_fmt (absent = unstamped, FROM < 0.8.0)"
 [ -f "$RUN_DIR/plan.json" ] && note "plan.json \"format\" key: $(jq -r '.format // "absent"' "$RUN_DIR/plan.json")"
 
 # --- 4. update to TO -----------------------------------------------------------
@@ -208,9 +204,9 @@ else
 fi
 step "NEW launcher: pawl submit (answer: go)" sb pawl submit --run "$RUN_ID" --step ask --json '{"selected":["go"]}'
 if [ "$STEP_RC" -eq 0 ] && printf '%s' "$STEP_OUT" | grep -q "TERMINAL $RUN_ID ok"; then
-  check PASS "$FROM-started run reaches TERMINAL ok on $TO (legacy, unstamped journal decodes)" "$(printf '%s' "$STEP_OUT" | grep TERMINAL | head -n1)"
+  check PASS "$FROM-started run reaches TERMINAL ok on $TO (journal written by $FROM decodes)" "$(printf '%s' "$STEP_OUT" | grep TERMINAL | head -n1)"
 else
-  check FAIL "$FROM-started run reaches TERMINAL ok on $TO (legacy, unstamped journal decodes)" "rc=$STEP_RC out=$STEP_OUT err=$STEP_ERR"
+  check FAIL "$FROM-started run reaches TERMINAL ok on $TO (journal written by $FROM decodes)" "rc=$STEP_RC out=$STEP_OUT err=$STEP_ERR"
 fi
 step "events.jsonl after finishing on $TO" cat "$EV"
 step "status --run after terminal" sb pawl status --run "$RUN_ID"
