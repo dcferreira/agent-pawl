@@ -170,13 +170,8 @@ SB_CWD="$SB_WORK"
 sed "s/<TO>/$TO/g" "$HERE/brief.md" >"$SB_HOME/BRIEF.md"
 cp "$HERE/friction-template.md" "$SB_HOME/FRICTION.md"
 
-# --- settings: keep what the plugin install wrote, add the policy ---------------------------------
-sf="$SB_CFG/settings.json"
-[ -f "$sf" ] || echo '{}' >"$sf"
-jq '.permissions.deny = ((.permissions.deny // []) + ["WebFetch", "WebSearch"] | unique)
-    | .env.DISABLE_AUTOUPDATER = "1"
-    | .skipDangerousModePermissionPrompt = true' "$sf" >"$sf.new"
-mv "$sf.new" "$sf"
+# --- settings: keep what the plugin install wrote, add the policy and the connector lockdown ------
+bash "$HERE/harden.sh" "$ROOT"
 
 # --- shell init (no plugin bin dir on PATH: a stranger's terminal does not have it) ---------------
 cat >"$SB_HOME/.bashrc" <<'RC'

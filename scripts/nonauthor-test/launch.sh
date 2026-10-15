@@ -5,7 +5,8 @@
 #   bash scripts/nonauthor-test/launch.sh <ROOT> <slug> --login    # one-time human login, no brief
 #   bash scripts/nonauthor-test/launch.sh <ROOT> <slug> --resume   # environment recovery only
 #
-# The tester uses the claude CLI's default model (no --model), as a stranger would. This script types
+# Tester and --resume sessions start in ~/textstats (home-directory trust is never persisted; harden.sh
+# seeds trust for that folder). The tester uses the claude CLI's default model (no --model), as a stranger would. This script types
 # exactly one command line into the pane and nothing else. Never `send-keys` anything further by
 # hand: that would be coaching (see PROTOCOL.md).
 set -euo pipefail
@@ -43,10 +44,10 @@ fi
 
 case "$MODE" in
   run)
-    line='claude --dangerously-skip-permissions "Read ~/BRIEF.md and do the task it describes."'
+    line='cd ~/textstats && claude --disallowedTools "mcp__*" --dangerously-skip-permissions "Read ~/BRIEF.md and do the task it describes."'
     ;;
   --resume)
-    line='claude --continue --dangerously-skip-permissions'
+    line='cd ~/textstats && claude --continue --disallowedTools "mcp__*" --dangerously-skip-permissions'
     ;;
   --login)
     line='claude'

@@ -53,11 +53,26 @@ Three layers. Each one alone would leak; together they don't.
    A real source read invalidates the run: its friction log is still triaged, but a fresh tester
    repeats the test.
 
+**Account side.** The session logs in with a real claude.ai account, and that account's claude.ai
+connectors (mail, drive, chat) are reached over the network, so the filesystem sandbox cannot block
+them. The two documented switches turn them off
+([docs](https://code.claude.com/docs/en/mcp#disable-claude-ai-connectors)): `ENABLE_CLAUDEAI_MCP_SERVERS=false`
+in the sandbox environment (`enter.sh`) and `"disableClaudeAiConnectors": true` in the sandbox
+`settings.json` (`harden.sh`, called by `prep.sh`). `harden.sh` also denies `SendMessage`, `ListAgents` and
+`RemoteTrigger`, built-in tools that reach the logged-in account's other sessions; per the docs, deny
+rules hold even in bypassPermissions mode. Plugins synced from the claude.ai account (including organisation
+plugins) are turned off with the documented `syncClaudeAiPlugins: false` ([docs](https://code.claude.com/docs/en/plugins/loading)),
+and `launch.sh` also passes `--disallowedTools "mcp__*"` so no MCP tool reaches the model. For a sandbox prepped earlier, apply the same settings with
+`bash scripts/nonauthor-test/harden.sh "$ROOT"`, then `bash scripts/nonauthor-test/verify-isolation.sh "$ROOT"`.
+Sessions start in `~/textstats` because trust accepted in the home directory is never persisted
+([docs](https://code.claude.com/docs/en/permissions)), so every home-directory launch would stall on the
+trust dialog; `harden.sh` seeds the documented `hasTrustDialogAccepted` flag for that folder.
+
 `verify-isolation.sh` checks from inside the sandbox that the real home and repo are absent, that no
 source files are reachable, that the environment is clean, and that the installed plugin and binary
 versions match. Any failure aborts. `prep.sh` runs it, and you run it again right before launch.
 
-The tester runs with `--dangerously-skip-permissions`, only because layer 2 is the boundary.
+The tester runs with `--dangerously-skip-permissions` only because the boundary is layer 2 plus the account-side settings above.
 Unattended permission prompts would stall the run, and a person answering them would be a coaching
 channel. Record this in the report. The tester uses the claude CLI's default model (no `--model`),
 as a stranger would; `audit.sh` prints which model it was.
@@ -109,13 +124,14 @@ beyond "read the pawl docs", because naming them would be coaching.
    (`KIT=scripts/nonauthor-test`, from the repo root):
 
        command tmux new-session -d -s brain-worker-nonauthor-smoke -x 220 -y 50 "$PWD/$KIT/enter.sh $ROOT"
-       command tmux send-keys -t brain-worker-nonauthor-smoke -l 'claude --dangerously-skip-permissions "Print the output of the command pawl version and of ls, then stop."'
+       command tmux send-keys -t brain-worker-nonauthor-smoke -l 'cd ~/textstats && claude --disallowedTools "mcp__*" --dangerously-skip-permissions "Print the output of the command pawl version and of ls ~, then stop."'
        command tmux send-keys -t brain-worker-nonauthor-smoke Enter
 
    With `tmux capture-pane -p -t brain-worker-nonauthor-smoke`, confirm that no dialog appears (no
    trust, bypass-permissions or onboarding prompt), that the composer comes up, that `pawl version`
-   equals the version `prep.sh` printed, and that `ls` shows `BRIEF.md`, `FRICTION.md`, `pawl-docs`
-   and `textstats`. Then `/exit` and kill the smoke session. If any dialog or version mismatch shows
+   equals the version `prep.sh` printed, and that `ls ~` shows `BRIEF.md`, `FRICTION.md`, `pawl-docs`
+   and `textstats`. Also run `/mcp` in the pane (or `claude mcp list` through `enter.sh`): it must show
+   zero servers, and `claude plugin list` must show no "Synced from claude.ai" section; anything else, STOP. Then `/exit` and kill the smoke session. If any dialog or version mismatch shows
    up, stop: that is a kit fix before the real run.
 4. **Remove the smoke from the sandbox.** Move the smoke transcript
    (`$ROOT/claude-config/projects/*/<smoke-session-id>.jsonl`, the only `.jsonl` present at that

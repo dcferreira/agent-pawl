@@ -96,13 +96,17 @@ done <<<"$hits"
 # The docs snapshot is published, unmodified repo content and legitimately mentions "Obsidian"
 # (docs/examples/brain-dispatch is the maintainer's own setup), so that one pattern is scanned
 # outside ~/pawl-docs and only reported as INFO inside it. Everything else is scanned everywhere.
+# /plugin writes a public plugin-directory listing cache (third-party names, incl. "Obsidian Notes") to
+# claude-config/plugins/plugin-directory-cache*.json: public content, not a leak, so it is excluded (INFO below).
+cache="$(find "$ROOT/claude-config/plugins" -type f -name 'plugin-directory-cache*.json' 2>/dev/null | tr '\n' ' ')"
+[ -z "$cache" ] || info "excluded from the ROOT greps (public plugin-directory listing cache, not a leak): $cache"
 for pat in "$REPO_NAME" "Obsidian" "$REAL_HOME/.claude"; do
   if [ "$pat" = Obsidian ]; then
-    m="$(grep -rIl --exclude-dir=pawl-docs -e "$pat" "$ROOT" 2>/dev/null | head -5 | tr '\n' ' ')"
+    m="$(grep -rIl --exclude-dir=pawl-docs --exclude='plugin-directory-cache*.json' -e "$pat" "$ROOT" 2>/dev/null | head -5 | tr '\n' ' ')"
     nd="$(grep -rIl -e "$pat" "$HOME/pawl-docs" 2>/dev/null | wc -l)"
     [ "$nd" -eq 0 ] || info "'$pat' appears in $nd published doc file(s) under ~/pawl-docs (public content, not a leak)"
   else
-    m="$(grep -rIl -e "$pat" "$ROOT" 2>/dev/null | head -5 | tr '\n' ' ')"
+    m="$(grep -rIl --exclude='plugin-directory-cache*.json' -e "$pat" "$ROOT" 2>/dev/null | head -5 | tr '\n' ' ')"
   fi
   [ -z "$m" ] && pass "grep '$pat' under ROOT: no matches" || fail "grep '$pat' under ROOT matches: $m"
 done

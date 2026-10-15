@@ -38,10 +38,11 @@ checks do not trip over the deliberate problems.
 ## Scripts
 
 - `enter.sh <ROOT> [cmd...]` - everything the tester does runs through this (interactive shell if no cmd).
+- `harden.sh <ROOT>` - idempotent settings merge (web/account-tool deny, claude.ai connectors off); `prep.sh` calls it, and it can be re-run on an existing sandbox.
 - `verify-isolation.sh <ROOT>` - PASS/FAIL checks run inside the sandbox; exit 1 on any FAIL.
 - `launch.sh <ROOT> <slug> [--login|--resume]` - detached tmux session; the default mode types one line
-  (`claude --dangerously-skip-permissions "Read ~/BRIEF.md ..."`, no `--model`, the CLI default).
-  `--resume` (`claude --continue ...`) is for environment recovery only.
+  (`cd ~/textstats && claude --disallowedTools "mcp__*" --dangerously-skip-permissions "Read ~/BRIEF.md ..."`, no `--model`, the CLI default).
+  `--resume` (`cd ~/textstats && claude --continue ...`) is for environment recovery only.
 - `audit.sh <ROOT>` - greps the tester's transcripts for source reads, `git clone`/`gh repo`,
   `internal/`, `cmd/pawl`, `AGENTS.md`, WebFetch/WebSearch; prints the model ids used.
 
