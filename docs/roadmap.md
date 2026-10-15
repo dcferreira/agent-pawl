@@ -44,7 +44,7 @@ The outstanding parts of format-spec §I's Milestone 3:
 ## Docs and examples
 
 - [x] Replace the illustrative run output in [quickstart.md](quickstart.md), and add captured
-  output to [docs/README.md](README.md). Every `pawl` output block in `docs/` is now captured from a
+  output to [docs/README.md](README.md). Every marker-tagged `pawl` output block in `docs/` (all but the network-dependent `pawl update` example) is captured from a
   real run and checked by `e2e/docs_output_test.go` (`UPDATE_DOCS=1` rewrites them).
 - [ ] Prove the remaining `docs/examples/` run, or label them as sketches. Only `green-tests`,
   `foreach-fanout` and `foreach-agentic` are covered by `e2e/`.
