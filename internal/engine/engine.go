@@ -245,8 +245,27 @@ func (e *Engine) Resume(runID string, force bool) (Instruction, error) {
 	}
 	switch step.Kind {
 	case "agentic":
-		return e.dispatchAgentic(dir, log, runID, step, rs.Cursor, true)
+		// Interrupted only for a genuine re-dispatch: a crash RESUME of an
+		// in-flight step, or a blocked-run intervention. A crash before this
+		// visit's STEP_ENTER is a first entry, not an interruption.
+		return e.dispatchAgentic(dir, log, runID, step, rs.Cursor, rs.ResumedInFlight == step.ID || resumeEvent.Intervention)
 	case "human":
+		if !resumeEvent.Intervention && rs.ResumedInFlight == step.ID {
+			// A crash resume of a step already parked on its ask is an
+			// idempotent re-print that journals nothing, so the timeout:
+			// deadline (anchored on HUMAN_ASKED) is not restarted. A crash
+			// before the HUMAN_ASKED falls through and asks exactly once.
+			// rs.ResumedInFlight (replay: the crash RESUME landed on an
+			// entered, not-yet-transitioned step) keeps a stale HUMAN_ASKED
+			// from a previous visit from ever qualifying.
+			asked, err := humanAskedSinceEnter(dir, step.ID, rs.Cursor.Attempt)
+			if err != nil {
+				return nil, err
+			}
+			if asked {
+				return e.reaskHuman(dir, log, runID, step, rs.Cursor)
+			}
+		}
 		return e.dispatchHuman(dir, log, runID, step, rs.Cursor, true)
 	case "deterministic":
 		instr, next, err := e.advanceDeterministic(dir, log, runID, rs.Cursor)
@@ -273,15 +292,26 @@ func (e *Engine) Resume(runID string, force bool) (Instruction, error) {
 			// the same state forever.
 			return e.dispatchParallel(dir, log, runID, step, rs.Cursor, true)
 		}
+		if step.Foreach == nil && rs.ResumedInFlight != step.ID {
+			// A crash before this visit's STEP_ENTER (e.g. just after the
+			// predecessor's TRANSITION): nothing is in flight, so resumeParallel
+			// would find no pending branches and route failure. Enter afresh.
+			return e.dispatchParallel(dir, log, runID, step, rs.Cursor, false)
+		}
 		if step.Foreach != nil {
 			return e.resumeForeach(dir, log, runID, step, rs)
 		}
 		return e.resumeParallel(dir, log, runID, step, rs)
 	case "wait":
-		// An idempotent re-print: the run is parked, the engine did no work
-		// while parked, and the session's answer is the same as it was —
-		// run pawl poll (DESIGN.md §3). See parkWait's reentry parameter.
-		return e.parkWait(dir, log, runID, step, rs.Cursor, true)
+		// A crash resume of an in-flight wait is an idempotent re-print: the
+		// run is parked, the engine did no work while parked, and the
+		// session's answer is the same as it was — run pawl poll (DESIGN.md
+		// §3). See parkWait's reentry parameter. Anything else (an
+		// intervention resume, or a crash before this visit's STEP_ENTER,
+		// e.g. just after a loop transitioned back here) is a real entry:
+		// it journals a STEP_ENTER, counts the visit and starts a fresh
+		// deadline.
+		return e.parkWait(dir, log, runID, step, rs.Cursor, !resumeEvent.Intervention && rs.ResumedInFlight == step.ID)
 	default:
 		return nil, fmt.Errorf("engine: step %q: kind %q is not a recognised step kind (internal error: the validator should have rejected this workflow)", step.ID, step.Kind)
 	}

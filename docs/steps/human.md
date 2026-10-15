@@ -15,7 +15,8 @@ Ask the person at the keyboard. One step, one question, mapped exactly onto Clau
 - **`writes:`** — exactly one key, **required** whenever `options_from:`/`multi: true` is used, or
   `chosen:` is routed. `string` for a single answer, `json` when the value can be a list.
 - **`timeout:`** — required, a reserved outcome you must route. Nothing is written on timeout. The
-  idiom for "ask again later" is routing `timeout` back to a preceding `wait` step.
+  idiom for "ask again later" is routing `timeout` back to a preceding `wait` step. A resume after a
+  crash keeps the original deadline; resuming a blocked run is a fresh visit and starts a new one.
 - **No `postcondition:`** — the answer *is* the check; `human` does not accept `postcondition:` or
   `soft:` (rule 30). `timeout:` must be a valid Go duration greater than zero.
 
