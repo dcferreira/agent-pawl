@@ -48,14 +48,14 @@ func CheckFiles(w *Workflow) []string {
 		if first == "" || strings.Contains(first, "${") || !strings.Contains(first, "/") {
 			return
 		}
-		if msg := checkPath(base, first, true); msg != "" {
-			errs = append(errs, fmt.Sprintf("%s %q (resolved to %s) %s", where, first, resolveRef(base, first), msg))
+		if msg := checkPath(base, first, true, !filepath.IsAbs(first)); msg != "" {
+			errs = append(errs, fmt.Sprintf("%s: %s %q (resolved to %s) %s", w.Path, where, first, resolveRef(base, first), msg))
 		}
 	}
 
 	for i := range w.Steps {
 		s := &w.Steps[i]
-		at := fmt.Sprintf("step %q", s.ID)
+		at := fmt.Sprintf("step %q: rule 16", s.ID)
 		if s.Run != "" {
 			cmdRef(at+": run:", s.Run)
 		}
@@ -74,13 +74,13 @@ func CheckFiles(w *Workflow) []string {
 			if c.Value == "" || strings.Contains(c.Value, "${") {
 				continue
 			}
-			if msg := checkPath(base, c.Value, false); msg != "" {
-				errs = append(errs, fmt.Sprintf("%s %q (resolved to %s) %s", where, c.Value, resolveRef(base, c.Value), msg))
+			if msg := checkPath(base, c.Value, false, !filepath.IsAbs(c.Value)); msg != "" {
+				errs = append(errs, fmt.Sprintf("%s: %s %q (resolved to %s) %s", w.Path, where, c.Value, resolveRef(base, c.Value), msg))
 			}
 		}
 	}
 	for _, inv := range w.Invariants {
-		cmdRef(fmt.Sprintf("invariant %q: check:", inv.ID), inv.Check)
+		cmdRef(fmt.Sprintf("invariant %q: rule 16: check:", inv.ID), inv.Check)
 	}
 	return errs
 }
@@ -93,31 +93,36 @@ func resolveRef(base, tok string) string {
 }
 
 // checkPath returns "" when tok resolves to an acceptable file, else the
-// predicate half of the error message.
-func checkPath(base, tok string, wantExec bool) string {
+// "<what>; <how to fix>" tail of the error message. relative says the token
+// was written relative (so the fix hint may mention the workflow-directory
+// resolution rule).
+func checkPath(base, tok string, wantExec, relative bool) string {
 	p := resolveRef(base, tok)
 	fi, err := os.Stat(p) // follows symlinks
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "does not exist"
+			if relative {
+				return "does not exist; create it there or fix the path (paths resolve relative to the workflow file's directory)"
+			}
+			return "does not exist; create it there or fix the path"
 		}
-		return "cannot be read: " + err.Error()
+		return "cannot be read: " + err.Error() + "; fix its permissions or the path"
 	}
 	if fi.IsDir() {
-		return "is a directory"
+		return "is a directory; point at a file instead"
 	}
 	if !fi.Mode().IsRegular() {
-		return "is not a regular file"
+		return "is not a regular file; point at a regular file instead"
 	}
 	if wantExec {
 		if fi.Mode()&0o111 == 0 {
-			return "is not executable (chmod +x it)"
+			return "is not executable; chmod +x it"
 		}
 		return ""
 	}
 	f, err := os.Open(p)
 	if err != nil {
-		return "is not readable: " + err.Error()
+		return "is not readable: " + err.Error() + "; fix its permissions or the path"
 	}
 	_ = f.Close()
 	return ""

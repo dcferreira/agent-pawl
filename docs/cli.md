@@ -17,7 +17,7 @@ pawl validate <workflow-name> | --path <file>
 pawl status [--run <id>] [--json]
 pawl list
 pawl abandon --run <id> [--reason <text>]
-pawl version
+pawl version | --version | -v
 pawl update [--check] [--version <vX.Y.Z>] [--force]
 pawl help | --help | -h          # usage for every command
 pawl <command> --help | -h       # usage for one command
@@ -38,7 +38,8 @@ Every command parses its flags the same way:
 - `-h` or `--help` anywhere on a command prints that command's usage to stdout and exits 0, whatever
   else is on the line. `pawl help`, `pawl --help` and `pawl -h` print the usage for every command,
   exit 0. `pawl` with no command, or an unknown command, prints it to stderr and exits 2.
-- `pawl version` takes no arguments; `pawl version extra` is exit 2.
+- `pawl version` takes no arguments; `pawl version extra` is exit 2. `pawl --version` and `pawl -v` (as the
+  first argument only) are aliases for it.
 
 ## Exit codes
 
@@ -265,6 +266,10 @@ with no header, sorted by name:
 name<TAB>repo-local|user<TAB>absolute-path
 ```
 
+When no workflow is found, stdout stays empty (so the TSV contract is unchanged) and one line goes to
+stderr naming the directories searched, in the form `no workflows found; searched <repo-local dir>,
+<user dir>`; the exit status is still 0.
+
 A repo-local workflow wins over a user-level one of the same name, and the user-level one is not
 printed. The TSV is the documented machine format; there is no `--json`.
 
@@ -305,7 +310,8 @@ $ pawl version
 pawl dev
 ```
 
-Prints `Version` (`main.Version` in `cmd/pawl`), always exit 0; it takes no arguments. Release
+Prints `Version` (`main.Version` in `cmd/pawl`), always exit 0; it takes no arguments. `pawl --version`
+and `pawl -v` print exactly the same thing. Release
 binaries print the released version (stamped at build time by goreleaser's `-ldflags -X
 main.Version`); a binary built from source (`go build`/`go install`/`make install`) always prints
 `pawl dev`.

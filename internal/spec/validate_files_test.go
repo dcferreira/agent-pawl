@@ -46,14 +46,14 @@ func TestCheckFiles(t *testing.T) {
 	}{
 		{"relative ok", &Workflow{Steps: []Step{detStep("a", "scripts/ok.sh --x")}}, nil},
 		{"missing", &Workflow{Steps: []Step{detStep("test", "scripts/nope.sh")}},
-			[]string{`step "test": run: "scripts/nope.sh" (resolved to ` + filepath.Join(dir, "scripts/nope.sh") + `) does not exist`}},
+			[]string{`step "test": rule 16: run: "scripts/nope.sh" (resolved to ` + filepath.Join(dir, "scripts/nope.sh") + `) does not exist`}},
 		{"non-executable", &Workflow{Steps: []Step{detStep("a", "scripts/noexec.sh")}},
-			[]string{`step "a": run: "scripts/noexec.sh" (resolved to ` + filepath.Join(dir, "scripts/noexec.sh") + `) is not executable (chmod +x it)`}},
+			[]string{`step "a": rule 16: run: "scripts/noexec.sh" (resolved to ` + filepath.Join(dir, "scripts/noexec.sh") + `) is not executable; chmod +x it`}},
 		{"directory", &Workflow{Steps: []Step{detStep("a", "scripts/adir")}},
-			[]string{`step "a": run: "scripts/adir" (resolved to ` + filepath.Join(dir, "scripts/adir") + `) is a directory`}},
+			[]string{`step "a": rule 16: run: "scripts/adir" (resolved to ` + filepath.Join(dir, "scripts/adir") + `) is a directory`}},
 		{"absolute ok", &Workflow{Steps: []Step{detStep("a", abs)}}, nil},
 		{"absolute missing", &Workflow{Steps: []Step{detStep("a", "/nonexistent-pawl-dir/x.sh")}},
-			[]string{`step "a": run: "/nonexistent-pawl-dir/x.sh" (resolved to /nonexistent-pawl-dir/x.sh) does not exist`}},
+			[]string{`step "a": rule 16: run: "/nonexistent-pawl-dir/x.sh" (resolved to /nonexistent-pawl-dir/x.sh) does not exist`}},
 		{"bare command skipped", &Workflow{Steps: []Step{detStep("a", "go test ./...")}}, nil},
 		{"var first token skipped", &Workflow{Steps: []Step{detStep("a", "${x}/scripts/a.sh")}}, nil},
 		{"var inside first token skipped", &Workflow{Steps: []Step{detStep("a", "scripts/${x}.sh")}}, nil},
@@ -61,29 +61,29 @@ func TestCheckFiles(t *testing.T) {
 		{"symlink ok", &Workflow{Steps: []Step{detStep("a", "scripts/link.sh")}}, nil},
 		{"plain context ok", &Workflow{Steps: []Step{{ID: "a", Kind: "agentic", Context: []ContextEntry{{Value: "NOTES.md"}}}}}, nil},
 		{"plain context missing", &Workflow{Steps: []Step{{ID: "a", Kind: "agentic", Context: []ContextEntry{{Value: "NOTES.md"}, {Value: "NOPE.md"}}}}},
-			[]string{`step "a": context[1]: "NOPE.md" (resolved to ` + filepath.Join(dir, "NOPE.md") + `) does not exist`}},
+			[]string{`step "a": rule 16: context[1]: "NOPE.md" (resolved to ` + filepath.Join(dir, "NOPE.md") + `) does not exist`}},
 		{"plain context unreadable", &Workflow{Steps: []Step{{ID: "a", Kind: "agentic", Context: []ContextEntry{{Value: "secret.md"}}}}},
-			[]string{`step "a": context[0]: "secret.md"`}},
+			[]string{`step "a": rule 16: context[0]: "secret.md"`}},
 		{"plain context with var skipped", &Workflow{Steps: []Step{{ID: "a", Kind: "agentic", Context: []ContextEntry{{Value: "${x}.md"}}}}}, nil},
 		{"plain context not exec ok", &Workflow{Steps: []Step{{ID: "a", Kind: "agentic", Context: []ContextEntry{{Value: "scripts/noexec.sh"}}}}}, nil},
 		{"cmd context missing", &Workflow{Steps: []Step{{ID: "a", Kind: "agentic", Context: []ContextEntry{{IsCmd: true, Value: "scripts/nope.sh arg"}}}}},
-			[]string{`step "a": context[0]: "scripts/nope.sh" (resolved to ` + filepath.Join(dir, "scripts/nope.sh") + `) does not exist`}},
+			[]string{`step "a": rule 16: context[0]: "scripts/nope.sh" (resolved to ` + filepath.Join(dir, "scripts/nope.sh") + `) does not exist`}},
 		{"cmd context non-exec", &Workflow{Steps: []Step{{ID: "a", Kind: "agentic", Context: []ContextEntry{{IsCmd: true, Value: "scripts/noexec.sh"}}}}},
-			[]string{`step "a": context[0]: "scripts/noexec.sh" (resolved to ` + filepath.Join(dir, "scripts/noexec.sh") + `) is not executable (chmod +x it)`}},
+			[]string{`step "a": rule 16: context[0]: "scripts/noexec.sh" (resolved to ` + filepath.Join(dir, "scripts/noexec.sh") + `) is not executable; chmod +x it`}},
 		{"invariant check", &Workflow{Invariants: []InvariantDecl{{ID: "i", Check: "scripts/nope.sh"}}},
-			[]string{`invariant "i": check: "scripts/nope.sh" (resolved to ` + filepath.Join(dir, "scripts/nope.sh") + `) does not exist`}},
+			[]string{`invariant "i": rule 16: check: "scripts/nope.sh" (resolved to ` + filepath.Join(dir, "scripts/nope.sh") + `) does not exist`}},
 		{"poll", &Workflow{Steps: []Step{{ID: "s", Kind: "wait", Poll: "scripts/nope.sh"}}},
-			[]string{`step "s": poll: "scripts/nope.sh"`}},
+			[]string{`step "s": rule 16: poll: "scripts/nope.sh"`}},
 		{"postcondition command", &Workflow{Steps: []Step{{ID: "s", Kind: "agentic", Postcondition: &Postcondition{Command: "scripts/noexec.sh", HasCommand: true}}}},
-			[]string{`step "s": postcondition.command: "scripts/noexec.sh"`}},
+			[]string{`step "s": rule 16: postcondition.command: "scripts/noexec.sh"`}},
 		{"foreach body", &Workflow{Steps: []Step{
 			{ID: "fan", Kind: "parallel", Foreach: &Foreach{Over: "xs", Body: "body", Collect: "r"}},
 			detStep("body", "scripts/nope.sh")}},
-			[]string{`step "body": run: "scripts/nope.sh"`}},
+			[]string{`step "body": rule 16: run: "scripts/nope.sh"`}},
 		{"multiple collected", &Workflow{
 			Steps:      []Step{detStep("a", "scripts/n1.sh"), detStep("b", "scripts/noexec.sh")},
 			Invariants: []InvariantDecl{{ID: "i", Check: "scripts/n2.sh"}}},
-			[]string{`step "a": run: "scripts/n1.sh"`, `step "b": run: "scripts/noexec.sh"`, `invariant "i": check: "scripts/n2.sh"`}},
+			[]string{`step "a": rule 16: run: "scripts/n1.sh"`, `step "b": rule 16: run: "scripts/noexec.sh"`, `invariant "i": rule 16: check: "scripts/n2.sh"`}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -106,6 +106,33 @@ func TestCheckFiles(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestCheckFiles_Shape pins the documented one-line shape shared with the
+// other rules: <file>: step "<id>": rule 16: <what>; <how to fix>.
+func TestCheckFiles_Shape(t *testing.T) {
+	dir := t.TempDir()
+	mkFile(t, dir, "scripts/noexec.sh", 0o644)
+	wfPath := filepath.Join(dir, "wf.yaml")
+	w := &Workflow{Path: wfPath, Steps: []Step{
+		{ID: "fix", Kind: "agentic", Postcondition: &Postcondition{Command: "scripts/nope.sh", HasCommand: true}},
+		detStep("b", "scripts/noexec.sh"),
+	}}
+	got := CheckFiles(w)
+	want := []string{
+		wfPath + `: step "fix": rule 16: postcondition.command: "scripts/nope.sh" (resolved to ` + filepath.Join(dir, "scripts/nope.sh") +
+			`) does not exist; create it there or fix the path (paths resolve relative to the workflow file's directory)`,
+		wfPath + `: step "b": rule 16: run: "scripts/noexec.sh" (resolved to ` + filepath.Join(dir, "scripts/noexec.sh") +
+			`) is not executable; chmod +x it`,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("error %d =\n%q\nwant\n%q", i, got[i], want[i])
+		}
 	}
 }
 
@@ -150,7 +177,7 @@ func TestCheckFiles_ContextCreatedByEarlierStep(t *testing.T) {
 		return []Step{detStep("plan", "scripts/plan.sh"), {ID: "act", Kind: "agentic", Context: []ContextEntry{ctx}}}
 	}
 	literal := &Workflow{Path: filepath.Join(dir, "wf.yaml"), Steps: steps(ContextEntry{Value: "plan.md"})}
-	if got := CheckFiles(literal); len(got) != 1 || !strings.Contains(got[0], `step "act": context[0]: "plan.md"`) {
+	if got := CheckFiles(literal); len(got) != 1 || !strings.Contains(got[0], `step "act": rule 16: context[0]: "plan.md"`) {
 		t.Errorf("literal: got %q, want one plan.md does-not-exist error", got)
 	}
 	for _, ctx := range []ContextEntry{{Value: "${plan_file}"}, {IsCmd: true, Value: "cat plan.md"}} {

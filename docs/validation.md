@@ -97,6 +97,17 @@ step already ran can't make a live run unresumable. Bare commands (`go test ./..
 containing `${key}` are skipped. A file that an earlier step creates during the run doesn't exist yet
 when the check runs, so reference it through `${key}` (or read it with `!cmd`) instead of a literal path.
 
+Errors use the same one-line shape as the other rules, and keep the resolved path:
+`<file>: step "<id>": rule 16: <field>: "<path>" (resolved to <absolute path>) <what is wrong>; <how to fix>`
+(an invariant is named `invariant "<id>": rule 16: check: …`). For example:
+
+```
+/home/you/project/.claude/workflows/w.yaml: step "fix": rule 16: postcondition.command: "scripts/nope.sh" (resolved to /home/you/project/.claude/workflows/scripts/nope.sh) does not exist; create it there or fix the path (paths resolve relative to the workflow file's directory)
+```
+
+A bare-string `postcondition:` (`postcondition: scripts/check.sh`) is the same thing as
+`postcondition: {command: scripts/check.sh}`, so it is reported as `postcondition.command`.
+
 **17 — bad `kind: parallel` branch.** `branches:` needs ≥ 2 entries, each a declared
 `deterministic`/`agentic` step (no nesting), listed once, claimed by only one `parallel` step, not
 the workflow's `start:` step, and declaring none of `next:`/`outcomes:`/`catch:`/`attempts:`/

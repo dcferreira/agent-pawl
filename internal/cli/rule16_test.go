@@ -48,8 +48,12 @@ func TestValidate_Rule16MissingScriptFails(t *testing.T) {
 	if code != exitUsage {
 		t.Fatalf("exit = %d, want %d; stderr = %q", code, exitUsage, stderr)
 	}
-	if !strings.Contains(stderr, `step "prep": run: "scripts/prep.sh"`) || !strings.Contains(stderr, "does not exist") {
+	if !strings.Contains(stderr, `step "prep": rule 16: run: "scripts/prep.sh"`) || !strings.Contains(stderr, "does not exist") {
 		t.Errorf("stderr missing rule-16 error: %q", stderr)
+	}
+	wantPrefix := filepath.Join(root, ".claude", "workflows", "r16.yaml") + `: step "prep": rule 16: `
+	if !strings.HasPrefix(stderr, wantPrefix) || !strings.Contains(stderr, "; create it there or fix the path") {
+		t.Errorf("stderr is not the one-line rule shape (want prefix %q): %q", wantPrefix, stderr)
 	}
 	writePrepScript(t, root)
 	if _, stderr, code := runCLI(t, []string{"pawl", "validate", "r16"}); code != 0 {
@@ -64,7 +68,7 @@ func TestRun_NewRunRule16MissingScriptRefuses(t *testing.T) {
 	if code != exitUsage {
 		t.Fatalf("exit = %d, want %d; stdout = %q stderr = %q", code, exitUsage, stdout, stderr)
 	}
-	if !strings.Contains(stderr, `step "prep": run: "scripts/prep.sh"`) {
+	if !strings.Contains(stderr, `step "prep": rule 16: run: "scripts/prep.sh"`) {
 		t.Errorf("stderr missing rule-16 error: %q", stderr)
 	}
 	if strings.Contains(stdout, "DISPATCH") {

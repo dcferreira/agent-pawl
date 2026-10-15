@@ -21,6 +21,18 @@ func TestRun(t *testing.T) {
 			wantStdout: "pawl " + Version + "\n",
 		},
 		{
+			name:       "--version",
+			args:       []string{"pawl", "--version"},
+			wantExit:   0,
+			wantStdout: "pawl " + Version + "\n",
+		},
+		{
+			name:       "-v",
+			args:       []string{"pawl", "-v"},
+			wantExit:   0,
+			wantStdout: "pawl " + Version + "\n",
+		},
+		{
 			name:          "no subcommand",
 			args:          []string{"pawl"},
 			wantExit:      2,

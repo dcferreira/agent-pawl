@@ -1,0 +1,5 @@
+kind: added
+body: '`pawl --version` and `pawl -v` print the version, the same as `pawl version`.'
+time: 2026-10-15T18:00:00.000000000+02:00
+custom:
+    PR: "82"
