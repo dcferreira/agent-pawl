@@ -167,7 +167,8 @@ runs `<workflow dir>/scripts/x.sh`). A bare command name (`git`, `jq`, `sh`) is 
 via `PATH`; an absolute path is used as is. Only the first token is rewritten: every other argument
 is passed through, and the command's working directory is always the working-copy root (never the
 workflow's directory). A plain (non-`!cmd`) `context:` entry is a file path, relative to the workflow
-file's directory unless absolute.
+file's directory unless absolute. For a file produced during the run, use `!cmd cat <path>` or a
+`${key}` path; a literal path must exist at validate time (§H rule 16).
 
 **Forward-compatibility promise.** Any environment variable `pawl` reads in future is named
 `PAWL__<NAME>` (double underscore). `state:`/`args:` keys may not start with `_`, so they can never
