@@ -71,6 +71,7 @@ for a real, captured transcript of that run.
   `workflow` name and a separate `workflow_path`. `pawl run` refuses (exit 4) a binary whose version
   differs from the plugin's, via the launcher's `PAWL__PLUGIN_VERSION` (skipped when unset, and for a
   `dev` build). See [cli.md](cli.md).
+
 A `docs/examples/` workflow is proven to run only if a test in [e2e/](../e2e/) runs it; one without
 such a test is an authoring exercise.
 
@@ -102,7 +103,7 @@ The docs or design describe these, and this build does not do them. Plans live i
 4. **[docs/README.md](README.md)** — the user guide.
 5. **[DESIGN.md](../DESIGN.md)** — the engine design: handshake, execution, journal and resume,
    enforcement, testing, distribution, design questions (settled or deferred). §9 marks each
-   claim built or not built, row by row.
+   claim built, not built or superseded, row by row.
 6. **[design/format-spec.md](../design/format-spec.md)** — the normative format: nouns, kinds,
    fields, validator, roadmap.
 

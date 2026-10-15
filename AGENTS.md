@@ -18,7 +18,7 @@ to do what `pawl run`/`pawl submit` tells it and report back exactly what's aske
 [what runs today](docs/status.md#what-runs-today) and [not built](docs/status.md#not-built)).
 [`docs/compatibility.md`](docs/compatibility.md) says what 1.x freezes. An example is proven to run only
 if a test in `e2e/` runs it; one without such a test is an authoring exercise. `docs/roadmap.md` is the to-do list for v1.
-`DESIGN.md` §9 marks each distribution claim built or not built, row by row.
+`DESIGN.md` §9 marks each distribution claim built, not built or superseded, row by row.
 
 If you're implementing something that DESIGN.md describes but `docs/status.md` doesn't
 list as built, that's a real gap to either build properly (with tests) or flag — don't paper over
@@ -47,7 +47,7 @@ it by writing the design doc's version of reality into code comments or docs.
   `docs/examples/green-tests` and `e2e/`.
 - `design/format-spec.md` — **normative** for what a workflow author writes.
 - `DESIGN.md` — the engine design (handshake, execution, resume, enforcement, testing,
-  distribution). §9 marks each claim built or not built; `docs/status.md` is the authority.
+  distribution). §9 marks each claim built, not built or superseded; `docs/status.md` is the authority.
 - `docs/` — user-facing docs. `docs/install.md` and `docs/dogfood.md` describe this build
   honestly; `docs/status.md` is the authoritative what-runs-today list and `docs/roadmap.md` the to-do list
   for v1 (both moved out of `README.md`, which is now a short newcomer intro with validated

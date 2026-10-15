@@ -43,9 +43,9 @@ The outstanding parts of format-spec §I's Milestone 3:
 
 ## Docs and examples
 
-- [ ] Replace the illustrative run output in [docs/README.md](README.md) and
-  [quickstart.md](quickstart.md) with captured output. Real `pawl` prints `DISPATCH`/`TERMINAL`
-  blocks, not the `✔ step → next` lines shown there.
+- [ ] Replace the illustrative run output in [quickstart.md](quickstart.md), and add captured
+  output to [docs/README.md](README.md) (currently a placeholder). Real `pawl` prints
+  `DISPATCH`/`TERMINAL` blocks, not the `✔ step → next` lines shown in quickstart.md.
 - [ ] Prove the remaining `docs/examples/` run, or label them as sketches. Only `green-tests`,
   `foreach-fanout` and `foreach-agentic` are covered by `e2e/`.
 
