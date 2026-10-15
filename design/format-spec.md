@@ -167,7 +167,8 @@ runs `<workflow dir>/scripts/x.sh`). A bare command name (`git`, `jq`, `sh`) is 
 via `PATH`; an absolute path is used as is. Only the first token is rewritten: every other argument
 is passed through, and the command's working directory is always the working-copy root (never the
 workflow's directory). A plain (non-`!cmd`) `context:` entry is a file path, relative to the workflow
-file's directory unless absolute.
+file's directory unless absolute. For a file produced during the run, use `!cmd cat <path>` or a
+`${key}` path; a literal path must exist at validate time (§H rule 16).
 
 **Forward-compatibility promise.** Any environment variable `pawl` reads in future is named
 `PAWL__<NAME>` (double underscore). `state:`/`args:` keys may not start with `_`, so they can never
@@ -814,7 +815,7 @@ work to an agent. See `docs/quickstart.md`.
     match zero characters; `only_in:` is a required key — `only_in: []` is the explicit spelling for "deny
     everywhere", distinct from omitting the key — and every entry in it must name a declared step
     (a `parallel` branch counts; it is a top-level step like any other).
-16. A referenced file (`context:`, `run:`, `poll:`, `check:`) does not exist or is not executable.
+16. A command reference (`run:`, `poll:`, postcondition `command:`, invariant `check:`, `!cmd` `context:`) whose first token is a literal path (contains `/`, no `${`) does not exist or is not executable; a plain `context:` file does not exist or is not readable. Paths resolve relative to the workflow file's directory. Checked by `pawl validate` and when `pawl run` starts a new run, never on resume.
 17. `kind: parallel` (§B.15, §H checkParallelBranches): `branches:` has fewer than 2 entries; a
     branch name does not resolve to a declared step; a branch's kind is not `deterministic` or
     `agentic`; a branch is listed more than once in the same `branches:`; a branch is claimed by more

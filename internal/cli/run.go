@@ -110,6 +110,20 @@ func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 		}
 	}
 
+	// Rule 16 (referenced files exist) is checked only when starting a NEW
+	// run: a script deleted after its step already ran must not make a live
+	// run unresumable.
+	if ref == nil {
+		if fileErrs := spec.CheckFiles(w); len(fileErrs) > 0 {
+			errBlock := &blockWriter{}
+			for _, e := range fileErrs {
+				errBlock.line(0, e)
+			}
+			fmt.Fprint(stderr, errBlock.String())
+			return exitUsage
+		}
+	}
+
 	if ref != nil && ref.Opaque != nil {
 		return opaqueRefusal(stderr, "pawl run", ref)
 	}

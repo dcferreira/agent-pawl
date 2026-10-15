@@ -1,0 +1,5 @@
+kind: fixed
+body: '`pawl validate`, and `pawl run` when it starts a new run, now enforce format-spec §H rule 16, which was specified but never checked. Every literal script path in a `run:`, `poll:`, postcondition `command:`, invariant `check:` or `!cmd` `context:` must exist and be executable, and a plain `context:` file must exist and be readable. Paths resolve relative to the workflow file, as at runtime. Under `docs/compatibility.md`''s bug clause, a workflow this rejects would have failed at that step, unless an earlier step creates the file during the run. Such a file must be referenced through `${key}` or `!cmd` to pass the check. Resuming a run, `pawl status` and the hooks do not apply the check, so deleting a script after its step has run never strands a live run.'
+time: 2026-10-15T16:15:00.000000000+00:00
+custom:
+    PR: "69"

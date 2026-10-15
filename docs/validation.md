@@ -17,7 +17,7 @@ workflow: .claude/workflows/manage-mr.yaml (repo-local)
 soft: 6/23 steps (26.1%): changelog, entry, fix_issues, fix_issues_push, route_reviewers, trigger_coderabbit
 ```
 
-Every error names the file and line, the step, the rule and the fix.
+Every error names the step and what is wrong; most also name the file, line, rule and fix.
 
 ## The checks
 
@@ -82,10 +82,14 @@ enforced (enforcement off)` instead — whenever a workflow declares any. `pawl 
 no run to be enforced or not, adds `guards: N declared (enforced only when a run starts with the
 pawl hooks installed)`. Full field-by-field rules: `design/format-spec.md` §H rule 15.
 
-**16 — missing or non-executable file.** A referenced script doesn't exist (relative to
-`.claude/workflows/`), or isn't `chmod +x`. Not implemented in this build: `validate` never touches
-the filesystem beyond parsing the YAML, so a missing or non-executable script or context file passes
-`validate` clean and only shows up as a BLOCKED run when `pawl run` actually tries it.
+**16 — missing or non-executable file.** A literal-path command reference (`run:`, `poll:`,
+postcondition `command:`, invariant `check:`, `!cmd` `context:`; first token contains `/` and no
+`${`) doesn't exist or isn't `chmod +x`, or a plain `context:` file doesn't exist or isn't readable.
+Paths resolve relative to the workflow file's directory. Checked by `pawl validate` and when
+`pawl run` starts a new run — never on resume, `pawl status` or hooks, so a script deleted after its
+step already ran can't make a live run unresumable. Bare commands (`go test ./...`) and paths
+containing `${key}` are skipped. A file that an earlier step creates during the run doesn't exist yet
+when the check runs, so reference it through `${key}` (or read it with `!cmd`) instead of a literal path.
 
 **17 — bad `kind: parallel` branch.** `branches:` needs ≥ 2 entries, each a declared
 `deterministic`/`agentic` step (no nesting), listed once, claimed by only one `parallel` step, not

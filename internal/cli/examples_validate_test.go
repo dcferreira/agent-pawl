@@ -3,6 +3,8 @@ package cli
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/dcferreira/agent-pawl/internal/spec"
 )
 
 // TestShippedWorkflowsValidate runs the load+validate path `pawl validate
@@ -31,11 +33,16 @@ func TestShippedWorkflowsValidate(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Run(filepath.ToSlash(rel), func(t *testing.T) {
-			_, report, err := loadAndValidate(f)
+			w, report, err := loadAndValidate(f)
 			if err != nil {
 				t.Fatalf("load: %v", err)
 			}
 			for _, e := range report.Errors {
+				t.Error(e)
+			}
+			// Rule 16 too: a shipped example must not reference a file it
+			// doesn't ship (format-spec §H).
+			for _, e := range spec.CheckFiles(w) {
 				t.Error(e)
 			}
 		})

@@ -488,3 +488,4 @@ steps in this workflow.
 
 - Every script under `scripts/` is a placeholder that exits 1; the real logic is not shipped.
 - Tools the sketch assumes on `PATH`: `uv`, `pytest`, and a VCS plus a CI/PR host CLI.
+- `fix_tests` no longer lists `CHANGELOG.md` in its `context:`. A plain `context:` path resolves relative to the workflow file's directory, not the repo root (format-spec §A), so a repo-root file needs a path from the workflow dir or a `!cmd` entry. Rule 16 (`pawl validate`) now flags a missing one.

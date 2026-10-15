@@ -114,7 +114,6 @@ steps:
     context:
       - !cmd "uv run pytest -q 2>&1 | tail -n 150"
       - !cmd "git diff HEAD -- pyproject.toml uv.lock"
-      - CHANGELOG.md
       - !cmd "echo Failing-test signature for this attempt: ${failing_signature}"
     subagent_args:
       tools:
