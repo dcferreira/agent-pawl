@@ -16,8 +16,9 @@ to do what `pawl run`/`pawl submit` tells it and report back exactly what's aske
 
 [`docs/status.md`](docs/status.md) is the authority on what runs (see
 [what runs today](docs/status.md#what-runs-today) and [not built](docs/status.md#not-built)).
-[`docs/compatibility.md`](docs/compatibility.md) says what 1.x freezes. An example is proven to run only
-if a test in `e2e/` runs it; one without such a test is an authoring exercise. `docs/roadmap.md` is the to-do list for v1.
+[`docs/compatibility.md`](docs/compatibility.md) says what 1.x freezes. Which examples are proven by
+`e2e/` and which are labelled authoring exercises is in
+[`docs/examples/README.md`](docs/examples/README.md). `docs/roadmap.md` is the to-do list for v1.
 `DESIGN.md` §9 marks each distribution claim built, not built or superseded, row by row.
 
 If you're implementing something that DESIGN.md describes but `docs/status.md` doesn't
@@ -40,13 +41,14 @@ it by writing the design doc's version of reality into code comments or docs.
 - `internal/cli` — the `pawl` subcommands, including `hook.go` (`pawl hook pre|stop|subagent-stop`) and
   `enforce.go` (`pawl run`'s heartbeat check and refusal).
 - `e2e/` — end-to-end tests that run some of `docs/examples/` and the plugin launcher and hook
-  wrapper. An example without an `e2e/` test is an authoring exercise.
+  wrapper; see `docs/examples/README.md` for which examples.
   `e2e/docs_output_test.go` checks every `pawl` output block in `docs/` that sits under a
   `<!-- pawl-capture: <id> -->` marker against a real run (an unmarked block is not checked, so mark
   any new one); `UPDATE_DOCS=1 go test ./e2e -run
   TestDocsOutput` rewrites them. Never hand-edit a captured block.
 - `docs/examples/` — workflow YAML + scripts; each has a `NOTES.md` with the author's design rulings.
-  Only the ones an `e2e/` test runs are proven to run.
+  `docs/examples/README.md` lists which are proven by `e2e/` and which are authoring exercises
+  (enforced by `internal/cli/examples_status_test.go`).
 - `testdata/fixture/` — a tiny Go module (a two-line `Add` that subtracts) used by
   `docs/examples/green-tests` and `e2e/`.
 - `design/format-spec.md` — **normative** for what a workflow author writes.

@@ -29,6 +29,12 @@ func TestExamplesAreProvenOrLabelled(t *testing.T) {
 	}
 	var e2eSrc []string
 	for _, f := range e2eFiles {
+		// docs_output_test.go copies example workflows only to capture
+		// `pawl validate`/`pawl list` output for the docs; it never runs
+		// them, so a reference there proves nothing.
+		if filepath.Base(f) == "docs_output_test.go" {
+			continue
+		}
 		b, err := os.ReadFile(f)
 		if err != nil {
 			t.Fatal(err)
