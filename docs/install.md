@@ -227,8 +227,7 @@ session after installing so the hooks bind.
 ```
 
 **Recommended: wrap each call so it fails open.** Claude Code reads a hook's exit code 2 as "block".
-A `pawl` binary older than the hook subcommand you wire (or a `pawl` that is missing from `PATH`
-for that shell) exits 2 for an unknown command. Unwrapped, that exit 2 would deny every Bash call
+A `pawl` binary older than the hook subcommand you wire exits 2 for an unknown command. Unwrapped, that exit 2 would deny every Bash call
 (including the reinstall that fixes it) and refuse every end of turn. The plugin's `bin/pawl-hook`
 maps every non-zero exit to exit 1, which Claude Code treats as a non-blocking error. Do the same:
 

@@ -50,7 +50,8 @@ The outstanding parts of format-spec §I's Milestone 3:
 
 - [x] The questions in [DESIGN.md §8](../DESIGN.md#8-design-questions) are settled, except three
   deferred items (a shared cap for two-entry cycles, `timeout:` on `deterministic`, `writes:`
-  granularity on structured keys). All three are additive and can land in any 1.x. Settled decisions
+  granularity on structured keys) and one pending item (whether a non-author can author a real
+  workflow, to be settled by a non-author test before 1.0). The three deferred items are additive and can land in any 1.x. Settled decisions
   are frozen in [compatibility.md](compatibility.md).
 
 ## After v1
