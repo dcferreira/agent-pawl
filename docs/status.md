@@ -91,7 +91,7 @@ The workflows under `docs/examples/` beyond `green-tests`, `foreach-fanout` and 
    names what isn't built, and its sample output is illustrative rather than captured. Read it for
    the target shape, and this page for what runs today.
 5. **[DESIGN.md](../DESIGN.md)** — the engine design: handshake, execution, journal and resume,
-   enforcement, testing, distribution, open questions.
+   enforcement, testing, distribution, design questions (settled or deferred).
 6. **[design/format-spec.md](../design/format-spec.md)** — the normative format: nouns, kinds,
    fields, validator, roadmap.
 

@@ -49,6 +49,7 @@ terminal: {done: {status: ok}}
 9. [validation.md](validation.md) — every `pawl validate` check and its error message.
 10. [cli.md](cli.md) — the full command reference.
 11. [troubleshooting.md](troubleshooting.md) and [faq.md](faq.md).
+12. [compatibility.md](compatibility.md) — what 1.x promises not to break, and what is internal.
 
 ## What it is for
 

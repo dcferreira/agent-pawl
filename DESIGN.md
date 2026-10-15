@@ -555,17 +555,22 @@ authoring exercises; each has a `workflow.yaml` and a `NOTES.md` recording what 
 a long `wait`, a human gate, a capped cycle, keyed retries. Success is one MR taken from branch to
 assigned reviewer with no human intervention other than the `human` gate.
 
-## 8. Open questions
+## 8. Design questions
 
-- Are guards worth keeping, given that invariants are the enforcement and guards are advisory?
-- Is automatic failure-text keying too coarse, or too fine, once real failure text is involved?
-- Does a cycle with two entry points need a shared cap rather than two independent `max_visits:`?
-- Should `pawl submit` accept a result for a step the engine has already timed out, or refuse it?
-- How should `pawl poll` behave when Monitor itself dies — silently, or by blocking the run?
-- Is one engine-wide per-step wall-clock ceiling enough, or does `deterministic` need `timeout:`?
-- What is the right granularity for `writes:` on a structured key like `findings`?
-- Is `emits: pairs` a permanent affordance, or a migration ramp that should warn after the first run?
-- Can a real non-author author a real workflow? Goal 2 stands or falls on it.
+Settled decisions are frozen in [docs/compatibility.md](docs/compatibility.md); a deferred item is
+additive and can land in any 1.x.
+
+| Question | Status | Decision |
+|---|---|---|
+| Are guards worth keeping? | Settled | Keep, advisory and pattern-matched; invariants are the engine-checked guarantee. |
+| Is automatic failure-text keying too coarse, or too fine? | Settled | Keep automatic keying (semantics frozen) plus the `attempt_key:` override. |
+| Does a cycle with two entry points need a shared cap? | Deferred | Additive (a new field); can land in any 1.x. |
+| Should `pawl submit` accept a result after the step timed out or the cursor moved? | Settled | Refuse (exit 4). There is no agentic timeout. A human answer past its deadline routes `timeout`. |
+| How should `pawl poll` behave when Monitor dies? | Settled | Silently; no engine change. The run stays at the wait step and re-polling recovers. The deadline is tied to the visit: a crash resume keeps it, a resume of a blocked run re-anchors it. |
+| Does `deterministic` need its own `timeout:`? | Deferred | The engine-wide ceiling stays and `timeout:` on `deterministic` stays rejected (format-spec §K). Adding it later is additive. |
+| What is the right granularity for `writes:` on a structured key? | Deferred | Additive. |
+| Is `emits: pairs` permanent? | Settled | Permanent, no warning. |
+| Can a non-author author a real workflow? | Settled by test | Settled by the v1 M2 non-author test: a fresh session with only the docs authors and runs a real workflow. |
 
 ## 9. Implementation and distribution
 

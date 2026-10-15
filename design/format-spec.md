@@ -40,7 +40,7 @@ everything else is logged, never parsed.
 
 `TOKEN` is present if and only if the step declares author-named `outcomes:` (names other than the
 reserved `success` / `failure` / `timeout` / `exhausted` / `partial` / `chosen`). Which TOKENs a script may then
-print is the rule under "Reserved outcome tokens" in §A: an author-named `outcomes:` key, `failure`, or
+print is the rule under "Which tokens a script may print" in §C: an author-named `outcomes:` key, `failure`, or
 `success` if declared. The `payload` is parsed per `emits:`:
 
 | `emits:` | payload shape |
@@ -276,7 +276,7 @@ percentage, list) and the run's terminal summary prints `N of M steps advanced o
 postcondition`. `postcondition: "true"` plus `soft: true` is the floor, and it is counted.
 
 `postcondition:` is **required on `agentic`**, **optional on `deterministic` and `wait`**, and
-**not accepted on `human` or `parallel`** (§H rule 30); `soft:` requires a `postcondition:` (rule 31). On `deterministic`, exit 0 is success unless declared; add one to check the command's
+**not accepted on `human` or `parallel`** (§H rule 30); `soft:` requires a `postcondition:` (rule 31). `soft:` has two spellings of one field: at step level (`soft: true` beside `postcondition:`), or inside the map form (`postcondition: {command: …, soft: true}`). If only one is written, it applies. If both are written, the one inside `postcondition:` wins, even when it says `false` and the step-level one says `true`; the two are not compared and a disagreement is not a validate error. Write it in one place. On `deterministic`, exit 0 is success unless declared; add one to check the command's
 *effect* when exit code alone can't — e.g. after `git push`:
 `[ "$(git rev-parse origin/${branch})" = "$(git rev-parse HEAD)" ]`, or after a PR create: the
 returned URL resolves. On `wait` the outcome *is* the check, and a `human` step's answer is; there is no effect to verify.
@@ -637,7 +637,7 @@ accepts `id kind next outcomes catch max_visits attempt_key`; beyond that:
 | `start` | yes | file | step id | First step. | — |
 | `max_steps` | no | file | integer | Backstop on total step entries in a run. | `200` |
 | `args` | no | file | map | Run arguments, typed like `state:` (`type:` required), read-only, bound as `key=value`. | `{}` |
-| `state` | no | file | map | Every key the run may carry: `{type, default, max_length}`; `type` is **required**, one of `string`\|`integer`\|`number`\|`boolean`\|`json` (rule 32), and `default` must match it (rule 33); `max_length` (`string` only) caps the value in Unicode code points, 0/omitted = no cap. | `{}` |
+| `state` | no | file | map | Every key the run may carry: `{type, default, max_length}`; `type` is **required**, one of the five state types listed in §A (rule 32), and `default` must match it (rule 33); `max_length` (`string` only) caps the value in Unicode code points, 0/omitted = no cap. | `{}` |
 | `guards` | no | file | list | `{id, match, only_in: [steps]}` — see the guards[] sub-table below. | `[]` |
 | `invariants` | no | file | list | `{id, check, message}`; breaking one → `BLOCKED`. | `[]` |
 | `steps` | yes | file | list | The graph, read top to bottom. | — |
@@ -658,9 +658,9 @@ accepts `id kind next outcomes catch max_visits attempt_key`; beyond that:
 | `multi` | no | human | boolean | Multi-select. `true` forces the outcome to `chosen`. | `false` |
 | `branches` | one of `branches`/`foreach` | parallel | list | ≥ 2 declared `deterministic`/`agentic` step ids, dispatched and joined together (§B.15); a listed step may declare no `next:`/`outcomes:`/`catch:`/`attempts:`/`attempt_key:`/`max_visits:` of its own. | — |
 | `foreach` | one of `branches`/`foreach` | parallel | map | `{over, body, collect, max_items}` — fan one `deterministic` or `agentic` body out over a json list (§B.15). `over`/`collect`: declared `json` `state:` keys; `max_items`: ≥ 1, default `20`. | — |
-| `writes` | no | deterministic, agentic, wait, human | list/map | Keys produced. Typed map required on `agentic` — it is the output schema; an entry is `{type, max_length}` (`type` one of `string`\|`integer`\|`number`\|`boolean`\|`json`) and nothing else (an unknown field is a validate error), `max_length` as under `state`. On `human`, exactly one key, required whenever `options_from:`, `multi: true` or a `chosen:` route is used. | `[]` |
+| `writes` | no | deterministic, agentic, wait, human | list/map | Keys produced. Typed map required on `agentic` — it is the output schema; an entry is `{type, max_length}` (`type` one of the state types in §A) and nothing else (an unknown field is a validate error), `max_length` as under `state`. On `human`, exactly one key, required whenever `options_from:`, `multi: true` or a `chosen:` route is used. | `[]` |
 | `postcondition` | **yes** on agentic | deterministic, agentic, wait | string/map | Shell string, `{command}`, `{all_set}`, or `{equals}`. Evaluated by the engine; optional on `deterministic` (exit 0 = success unless declared) and `wait`. Not accepted on `human`/`parallel` (rule 30). | — |
-| `soft` | no | deterministic, agentic, wait | boolean | Marks the check as judgement-bounded; requires a `postcondition:` (rule 31). Counted at validate *and* run time. | `false` |
+| `soft` | no | deterministic, agentic, wait | boolean | Marks the check as judgement-bounded; requires a `postcondition:` (rule 31). Counted at validate *and* run time. May be written at step level or inside the `postcondition:` map: two spellings of one field (§B.7). | `false` |
 | `attempts` | no | deterministic, agentic | integer | Re-runs of this step on postcondition failure. ≥ 1. | `1` |
 | `attempt_key` | no | all | string | `"${template}"` overriding the automatic failure-text key (§B.4); on a foreach body, per item (§B.15). | automatic |
 | `max_visits` | no | all | integer | Cap on entries to this step in one run; exceeding it → `exhausted`. | `10` |
@@ -668,6 +668,8 @@ accepts `id kind next outcomes catch max_visits attempt_key`; beyond that:
 | `catch` | no | all | list | Ordered `{on, next}` and nothing else (rule 34); `on` must be a reserved non-success outcome the kind can produce — `failure`, `exhausted`, plus `timeout` (wait, human) or `partial` (foreach) — not an author-named outcome, which goes under `outcomes:` (rule 35). | `failure → blocked` |
 | `next` | one of `next`/`outcomes` | all | step id | Single successor. Mutually exclusive with `outcomes:`. | — (no fall-through — §B.11) |
 | `outcomes` | one of `next`/`outcomes` | all | map | Outcome → step/terminal, covering every outcome the step can produce (§B.11). | — |
+
+**`all_set:` (frozen).** `all_set: [k…]` passes iff every k is present in state AND its value is not empty. Empty = null, `""`, `false`, numeric zero (any spelling: `0`, `0.0`, `-0`, `0e5`), `[]` or `{}`. A key that holds its declared `default:` is present. So a default of `0`, `""`, `false`, `[]` or `{}` still fails `all_set`, and any other default passes. To check "was written, even if zero", use `equals:` or a `command:` postcondition.
 
 ### `guards[]` entry fields
 
@@ -806,7 +808,7 @@ work to an agent. See `docs/quickstart.md`.
 12. `max_visits:` or `max_steps:` is not a positive integer, or a cycle whose every step has
     `max_visits:` raised above `max_steps:` — a cap that can never bind.
 13. `attempts:` is less than 1.
-14. A `postcondition:` map uses a key other than `command` / `all_set` / `equals`.
+14. A `postcondition:` map uses a key other than `command` / `all_set` / `equals`. (`soft` is also accepted — §B.7.) `all_set:` semantics: §D, "`all_set:` (frozen)".
 15. `guards[]`: `id:` is required, unique across the file, and uses step-id syntax; `match:` is
     required, must compile as a Go RE2 regexp (matched unanchored — §B.10), and must not be able to
     match zero characters; `only_in:` is a required key — `only_in: []` is the explicit spelling for "deny
@@ -938,7 +940,7 @@ with `pawl submit --item N`, `docs/examples/foreach-agentic`); *shipped:* per-it
 agentic bodies, which re-dispatches only the failed item before the join (a `partial` route back to
 the list producer would otherwise cost a full round-trip and re-run the whole list); *outstanding:*
 concurrent item execution (`concurrency:`). Also outstanding: an `outcome:` member of the agentic return schema, constrained to a declared
-enum; a `when:` predicate.
+enum.
 
 Installation and distribution are in DESIGN.md §9.
 
