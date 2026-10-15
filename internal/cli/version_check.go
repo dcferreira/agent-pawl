@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -36,8 +37,28 @@ func checkPluginVersion(stderr io.Writer) bool {
 	if bin == want {
 		return true
 	}
-	fmt.Fprintf(stderr, "pawl run: refusing to start: this pawl binary is %s but the agent-pawl plugin expects %s. "+
-		"The plugin's skill and this binary must be the same version. Reinstall the plugin "+
-		"(/plugin marketplace update agent-pawl, then reinstall it), or install pawl %s on PATH.\n", bin, want, want)
+	where := ""
+	if path, err := selfExecutablePath(); err == nil && path != "" {
+		where = " (" + path + ")"
+	}
+	fmt.Fprintf(stderr, "pawl run: refusing to start: this pawl binary%s is %s but the agent-pawl plugin expects %s. "+
+		"The plugin's skill and this binary must be the same version. "+
+		"This happens when the `pawl` on PATH is a different version from the plugin "+
+		"(for example a terminal-installed pawl earlier on PATH, or a plugin without a bundled binary, such as a source checkout or --plugin-dir). "+
+		"Fix the binary on PATH: `pawl update --version v%s` (an install.sh install), "+
+		"or `go install github.com/dcferreira/agent-pawl/cmd/pawl@v%s`, or, in a source checkout, `go install ./cmd/pawl`. "+
+		"If you installed the plugin from the marketplace instead, run `claude plugin update agent-pawl@agent-pawl` and restart Claude Code.\n",
+		where, bin, want, want, want)
 	return false
+}
+
+// selfExecutablePath is the running binary's own resolved path, or an error
+// when it cannot be determined (the refusal then omits the path). A package
+// var so tests can pin it.
+var selfExecutablePath = func() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(exe)
 }

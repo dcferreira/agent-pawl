@@ -57,8 +57,11 @@ The protocol below is what makes the loop honest beyond what the hooks catch; fo
 instruction block first: exit 3 means the run just printed a `TERMINAL … blocked` block (paused,
 resumable — not an error), and exit 4 means it refused the request (a lock held, the workflow file
 changed, or a submit for a step the run isn't actually waiting on) and printed why on stderr instead
-of an instruction block. Only treat the command as having failed outright — and stop to tell the
-user — on exit 1, 2 or 5, or on exit 3/4 whose stderr you can't otherwise explain.
+of an instruction block. One exit 4 is never yours to fix: `refusing to start: this pawl binary …`
+means the installed binary and plugin disagree. Stop, tell the user both versions and the fix the
+message names, and don't install, update or reinstall anything yourself. Only treat the command as
+having failed outright — and stop to tell the user — on exit 1, 2 or 5, or on exit 3/4 whose stderr
+you can't otherwise explain.
 
 Never edit files or run a step's own commands yourself outside of what a dispatched subagent does,
 and never decide what step comes next — `pawl` does that. If you get stuck, run
