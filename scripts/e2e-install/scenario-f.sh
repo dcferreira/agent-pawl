@@ -112,7 +112,7 @@ fi
 # A copy of the TO checkout with plugin.json edited; everything else untouched.
 mk_variant() { # <ver> <dest>
   cp -R "$ROOT/co-to" "$2"
-  sed -i 's/"version"[[:space:]]*:[[:space:]]*"[^"]*"/"version": "'"$1"'"/' "$2/.claude-plugin/plugin.json"
+  sed -i.bak 's/"version"[[:space:]]*:[[:space:]]*"[^"]*"/"version": "'"$1"'"/' "$2/.claude-plugin/plugin.json" && rm -f "$2/.claude-plugin/plugin.json.bak"
 }
 check_refusal() { # <label> <plugin-ver> <bin-ver>
   local label="$1" pv="$2" bv="$3"

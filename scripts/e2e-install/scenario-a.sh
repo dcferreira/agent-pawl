@@ -59,7 +59,7 @@ fi
 
 probe2="$ROOT/probe-plugin-mismatch"
 cp -R "$PLUGIN_DIR" "$probe2"
-sed -i 's/"version"[[:space:]]*:[[:space:]]*"[^"]*"/"version": "99.0.0"/' "$probe2/.claude-plugin/plugin.json"
+sed -i.bak 's/"version"[[:space:]]*:[[:space:]]*"[^"]*"/"version": "99.0.0"/' "$probe2/.claude-plugin/plugin.json" && rm -f "$probe2/.claude-plugin/plugin.json.bak"
 mkdir -p "$ROOT/work/mismatch"
 SB_CWD="$ROOT/work/mismatch" step "pawl run through launcher whose plugin.json says 99.0.0 (expect version-mismatch refusal)" \
   sb PAWL_ENFORCEMENT=off "$probe2/bin/pawl" run green-tests
@@ -95,7 +95,8 @@ else
   exit $?
 fi
 
-step "harness applies the fix (Add: a - b -> a + b)" sb sed -i 's/return a - b/return a + b/' "$gt/fixture.go"
+step "harness applies the fix (Add: a - b -> a + b)" sb sed -i.bak 's/return a - b/return a + b/' "$gt/fixture.go"
+rm -f "$gt/fixture.go.bak"
 step "pawl submit fix_tests (via installed bin/pawl)" sb PAWL_ENFORCEMENT=off "$PLUGIN_DIR/bin/pawl" submit \
   --run "$run_id" --step fix_tests --json '{"fix_summary":"harness fixed Add"}'
 if [ "$STEP_RC" -eq 0 ] && printf '%s' "$STEP_OUT" | grep -q "TERMINAL $run_id ok"; then

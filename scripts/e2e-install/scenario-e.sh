@@ -147,8 +147,16 @@ if [ -d "$real_old" ]; then
 else
   note "The $FROM dir was already gone after the update."
 fi
-[ ! -e "$OLD_DIR" ] && check PASS "old $FROM dir is gone" "$OLD_DIR"
-[ -d "$NEW_DIR" ] && check PASS "new $TO dir still present" "$NEW_DIR"
+if [ ! -e "$OLD_DIR" ]; then
+  check PASS "old $FROM dir is gone" "$OLD_DIR"
+else
+  check FAIL "old $FROM dir is gone" "$OLD_DIR still exists"
+fi
+if [ -d "$NEW_DIR" ]; then
+  check PASS "new $TO dir still present" "$NEW_DIR"
+else
+  check FAIL "new $TO dir still present" "$NEW_DIR is missing"
+fi
 
 note "WORDING CAVEAT: the harness runs every command via 'env -i ... <cmd>', so a missing launcher is reported by env(1) as \"env: '<path>': No such file or directory\"; a user's shell would say \"<path>: No such file or directory\" (bash) or \"no such file or directory: <path>\" (zsh). The exit code (127) is the same, and the stale hook's message below comes from sh itself."
 step "STALE: OLD_LAUNCHER version" sb "$OLD_LAUNCHER" version
