@@ -196,9 +196,15 @@ with no arguments prints the command list — `run`, `validate`, `status`, `aban
 5 minutes — its way of confirming the enforcement hooks are actually wired up, since it has no
 other way to ask Claude Code that directly. Without a fresh heartbeat, `pawl run` refuses:
 
+<!-- pawl-capture: cli/refuse-no-heartbeat -->
 ```
+$ pawl run hello name=ada
 pawl: refusing to start: pawl's PreToolUse hook has not fired for this working copy in the last 5 minutes.
 Install the agent-pawl Claude Code plugin (docs/install.md#hooks), or pass --no-enforcement.
+Diagnosis:
+  - CLAUDE_CODE_SESSION_ID is not set, so the session-keyed heartbeat (written by pawl >= 0.4.0) cannot be looked up; only this working copy's heartbeat was checked.
+  - no heartbeat for working copy /home/you/project
+exit 4
 ```
 
 Allowlisting `Bash(pawl:*)` in Claude Code's permissions avoids an approval prompt on every `pawl`

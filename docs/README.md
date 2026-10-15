@@ -24,7 +24,22 @@ steps:
 terminal: {done: {status: ok}}
 ```
 
-<!-- pawl-capture: readme/tidy-run (captured output added in the next PR) -->
+Type `/pawl run tidy` and the session runs `pawl run tidy`; this is what `pawl` prints back:
+
+<!-- pawl-capture: readme/tidy-run -->
+```
+$ pawl run tidy
+workflow: /home/you/project/.claude/workflows/tidy.yaml (repo-local)
+hooks: PreToolUse ✔ (heartbeat)  Stop assumed (same hooks.json)
+soft: 0/2 steps (0.0%): (none)
+TERMINAL 7f3a ok
+message:
+  (empty)
+END TERMINAL 7f3a ok
+```
+
+The steps ran silently, the run ended `ok`, and `message:` is `(empty)` because this terminal declares no
+`message:`.
 
 ## Read in this order
 
@@ -33,7 +48,7 @@ terminal: {done: {status: ok}}
 3. [quickstart.md](quickstart.md) — write and run your first workflow in under ten minutes.
 4. [concepts.md](concepts.md) — the eight nouns, and why postconditions are the engine's job.
 5. [step-types.md](step-types.md) — the five step kinds at a glance, and which one to reach for.
-6. [running.md](running.md) — what a run looks like: the banner, the step lines, `pawl status`, resume, BLOCKED.
+6. [running.md](running.md) — what a run looks like: the banner, DISPATCH/ASK/WAIT, `pawl status`, resume, BLOCKED.
 7. [writing-workflows.md](writing-workflows.md) — the file skeleton, transitions, state, caps, a full example.
 8. The five step kinds, in full:
    [deterministic](steps/deterministic.md) ·

@@ -26,11 +26,15 @@ A `!cmd` context entry whose command exits non-zero or times out still contribut
 `description:` in the YAML, composed into the subagent prompt at dispatch time (see
 [agentic steps](steps/agentic.md)).
 
+`pawl list` shows what resolves from here (repo-local workflows, then the user-level ones in
+`~/.claude/workflows/`):
+
+<!-- pawl-capture: cli/list -->
 ```
-› pawl list
-manage-mr	repo-local	/path/to/repo/.claude/workflows/manage-mr.yaml
-dependency-upgrade	repo-local	/path/to/repo/.claude/workflows/dependency-upgrade.yaml
+$ pawl list
 brain-dispatch	user	/home/you/.claude/workflows/brain-dispatch.yaml
+dependency-upgrade	repo-local	/home/you/project/.claude/workflows/dependency-upgrade.yaml
+manage-mr	repo-local	/home/you/project/.claude/workflows/manage-mr.yaml
 ```
 
 Steps run with cwd at the working-copy root, never wherever the session happened to be.

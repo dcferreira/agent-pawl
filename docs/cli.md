@@ -80,14 +80,18 @@ Resuming at an arbitrary step (`--from <step>`) isn't yet available — see
 **Enforcement check.** Unless `--no-enforcement` or `PAWL_ENFORCEMENT=off` is set, `pawl run` refuses
 to start (exit 4) unless `pawl hook pre` has written a heartbeat (keyed by the Claude Code session, found through
 `CLAUDE_CODE_SESSION_ID`, else by this working copy) no more than 5 minutes
-ago — its way of confirming the `PreToolUse` hook is actually wired up:
+ago — its way of confirming the `PreToolUse` hook is actually wired up. This is what a plain terminal
+(no hook, no `CLAUDE_CODE_SESSION_ID`) sees; the path in the last line is the working copy root:
 
+<!-- pawl-capture: cli/refuse-no-heartbeat -->
 ```
+$ pawl run hello name=ada
 pawl: refusing to start: pawl's PreToolUse hook has not fired for this working copy in the last 5 minutes.
 Install the agent-pawl Claude Code plugin (docs/install.md#hooks), or pass --no-enforcement.
 Diagnosis:
   - CLAUDE_CODE_SESSION_ID is not set, so the session-keyed heartbeat (written by pawl >= 0.4.0) cannot be looked up; only this working copy's heartbeat was checked.
-  - no heartbeat for working copy /path/to/repo
+  - no heartbeat for working copy /home/you/project
+exit 4
 ```
 
 On success the banner reads `hooks: PreToolUse ✔ (heartbeat)  Stop assumed (same hooks.json)`, plus
@@ -106,26 +110,54 @@ heartbeat the banner reads `enforcement: on (bound at run start; no hook heartbe
 and the run's existing `driver.json` is left as it is; with one (a hooked Claude Code session
 resuming), the banner is the usual `hooks: PreToolUse ✔ (heartbeat) …` line and that session becomes
 the run's driver. Passing `--no-enforcement` or `PAWL_ENFORCEMENT=off` on a resume of an enforced run
-is refused (exit 4), since it could not turn the hooks off for that run:
+is refused (exit 4), since it could not turn the hooks off for that run (here after an enforced run
+blocked at its first step; the error is printed before any banner):
 
+<!-- pawl-capture: cli/enforcement-bound -->
 ```
+$ pawl run hello --no-enforcement
 pawl run: run 7f3a was started with enforcement on, and enforcement is bound at run start — --no-enforcement cannot turn it off. To continue the run, resume without it (no hook heartbeat is needed to resume); it stays enforced
+exit 4
 ```
 
-Other refusals you may see, all exit 4 (real output, not paraphrased):
+Other refusals you may see, all exit 4. A run's lock is held by a live process (a second `pawl run`
+on the same run; `--force` only steals the lock of a dead one):
 
+<!-- pawl-capture: cli/locked -->
 ```
+$ pawl run hello
+workflow: /home/you/project/.claude/workflows/hello.yaml (repo-local)
+enforcement: off (bound at run start: PAWL_ENFORCEMENT=off)
+soft: 0/2 steps (0.0%): (none)
 pawl run: journal: run locked by pid 48122 (alive); wait, or use --force if that process is gone
+exit 4
+```
+
+And a workflow file edited after the run started (the run is pinned to the file as it was; `changed:`
+names the steps it found different from that pinned copy):
+
+<!-- pawl-capture: cli/workflow-changed -->
+```
+$ pawl run hello
+workflow: /home/you/project/.claude/workflows/hello.yaml (repo-local)
+enforcement: off (bound at run start: PAWL_ENFORCEMENT=off)
+soft: 0/1 steps (0.0%): (none)
 pawl run: workflow file has changed since run 7f3a started (changed: greet); use --fresh to start a new run
+exit 4
 ```
 
 Submitting or abandoning a run that has already finished is the same refusal, exit 4 (`pawl poll`
 against a finished run is not a refusal — it exits 0 quietly instead, since a poll driven by
 `Monitor` treats "the run moved on" as expected, not an error; see the `pawl poll` section below):
 
+<!-- pawl-capture: cli/finished-run -->
 ```
+$ pawl submit --run 7f3a --step greet --json '{}'
 pawl submit: engine: run has already finished: run "7f3a" ended ok
+exit 4
+$ pawl abandon --run 7f3a
 pawl abandon: run 7f3a has already ended (ok); nothing to abandon
+exit 4
 ```
 
 ## `pawl validate` — human
@@ -142,13 +174,18 @@ exclusive; giving both, or neither, is a usage error. A relative `--path` resolv
 directory; scripts and context files the workflow references still resolve relative to the workflow
 file itself, the same way either way.
 
+The summary lines go to stdout: the resolved file, a `guards:` line when the workflow declares guards
+(validate has no run, so it only says they are declared), and the soft census.
+
+<!-- pawl-capture: validate/manage-mr -->
 ```
-› pawl validate manage-mr
-workflow: .claude/workflows/manage-mr.yaml (repo-local)
-soft: 6/23 steps (26.1%): entry, changelog, fix_issues
+$ pawl validate manage-mr
+workflow: /home/you/project/.claude/workflows/manage-mr.yaml (repo-local)
+guards: 4 declared (enforced only when a run starts with the pawl hooks installed)
+soft: 6/23 steps (26.1%): address_comments, address_comments_push, changelog, collect_reviewers, fix_issues, fix_issues_push
 ```
 
-The summary lines go to stdout. Validator errors go to stderr, so a script can capture them apart
+Validator errors go to stderr, so a script can capture them apart
 from the summary. Exit 0 clean, 2 on any error (including a missing/unrecognised flag or giving
 both/neither of a name and `--path`); a missing or unreadable `--path` file is exit 1, consistent with
 an unknown name. Full
@@ -171,26 +208,12 @@ whether it's still live or already ended (e.g. an abandoned run, to see its `--r
 prints the same fields machine-readably, always exit 0 on a successful lookup (see below; `--all`
 does not exist — every run for the machine isn't listable by this command).
 
-```json
-{
-  "schema_version": 1,
-  "root": "/path/to/working/copy",
-  "runs": [
-    {
-      "run_id": "a98d",
-      "workflow": "sample",
-      "workflow_path": "/path/.claude/workflows/sample.yaml",
-      "warning": "",
-      "status": "running",
-      "step": "greet",
-      "attempt": 1,
-      "visits": {"greet": 1},
-      "state_keys": ["greeting"],
-      "reason": "",
-      "soft": {"count": 0, "total": 2, "percent": 0, "step_ids": []}
-    }
-  ]
-}
+`--json` prints one line of JSON (shown here for a run parked at an agentic step):
+
+<!-- pawl-capture: cli/status-json -->
+```
+$ pawl status --json
+{"schema_version":1,"root":"/home/you/project","runs":[{"run_id":"7f3a","workflow":"sample","workflow_path":"/home/you/project/.claude/workflows/sample.yaml","warning":"","status":"running","step":"greet","attempt":1,"visits":{"greet":1},"state_keys":[],"reason":"","soft":{"count":0,"total":1,"percent":0,"step_ids":[]}}]}
 ```
 
 The JSON contract:
@@ -248,10 +271,12 @@ printed. The TSV is the documented machine format; there is no `--json`.
 Only top-level `<name>.yaml` files are listed. Nested workflows (for example `manage-mr/foo`) are
 not, even though `pawl run manage-mr/foo` resolves them.
 
+<!-- pawl-capture: cli/list -->
 ```
-› pawl list
-manage-mr	repo-local	/path/to/repo/.claude/workflows/manage-mr.yaml
-tidy	user	/home/you/.claude/workflows/tidy.yaml
+$ pawl list
+brain-dispatch	user	/home/you/.claude/workflows/brain-dispatch.yaml
+dependency-upgrade	repo-local	/home/you/project/.claude/workflows/dependency-upgrade.yaml
+manage-mr	repo-local	/home/you/project/.claude/workflows/manage-mr.yaml
 ```
 
 ## `pawl abandon` — human
@@ -274,8 +299,9 @@ newer pawl, or with a corrupt journal) can still be abandoned: the end is append
 
 ## `pawl version` — human
 
+<!-- pawl-capture: cli/version -->
 ```
-› pawl version
+$ pawl version
 pawl dev
 ```
 
@@ -306,10 +332,13 @@ reports current vs. latest and installs nothing. `--version vX.Y.Z` (`v` optiona
 release, including an older one — a rollback. `--force` skips every "nothing to do" check and
 reinstalls regardless.
 
+Illustrative, not captured (the versions are made up; the line formats are the ones `internal/cli/update.go` prints):
+
+<!-- not captured: needs the network and a published GitHub release newer than the running binary -->
 ```
-› pawl update --check
+$ pawl update --check
 current: 0.1.0 latest: 0.2.0 update available: true
-› pawl update
+$ pawl update
 pawl updated: 0.1.0 -> 0.2.0 (/home/you/.local/bin/pawl)
 ```
 
@@ -317,13 +346,15 @@ A binary built from source (`pawl version` prints `pawl dev`, or anything else `
 can't parse) is refused without `--force` — `pawl update` won't silently swap a `go install`/`make
 install` build for a release binary out from under you. Verbatim stderr:
 
+<!-- pawl-capture: cli/update-source-build -->
 ```
-› pawl update
+$ pawl update
 pawl update: current version "dev" looks like a source/`go install` build, not a tagged release; pawl update won't overwrite it.
 To update a source build, either:
   go install github.com/dcferreira/agent-pawl/cmd/pawl@latest
   or rebuild from source (see docs/install.md)
 --force replaces it with a release binary anyway (see docs/cli.md).
+exit 4
 ```
 
 `--check` still works on a dev build (it just reports the latest release and that current is a

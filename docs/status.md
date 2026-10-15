@@ -72,8 +72,8 @@ for a real, captured transcript of that run.
   differs from the plugin's, via the launcher's `PAWL__PLUGIN_VERSION` (skipped when unset, and for a
   `dev` build). See [cli.md](cli.md).
 
-A `docs/examples/` workflow is proven to run only if a test in [e2e/](../e2e/) runs it; one without
-such a test is an authoring exercise.
+Which `docs/examples/` workflows are proven by `e2e/` and which are labelled authoring exercises is
+listed in [docs/examples/README.md](examples/README.md).
 
 ## Not built
 

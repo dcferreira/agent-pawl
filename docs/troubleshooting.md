@@ -6,12 +6,15 @@
 working copy — its way of confirming the `PreToolUse` hook is actually wired up, since it has no other way
 to ask Claude Code that directly:
 
+<!-- pawl-capture: cli/refuse-no-heartbeat -->
 ```
+$ pawl run hello name=ada
 pawl: refusing to start: pawl's PreToolUse hook has not fired for this working copy in the last 5 minutes.
 Install the agent-pawl Claude Code plugin (docs/install.md#hooks), or pass --no-enforcement.
 Diagnosis:
   - CLAUDE_CODE_SESSION_ID is not set, so the session-keyed heartbeat (written by pawl >= 0.4.0) cannot be looked up; only this working copy's heartbeat was checked.
-  - no heartbeat for working copy /path/to/repo
+  - no heartbeat for working copy /home/you/project
+exit 4
 ```
 
 The `Diagnosis:` lines say which lookups failed. `pawl run` first looks up the heartbeat keyed by the
@@ -40,19 +43,22 @@ resumes from a plain terminal with the banner
 `enforcement: on (bound at run start; no hook heartbeat for this resume)` and stays enforced; its mode
 was fixed when it started, so `--no-enforcement` on that resume is refused rather than needed.
 
-## "submit refused: step not current"
+## "refused: step … is not an agentic step awaiting submission"
 
+<!-- pawl-capture: troubleshooting/submit-wrong-step -->
 ```
-pawl: submit refused: run 7f3a is at wait_for_mr (attempt 1), not fix_issues.
+$ pawl submit --run 7f3a --step farewell --json '{"greeting":"hi"}'
+pawl submit: engine: refused: step "farewell" is not an agentic step awaiting submission
+exit 4
 ```
 
 A result was reported for a step the engine isn't waiting on — two sessions driving one run, a stale
-poller, or a retry of an old tool call. Nothing was applied. Run `pawl status --run 7f3a`, look at
-`next`, and do that.
+poller, or a retry of an old tool call. Exit 4; nothing was applied. (If the run has already ended, the
+refusal says so instead: `run has already finished`.) Run `pawl status`, look at `step:`, and do that.
 
 ## A WAIT that never ends
 
-`pawl status` says `waiting` and nothing moves. Run your poller by hand. Three causes: no routed token
+`pawl status` says `running` at a `wait` step and nothing moves. Run your poller by hand. Three causes: no routed token
 on the last line (only the last non-empty line is read); the token isn't in `outcomes:` (check
 case — `Success` isn't `SUCCESS`); the poller exits non-zero (that's `failure` via `catch:` — unless
 the step declares `retry:`, in which case a non-zero exit is instead a hard failure retried in-place
@@ -62,12 +68,19 @@ nothing instead). If the poll process died, `pawl run <name>` re-enters the step
 
 ## Lock held
 
+<!-- pawl-capture: cli/locked -->
 ```
-pawl: run 7f3a is locked by pid 48122 (alive). Wait, or use --force if that process is gone.
+$ pawl run hello
+workflow: /home/you/project/.claude/workflows/hello.yaml (repo-local)
+enforcement: off (bound at run start: PAWL_ENFORCEMENT=off)
+soft: 0/2 steps (0.0%): (none)
+pawl run: journal: run locked by pid 48122 (alive); wait, or use --force if that process is gone
+exit 4
 ```
 
-One process at a time per run. Let a genuinely live holder finish. A dead pid (`ps 48122` shows
-nothing) — `--force` steals it. Never `--force` into a run another session is driving.
+Exit 4. One process at a time per run. Let a genuinely live holder finish. If the pid in the message
+is dead (`ps <pid>` shows nothing), `--force` steals the lock. Never `--force` into a run another
+session is driving.
 
 ## BLOCKED — what to do
 
@@ -84,26 +97,41 @@ as violated.
 
 ## "run <id> was written by a newer pawl"
 
+<!-- pawl-capture: troubleshooting/newer-format -->
 ```
+$ pawl run hello
 pawl run: run 7f3a was written by a newer pawl (format 3; this pawl reads formats 1-2); upgrade, or `pawl abandon --run 7f3a`
+exit 4
+$ pawl status
+root: /home/you/project
+run: 7f3a
+workflow: hello
+status: newer-format
+detail: run 7f3a was written by a newer pawl (format 3; this pawl reads formats 1-2); upgrade, or `pawl abandon --run 7f3a`
 ```
 
-Exit 4. The run's journal is in an on-disk format this binary does not know, so `pawl run`, `submit`
-and `poll` refuse it instead of guessing; `pawl status` still shows it (`newer-format`). Upgrade pawl
-(`pawl update`, or the plugin) and resume, or `pawl abandon --run 7f3a` to end it. A corrupt journal in
+Exit 4 for `pawl run`. The run's journal is in an on-disk format this binary does not know, so `pawl run`, `submit`
+and `poll` refuse it instead of guessing; `pawl status` still shows it (`status: newer-format`, with the same
+sentence under `detail:`) and exits 0. Upgrade pawl (`pawl update`, or the plugin) and resume, or
+`pawl abandon --run <id>` to end it. A corrupt journal in
 a known format is the same shape of refusal (`cannot be replayed (format N): <err>`, exit 5, status
 `unreadable`): repair its `events.jsonl`, or abandon. While such a run is live, the hooks still deny
 subagent VCS writes (naming the run and `pawl abandon`), but apply none of its guards and never block `Stop` on it.
 
 ## The workflow file changed mid-run
 
+<!-- pawl-capture: cli/workflow-changed -->
 ```
-pawl: ship-change.yaml changed since run 7f3a started (steps fix_issues, assign).
-    Use --fresh to start over, or restore the file.
+$ pawl run hello
+workflow: /home/you/project/.claude/workflows/hello.yaml (repo-local)
+enforcement: off (bound at run start: PAWL_ENFORCEMENT=off)
+soft: 0/1 steps (0.0%): (none)
+pawl run: workflow file has changed since run 7f3a started (changed: greet); use --fresh to start a new run
+exit 4
 ```
 
-Resume compares a digest of the edited file against a digest of the workflow the run pinned (both computed by the running pawl); resuming against an edited file is refused, naming the
-changed steps. `git stash`/restore and resume, or `pawl run <name> --fresh`. Steps that already ran are
+Resume compares a digest of the edited file against a digest of the workflow the run pinned (both computed by the running pawl); resuming against an edited file is refused with exit 4, naming the
+steps it found changed (`changed: greet` below). `git stash`/restore and resume, or `pawl run <name> --fresh`. Steps that already ran are
 not undone either way, and `pawl validate` on the edited file is free.
 
 ## A hook error: "pawl-hook: … exited N; failing open"
@@ -131,11 +159,17 @@ and `BLOCKED` runs are exempt, since ending the turn there is legitimate — and
 with a `background_tasks` or `session_crons` entry still in the Stop payload, since Claude Code will
 wake the session back up: that's the case where you dispatched the agentic step to a background
 subagent, or are polling a `wait` step under Monitor, and paused rather than walked away — and so is a Stop within 60s of a subagent finishing, once, via the
-`SubagentStop` hook's marker). It prints:
+`SubagentStop` hook's marker). It blocks with:
 
+<!-- pawl-capture: troubleshooting/stop-blocked -->
 ```
-pawl run <id> (<workflow>) is at step <step> awaiting `pawl submit`. Finish it, or: pawl abandon --run <id>
+$ echo '<Stop hook payload>' | pawl hook stop
+{"decision":"block","reason":"pawl run 7f3a (sample) is at step greet awaiting `pawl submit`. Finish it, or: pawl abandon --run 7f3a"}
 ```
+
+The hook's whole stdout is that one JSON line (exit 0): Claude Code reads `decision: block` and feeds
+`reason` back to the session. The line is shown for a run parked at an agentic step; the second command
+line stands in for the payload Claude Code pipes in.
 
 It refuses at most once per turn (Claude Code force-ends the turn after 8 consecutive blocks
 regardless). If enforcement is off (`--no-enforcement`/`PAWL_ENFORCEMENT=off`), or the hooks aren't
@@ -183,9 +217,14 @@ older than 0.4.0, which never writes the session heartbeat (run `pawl update`).
 
 ## Workflow not found, or run not visible, outside a VCS-tracked directory
 
+Here the workflow is in `.claude/workflows/` at the top of a directory with no `.git` or `.jj`, and
+`pawl run` is run from its `sub/` directory (exit 1):
+
+<!-- pawl-capture: troubleshooting/workflow-not-found -->
 ```
-pawl: no workflow named "manage-mr" found under .claude/workflows/ (searched /home/ada/src/app/sub
-    up to working-copy root /home/ada/src/app/sub) or ~/.claude/workflows/
+$ pawl run manage-mr
+pawl: no workflow named "manage-mr" found under .claude/workflows/ (searched /home/you/project/sub up to working-copy root /home/you/project/sub) or ~/.claude/workflows/
+exit 1
 ```
 
 or `pawl list` prints nothing, or `pawl status` can't find a run you know is active — but everything

@@ -72,20 +72,34 @@ newline + `sh'` is joined into `git push` even though it's a single-quoted liter
 canonical spelling of a command and nothing else; this is one more way a `match:` can be defeated (or
 given a surprise hit) by someone constructing the command text specifically to exploit it.
 
-A denied call does not run:
+A denied call does not run. The `PreToolUse` hook prints Claude Code's JSON decision, and the
+`permissionDecisionReason` is what the model sees (this is the hook's real output, for a run parked at
+`wait_for_ci` with a guard that allows `gh pr merge` only in `merge_pr`; the second command line stands
+in for the payload Claude Code pipes in):
 
+<!-- pawl-capture: guards/deny -->
 ```
-PreToolUse: denied by pawl guard `merge-only-in-merge-step` (run 7f3a, step wait_for_ci).
-`gh pr merge` may only run in step merge_pr.
+$ echo '<PreToolUse payload for: gh pr merge 41>' | pawl hook pre
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"pawl: denied by guard `merge-only-in-merge-step` (run 7f3a, step wait_for_ci): may only run in step merge_pr"}}
 ```
 
 ## What "advisory" actually means
 
-The run banner says so on purpose:
+The run banner says so on purpose. For a workflow with two guards, run in a session whose hooks are
+installed:
 
+<!-- pawl-capture: guards/banner -->
 ```
-  hooks: PreToolUse ✔ (heartbeat)  Stop assumed (same hooks.json)
-  guards: 2 advisory (pattern-matched)
+$ pawl run ship
+workflow: /home/you/project/.claude/workflows/ship.yaml (repo-local)
+hooks: PreToolUse ✔ (heartbeat)  Stop assumed (same hooks.json)
+guards: 2 advisory (pattern-matched)
+soft: 0/3 steps (0.0%): (none)
+WAIT 7f3a wait_for_ci
+every: 60s
+timeout: 2h
+poll with: pawl poll --run 7f3a --step wait_for_ci
+END WAIT 7f3a wait_for_ci
 ```
 
 A guard matches a string. Variable indirection (`CMD="gh pr merge"; $CMD 41`), a decoded command, or
@@ -108,12 +122,26 @@ Exit 0 holds, non-zero is violated, and cannot run at all (missing script, unpar
 network error) also counts as **violated** — write your check so a transient failure is not
 catastrophic, or do not make it an invariant.
 
-A violation pauses the run:
+A violation pauses the run. The banner also gains an `invariants:` line, and the `TERMINAL` block
+carries the invariant's id and `message:` (exit 3). Here the check is `test ${reviewers_approved} -gt 0`
+with nothing approved yet:
 
+<!-- pawl-capture: guards/invariant-blocked -->
 ```
-  TERMINAL 7f3a blocked
-  Paused for review: invariant `draft-until-assigned` violated — the MR was un-drafted or
-  given reviewers before any were approved.
+$ pawl run ship
+workflow: /home/you/project/.claude/workflows/ship.yaml (repo-local)
+hooks: PreToolUse ✔ (heartbeat)  Stop assumed (same hooks.json)
+invariants: 1 (engine-checked after every step)
+soft: 0/1 steps (0.0%): (none)
+TERMINAL 7f3a blocked
+message:
+  invariant "draft-until-assigned" violated: The MR was un-drafted or given reviewers before any were approved.
+resume:
+  pawl run ship --run 7f3a
+abandon:
+  pawl abandon --run 7f3a --reason '<reason>'
+END TERMINAL 7f3a blocked
+exit 3
 ```
 
 The reason goes into the journal and `${blocked_reason}`, for your `blocked` terminal message.

@@ -67,7 +67,7 @@ step's output is an input, never the verdict. `{all_set: […]}` and `{equals: {
 step set itself.
 
 Where you cannot check the real thing, write the weakest real check and mark it `soft: true`: it
-still gates the transition, but is counted separately in `pawl validate`'s census and every run's
-`N of M advanced on a soft postcondition` line.
+still gates the transition, but is counted separately in `pawl validate`'s census and in the `soft:`
+line of every run's banner.
 
 Next: [running.md](running.md), then [writing-workflows.md](writing-workflows.md).
