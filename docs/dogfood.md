@@ -71,6 +71,7 @@ cp testdata/fixture/fixture.go      /tmp/pawl-dogfood/fixture.go
 cp testdata/fixture/fixture_test.go /tmp/pawl-dogfood/fixture_test.go
 cp docs/examples/green-tests/scripts/run-tests.sh /tmp/pawl-dogfood/.claude/workflows/scripts/run-tests.sh
 cp docs/examples/green-tests/workflow.yaml /tmp/pawl-dogfood/.claude/workflows/green-tests.yaml
+cd /tmp/pawl-dogfood && git init -q && git add -A && git commit -q -m initial
 ```
 
 `scripts/` lives beside the workflow file, under `.claude/workflows/`, not at the project root:
