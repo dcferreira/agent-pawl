@@ -141,10 +141,10 @@ note "F3: SYNTHETIC. TO checkout with plugin.json edited to $FROM (an OLDER plug
 run_case "F3" "$ROOT/co-to-as-from" "$ROOT/tobin"
 check_refusal "F3 (plugin $FROM, binary $TO)" "$FROM" "$TO"
 
-mk_variant "0.9.0" "$ROOT/co-to-as-next"
-note "F4: SYNTHETIC. TO checkout with plugin.json edited to 0.9.0 (a NEWER plugin, as after a Claude Code plugin update) + the $TO binary on PATH: binary older than plugin, same check."
+mk_variant "99.0.0" "$ROOT/co-to-as-next"
+note "F4: SYNTHETIC. TO checkout with plugin.json edited to 99.0.0 (a NEWER plugin, as after a Claude Code plugin update) + the $TO binary on PATH: binary older than plugin, same check."
 run_case "F4" "$ROOT/co-to-as-next" "$ROOT/tobin"
-check_refusal "F4 (plugin 0.9.0, binary $TO)" "0.9.0" "$TO"
+check_refusal "F4 (plugin 99.0.0, binary $TO)" "99.0.0" "$TO"
 
 # --- F5: heartbeat-recorded plugin version (PR #75) ---------------------------
 # A stale `pawl` earlier on PATH shadows the plugin's binary (Claude Code appends
