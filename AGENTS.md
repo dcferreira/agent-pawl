@@ -14,63 +14,11 @@ to do what `pawl run`/`pawl submit` tells it and report back exactly what's aske
 
 ## Status: read this before trusting any design doc
 
-**`docs/status.md` is the authority on what actually runs** (`docs/roadmap.md` is the to-do list
-for v1). `docs/README.md` describes the target system in places — its "Not
-yet" list names what isn't built — and its sample output is illustrative, not captured.
-`DESIGN.md` is mostly current — it opens with its own up-to-date status line — but its distribution
-(§9) section describes what is not yet built. As of now:
-
-- All five step kinds are implemented: `deterministic`, `agentic`, `wait`, `human`, `parallel`
-  (single-group, all-or-nothing `branches:` join — `design/format-spec.md` §B.15).
-- Top-level `guards:` is now parsed and validated (id required+unique, `match:` required, must
-  compile as a Go RE2 regexp matched unanchored, and must not be able to match zero characters;
-  `only_in:` required; rule 15 checks every `only_in:` entry names a declared step; see
-  `internal/guard`), and is enforced by the `PreToolUse` hook, advisory and pattern-matched, not a
-  semantic guarantee: `pawl run`'s banner prints `guards: N advisory (pattern-matched)` when hooks
-  are on, or `guards: N declared, NOT enforced (enforcement off)` when
-  `--no-enforcement`/`PAWL_ENFORCEMENT=off` is in effect; `pawl validate`, which has no run, prints
-  `guards: N declared (enforced only when a run starts with the pawl hooks installed)`. A step's
-  `retry:` (deterministic and wait only) is implemented: it retries a hard-failed body — a non-zero
-  exit, the wall-clock timeout, or unintelligible stdout — before any outcome is resolved, and is
-  distinct from `attempts:`, which re-runs a step on a postcondition failure (see
-  `design/format-spec.md` §B.16).
-- **The enforcement layer is built.** `internal/hook` (pure decisions) plus `internal/cli/hook.go`
-  (`pawl hook pre|stop|subagent-stop`) back a `PreToolUse`/`Stop`/`SubagentStop` set the plugin wires via `hooks/hooks.json` →
-  `bin/pawl-hook`. `pawl run` refuses to start (exit 4) unless a PreToolUse heartbeat for the
-  session (`CLAUDE_CODE_SESSION_ID`) or, failing that, the working copy is on disk and no older than 5 minutes, unless `--no-enforcement`/`PAWL_ENFORCEMENT=off` is
-  passed. `Stop` refuses to end the driving session's turn while its run's cursor is at an
-  `agentic`/`parallel` step awaiting `pawl submit` (`wait`/`human` cursors and `BLOCKED` runs are
-  exempt, at most once per turn; a fresh <=60s `SubagentStop` marker for the session excuses a
-  Stop, covering the background-subagent delivery race, `hook.SubagentStopCreditTTL`, and every Stop
-  consumes all the session's markers, so at most one Stop per turn-end is excused); a subagent (`agent_id` present) may not mutate VCS while any run
-  is live. See `docs/dogfood.md`.
-- Top-level `invariants:` IS engine-checked: `internal/engine` evaluates every declared invariant,
-  in declaration order, after every step completion and after every `pawl submit`/`pawl poll` call
-  — strictly before the completed step's own TRANSITION is journaled, so a violation pre-empts even
-  a route straight to a terminal — stopping at the first violated one; a violation blocks the run
-  (status "blocked"), journalling a RUN_END whose reason names the invariant and carries its
-  `message:`, reusing the same mechanism an author-routed `blocked` transition already uses (no new
-  event kind). For a `kind: parallel` step, invariants are evaluated once at the group join, not
-  after each branch's own submit. `pawl run`'s banner prints a separate `invariants: N
-  (engine-checked after every step)` line whenever N > 0.
-- `pawl poll --run … --step …` drives a `wait` step; `pawl hook pre|stop|subagent-stop` is the `PreToolUse`/`Stop`/`SubagentStop`
-  hook entry point (see above).
-- `install.sh` and goreleaser-built release binaries exist (tagged releases are published on
-  GitHub), and each release also publishes a plugin zip bundling those binaries plus a
-  repo `marketplace.json` that points at the latest zip, so installing the plugin from
-  `dcferreira/agent-pawl` needs no separate binary install (`install.sh`/`go install` remain the
-  standalone path for terminal use outside Claude Code); release builds are version-stamped via `-ldflags -X main.Version`, but a source build
-  (`go build`/`go install`/`make install`) still prints `pawl dev`.
-- `kind: parallel` also accepts `foreach:`: fan one **deterministic or agentic** body out over a
-  runtime-discovered json list (frozen as `Items` on the step's `STEP_ENTER`), per-item events carry
-  `Item`, and the join resolves `success`/`partial`/`failure`, writing the `collect:` key (before
-  invariants run). Deterministic items run sequentially in-process; agentic items are dispatched
-  together in one `DISPATCH_PARALLEL` and answered with `pawl submit --item N`, each with its own
-  per-item `attempts:` budget (a failed item is re-dispatched alone). Concurrent item execution
-  (`concurrency:`) is not built (`design/format-spec.md` §B.15, §I).
-- `docs/examples/green-tests`, `docs/examples/foreach-fanout` and `docs/examples/foreach-agentic` are
-  the verified-runnable artefacts (all covered by `e2e/`; `foreach-agentic` drives its agentic body
-  with canned `pawl submit` JSON, not a live session); the other `docs/examples/` are authoring exercises, not proven to run.
+[`docs/status.md`](docs/status.md) is the authority on what runs (see
+[what runs today](docs/status.md#what-runs-today) and [not built](docs/status.md#not-built)).
+[`docs/compatibility.md`](docs/compatibility.md) says what 1.x freezes. An example is proven to run only
+if a test in `e2e/` runs it; one without such a test is an authoring exercise. `docs/roadmap.md` is the to-do list for v1.
+`DESIGN.md` §9 marks each distribution claim built, not built or superseded, row by row.
 
 If you're implementing something that DESIGN.md describes but `docs/status.md` doesn't
 list as built, that's a real gap to either build properly (with tests) or flag — don't paper over
@@ -91,21 +39,19 @@ it by writing the design doc's version of reality into code comments or docs.
   `SubagentStop` markers and `now`) in, a `Decision` out.
 - `internal/cli` — the `pawl` subcommands, including `hook.go` (`pawl hook pre|stop|subagent-stop`) and
   `enforce.go` (`pawl run`'s heartbeat check and refusal).
-- `e2e/` — end-to-end tests that actually run `docs/examples/green-tests`,
-  `docs/examples/foreach-fanout` and `docs/examples/foreach-agentic`.
+- `e2e/` — end-to-end tests that run some of `docs/examples/` and the plugin launcher and hook
+  wrapper. An example without an `e2e/` test is an authoring exercise.
 - `docs/examples/` — workflow YAML + scripts; each has a `NOTES.md` with the author's design rulings.
-  Only `green-tests`, `foreach-fanout` and `foreach-agentic` are proven-runnable.
+  Only the ones an `e2e/` test runs are proven to run.
 - `testdata/fixture/` — a tiny Go module (a two-line `Add` that subtracts) used by
   `docs/examples/green-tests` and `e2e/`.
 - `design/format-spec.md` — **normative** for what a workflow author writes.
 - `DESIGN.md` — the engine design (handshake, execution, resume, enforcement, testing,
-  distribution). Current through §5 (enforcement); §9 (distribution) is still the target system,
-  not this build.
+  distribution). §9 marks each claim built, not built or superseded; `docs/status.md` is the authority.
 - `docs/` — user-facing docs. `docs/install.md` and `docs/dogfood.md` describe this build
   honestly; `docs/status.md` is the authoritative what-runs-today list and `docs/roadmap.md` the to-do list
   for v1 (both moved out of `README.md`, which is now a short newcomer intro with validated
-  examples); `docs/README.md` describes the finished
-  system in places; `docs/releasing.md`
+  examples); `docs/README.md` is the user guide for this build; `docs/releasing.md`
   is the release-management flow (see the Conventions section below).
 - `.changes/` — changie's fragment store: `unreleased/*.yaml` (one per PR), `vX.Y.Z.md` per
   release, `header.tpl.md`. `CHANGELOG.md` at the repo root is generated from these by `changie
@@ -231,7 +177,7 @@ runtime either — see the next section.
   so — but you'll never see a real test failure until it's installed. CI installs it explicitly.
 - **A source build's `pawl version` prints `pawl dev`** (`go build`/`go install`/`make install`);
   that's expected, not a broken build — only release binaries carry the goreleaser-stamped
-  version (see the Status bullet above).
+  version (see `docs/status.md`).
 - Engine execution detail worth knowing before touching `internal/engine/exec.go`: the wall-clock
   timeout is enforced by an independent `time.AfterFunc` signalling the whole process group
   (`Setpgid` + negative pid), not `exec.CommandContext`/`cmd.Cancel` — `sh -c 'cmd &'` makes `sh`
@@ -244,5 +190,4 @@ runtime either — see the next section.
 `design/format-spec.md` is normative for what an author writes (nouns, kinds, fields, validator
 rules, roadmap). `DESIGN.md` defines what the engine does with it. If the two ever seem to
 disagree, `design/format-spec.md` wins for authoring questions and `DESIGN.md` for engine-behavior
-questions — but check `docs/status.md` first, since either doc may be describing the
-target system rather than this build.
+questions — but check `docs/status.md` first for what this build actually does.

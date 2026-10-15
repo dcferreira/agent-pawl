@@ -1,8 +1,8 @@
 # Status
 
-What this build actually runs. This page is the authority on that: `DESIGN.md` and
-`docs/README.md` describe the target system in places. For what's left before v1, see
-[roadmap.md](roadmap.md).
+What this build actually runs. This page is the authority on that; every other doc points here
+instead of restating it. For what this build does not do, see [Not built](#not-built); plans are in
+[roadmap.md](roadmap.md); what 1.x freezes is in [compatibility.md](compatibility.md).
 
 ## What runs today
 
@@ -11,21 +11,18 @@ What this build actually runs. This page is the authority on that: `DESIGN.md` a
 `docs/examples/green-tests` runs against `testdata/fixture` — see [docs/dogfood.md](dogfood.md)
 for a real, captured transcript of that run.
 
-This is a milestone-1 build, and it is deliberately narrower than the design documents
-describe:
+`pawl` is a pre-1.0 build:
 
 - All five step kinds are implemented: `deterministic`, `agentic`, `wait`, `human`, and `parallel`
   (single-group, all-or-nothing `branches:` join — [design/format-spec.md](../design/format-spec.md)
   §B.15), plus `foreach:` fan-out over a runtime-discovered json list with per-item postconditions
   and a `success`/`partial`/`failure` join, over `deterministic` or `agentic` bodies. An agentic body's items are dispatched together in one
   `DISPATCH_PARALLEL` and answered with `pawl submit --item N`, with a per-item `attempts:` budget that
-  re-dispatches only the failed item; concurrent *execution* of deterministic items
-  (`concurrency:`) remains a later slice. The examples are `docs/examples/foreach-fanout`
-  (deterministic) and `docs/examples/foreach-agentic` (agentic).
-- Top-level `guards:` is now parsed and validated (id required+unique, `match:` required, must
+  re-dispatches only the failed item; deterministic items run one after another.
+- Top-level `guards:` is parsed and validated (id required+unique, `match:` required, must
   compile as a Go RE2 regexp, and must not be able to match zero characters; `only_in:` required —
   rule 15 checks every entry names a declared step; `only_in: []` denies everywhere — see
-  [internal/guard](../internal/guard)), and is now enforced by the `PreToolUse` hook, advisory and
+  [internal/guard](../internal/guard)), and is enforced by the `PreToolUse` hook, advisory and
   pattern-matched: `pawl run`'s banner prints `guards: N advisory (pattern-matched)` when the hooks
   are on, or `guards: N declared, NOT enforced (enforcement off)` when enforcement is off, and
   `pawl validate` (which has no run) prints `guards: N declared (enforced only when a run starts
@@ -42,7 +39,7 @@ describe:
   session's turn while its run's cursor is at an `agentic`/`parallel` step awaiting `pawl submit`
   (`wait`/`human` cursors and `BLOCKED` runs are exempt); a subagent may not mutate VCS while any run
   is live. See [docs/dogfood.md](dogfood.md) for what that means in practice.
-- Top-level `invariants:` IS engine-checked now: the engine evaluates every declared invariant, in
+- Top-level `invariants:` IS engine-checked: the engine evaluates every declared invariant, in
   order, after every step completion and after every `pawl submit`/`pawl poll`, stopping at the
   first violated one; a violation blocks the run with the invariant's `message:` as the reason
   (`pawl run`'s banner prints a separate `invariants: N (engine-checked after every step)` line
@@ -74,10 +71,26 @@ describe:
   `workflow` name and a separate `workflow_path`. `pawl run` refuses (exit 4) a binary whose version
   differs from the plugin's, via the launcher's `PAWL__PLUGIN_VERSION` (skipped when unset, and for a
   `dev` build). See [cli.md](cli.md).
-- `pawl graph` (a Mermaid diagram of the parsed workflow) is not built yet.
 
-The workflows under `docs/examples/` beyond `green-tests`, `foreach-fanout` and `foreach-agentic` (all covered by
-`e2e/`; the last with canned submits, not a live session) remain authoring exercises rather than verified-runnable artefacts.
+A `docs/examples/` workflow is proven to run only if a test in [e2e/](../e2e/) runs it; one without
+such a test is an authoring exercise.
+
+## Not built
+
+The docs or design describe these, and this build does not do them. Plans live in
+[roadmap.md](roadmap.md), not here.
+
+- `pawl graph`: not built. See [roadmap](roadmap.md#cli).
+- `pawl validate --walk`: not built. See [roadmap](roadmap.md#cli).
+- `pawl status --history`: not built. See [roadmap](roadmap.md#cli).
+- `pawl run <name> --from <step>`: not built. See [roadmap](roadmap.md#cli).
+- `foreach:` `concurrency:`: not built. See [roadmap](roadmap.md#workflow-format).
+- An `outcome:` enum member of the agentic return schema: not built. See
+  [roadmap](roadmap.md#workflow-format).
+- Plugin-shipped workflows: not built. See [roadmap](roadmap.md#after-v1).
+- A skill-run `install.sh` that pins `~/.claude/pawl/bin/pawl`: not built, and superseded by the
+  bundled binary. See [roadmap](roadmap.md#distribution).
+- Homebrew (there is no formula or tap): not built. See [roadmap](roadmap.md#after-v1).
 
 ## Reading order
 
@@ -87,11 +100,10 @@ The workflows under `docs/examples/` beyond `green-tests`, `foreach-fanout` and 
    captured transcript and the two traps an author will actually hit.
 3. **[skills/pawl/SKILL.md](../skills/pawl/SKILL.md)** — the `/agent-pawl:pawl` skill a Claude Code
    session follows to drive a run.
-4. **[docs/README.md](README.md)** — the user guide written during design. Its "Not yet" list
-   names what isn't built, and its sample output is illustrative rather than captured. Read it for
-   the target shape, and this page for what runs today.
+4. **[docs/README.md](README.md)** — the user guide.
 5. **[DESIGN.md](../DESIGN.md)** — the engine design: handshake, execution, journal and resume,
-   enforcement, testing, distribution, design questions (settled or deferred).
+   enforcement, testing, distribution, design questions (settled or deferred). §9 marks each
+   claim built, not built or superseded, row by row.
 6. **[design/format-spec.md](../design/format-spec.md)** — the normative format: nouns, kinds,
    fields, validator, roadmap.
 
@@ -103,7 +115,6 @@ plus `gopkg.in/yaml.v3` only. Package layout: `internal/spec` (YAML types, loade
 (run directory, event log, replay), `internal/engine` (cursor, outcomes, counters),
 `internal/guard` (`guards:` parsing and matching), `internal/hook` (the `PreToolUse`/`Stop`
 decisions), `internal/selfupdate` (`pawl update`), `internal/cli` (the `pawl` subcommands).
-DESIGN.md §9's fuller distribution story (self-installing pinned release binaries via two static
-hooks) is not built. What exists is the plugin described in [install.md](install.md), whose
-launcher execs a bundled binary when the plugin carries one, plus `install.sh`/`go install` for the
+For which of DESIGN.md §9's distribution claims are built, see its table and [Not built](#not-built).
+The plugin is described in [install.md](install.md), plus `install.sh`/`go install` for the
 standalone binary. See [What runs today](#what-runs-today) above.
