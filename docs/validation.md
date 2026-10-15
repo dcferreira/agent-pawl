@@ -88,7 +88,8 @@ postcondition `command:`, invariant `check:`, `!cmd` `context:`; first token con
 Paths resolve relative to the workflow file's directory. Checked by `pawl validate` and when
 `pawl run` starts a new run — never on resume, `pawl status` or hooks, so a script deleted after its
 step already ran can't make a live run unresumable. Bare commands (`go test ./...`) and paths
-containing `${key}` are skipped.
+containing `${key}` are skipped. A file that an earlier step creates during the run doesn't exist yet
+when the check runs, so reference it through `${key}` (or read it with `!cmd`) instead of a literal path.
 
 **17 — bad `kind: parallel` branch.** `branches:` needs ≥ 2 entries, each a declared
 `deterministic`/`agentic` step (no nesting), listed once, claimed by only one `parallel` step, not

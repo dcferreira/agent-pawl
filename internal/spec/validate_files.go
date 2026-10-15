@@ -32,6 +32,10 @@ import (
 // the directory of w.Path, never cwd. With w.Path == "" there is no base and
 // nil is returned. Errors are in declaration order, one per offending
 // reference.
+//
+// The check runs before any step does, so a literal path that an earlier step
+// creates during the run is rejected; such a file must be referenced through
+// ${key} (skipped here) or read via !cmd.
 func CheckFiles(w *Workflow) []string {
 	if w == nil || w.Path == "" {
 		return nil

@@ -132,6 +132,27 @@ func TestCheckFiles_ResolvesAgainstWorkflowDirNotCwd(t *testing.T) {
 	}
 }
 
+// A context file an earlier step writes during the run does not exist when
+// CheckFiles runs (before any step), so a literal reference to it is rejected;
+// referencing it through ${key} or a bare !cmd is the documented way past rule 16.
+func TestCheckFiles_ContextCreatedByEarlierStep(t *testing.T) {
+	dir := t.TempDir()
+	mkFile(t, dir, "scripts/plan.sh", 0o755)
+	steps := func(ctx ContextEntry) []Step {
+		return []Step{detStep("plan", "scripts/plan.sh"), {ID: "act", Kind: "agentic", Context: []ContextEntry{ctx}}}
+	}
+	literal := &Workflow{Path: filepath.Join(dir, "wf.yaml"), Steps: steps(ContextEntry{Value: "plan.md"})}
+	if got := CheckFiles(literal); len(got) != 1 || !strings.Contains(got[0], `step "act": context[0]: "plan.md"`) {
+		t.Errorf("literal: got %q, want one plan.md does-not-exist error", got)
+	}
+	for _, ctx := range []ContextEntry{{Value: "${plan_file}"}, {IsCmd: true, Value: "cat plan.md"}} {
+		w := &Workflow{Path: filepath.Join(dir, "wf.yaml"), Steps: steps(ctx)}
+		if got := CheckFiles(w); len(got) != 0 {
+			t.Errorf("%+v: got %q, want none", ctx, got)
+		}
+	}
+}
+
 func TestValidate_IsFilesystemFree(t *testing.T) {
 	dir := t.TempDir()
 	yaml := "workflow: w\nstart: a\nsteps:\n  - id: a\n    kind: deterministic\n    run: scripts/missing.sh\n    next: done\nterminal:\n  done: {status: ok, message: m}\n"
