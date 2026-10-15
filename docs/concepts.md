@@ -46,9 +46,10 @@ read an API. The engine runs it directly; no model involved.
 
 `agentic`: needs judgement over unstructured input — write the MR description, fix failing tests.
 `description:` (inline, not a file) states intent, constraints, done; the session composes the
-subagent prompt from it plus gathered `context:`. Runs as a subagent honouring `subagent_args:` — a
+subagent prompt from it plus gathered `context:`. Runs as a subagent given `subagent_args:` — a
 free-form map (in Claude Code typically `model`, `tools`, `effort`) passed through to the harness
-verbatim and not enforced by the engine or a hook — returning the typed object in `writes:`.
+verbatim and not enforced by the engine or a hook; a field the harness can't apply, such as `tools`,
+is stated in the subagent's prompt — returning the typed object in `writes:`.
 
 An agentic step cannot choose its own branch — only `success`/`failure`. When the branch depends on
 what it produced, add a `deterministic` router that reads `writes:` and prints a token;

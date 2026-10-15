@@ -123,7 +123,9 @@ What each line means:
   itself.
 - **`TERMINAL 7f3a ok` … `END TERMINAL 7f3a ok`** — the run is over, and `7f3a` is its run id. The
   status is `ok` or `blocked`; `ok` ends the run, while `blocked` pauses it and prints `resume:` and
-  `abandon:` commands.
+  `abandon:` commands. There is no `failed` status: a workflow gives up by routing to a terminal with
+  `status: blocked` (`terminal: {done: {status: ok}, gave_up: {status: blocked, message: "…"}}`, reached by
+  `catch:` or `exhausted:`). The run stays live so a person can resume it or `pawl abandon` it.
 - **`message:`** — the terminal's `message:`, with `${name}` filled in.
 
 ## 4. Watch one fail
