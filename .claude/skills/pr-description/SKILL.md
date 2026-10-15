@@ -44,6 +44,10 @@ pull_request_template.md` in the editor flow).
 
 - **Be concise and scannable**: bullet points over paragraphs.
 - **Explain the "why"**: don't just restate what the diff shows.
+- **No people or process in the reasoning**: State the technical reasoning: the problem or gap and
+  why this is the right fix. Don't mention who asked or approved the change, or any team roles or
+  process; write as a contributor to the project. The same goes for commit messages and changelog
+  fragments.
 - **Tailor to the change type**:
   - Bug fixes: emphasise root cause and how it was verified.
   - Features: emphasise user impact and how to exercise the feature.

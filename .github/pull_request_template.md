@@ -6,6 +6,7 @@
 
 <!-- The problem being solved, or the context behind it.
      Link issues: Closes #123, Relates to #456 -->
+<!-- State the technical reasoning: the problem or gap and why this is the right fix. Don't mention who asked or approved the change, or any team roles or process; write as a contributor to the project. -->
 
 ## Changelog
 
