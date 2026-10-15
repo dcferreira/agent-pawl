@@ -391,8 +391,9 @@ func TestAbandon_BrokenRunDirectoryExitsEngineError(t *testing.T) {
 	}
 }
 
-// TestStatus_BrokenRunDirectoryExitsEngineError is item 7's status case.
-func TestStatus_BrokenRunDirectoryExitsEngineError(t *testing.T) {
+// TestStatus_BrokenRunDirectoryReportedUnreadable: a run whose plan.json is
+// corrupt is reported as unreadable (exit 0), not an engine error.
+func TestStatus_BrokenRunDirectoryReportedUnreadable(t *testing.T) {
 	root := setupWorkingCopy(t)
 	writeWorkflow(t, root, "sample", sampleWorkflow)
 	writeContextFile(t, root, "notes.txt", "x\n")
@@ -412,9 +413,9 @@ func TestStatus_BrokenRunDirectoryExitsEngineError(t *testing.T) {
 		t.Fatalf("corrupting plan.json: %v", err)
 	}
 
-	_, stderr, code2 := runCLI(t, []string{"pawl", "status", "--run", runID})
-	if code2 != 5 {
-		t.Fatalf("exit = %d, want 5 (broken run directory); stderr = %q", code2, stderr)
+	out, stderr, code2 := runCLI(t, []string{"pawl", "status", "--run", runID})
+	if code2 != 0 || !strings.Contains(out, "status: unreadable") {
+		t.Fatalf("exit = %d, want 0 with status: unreadable; stdout = %q stderr = %q", code2, out, stderr)
 	}
 }
 

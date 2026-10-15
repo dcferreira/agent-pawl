@@ -199,30 +199,126 @@ func TestStatusText_MultiRunStillRefuses(t *testing.T) {
 	}
 }
 
-func TestStatusJSON_BrokenRunDoesNotHideHealthyOnes(t *testing.T) {
-	root := setupWorkingCopy(t)
+// startBrokenPair starts a healthy and a second run, then returns both ids
+// and the second one's run directory for the caller to break.
+func startBrokenPair(t *testing.T) (root, good, bad, dir string) {
+	t.Helper()
+	root = setupWorkingCopy(t)
 	writeWorkflow(t, root, "sample", sampleWorkflow)
 	writeWorkflow(t, root, "sample2", strings.Replace(sampleWorkflow, "workflow: sample\n", "workflow: sample2\n", 1))
 	writeContextFile(t, root, "notes.txt", "x\n")
-	good := startStatusRun(t, "sample", "name=Ada")
-	bad := startStatusRun(t, "sample2", "name=Bea")
+	good = startStatusRun(t, "sample", "name=Ada")
+	bad = startStatusRun(t, "sample2", "name=Bea")
 	ref, err := journal.FindRun(root, bad)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(ref.Dir, "plan.json"), []byte("{not json"), 0o644); err != nil {
+	return root, good, bad, ref.Dir
+}
+
+func corruptPlan(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, "plan.json"), []byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
 
-	out, errOut, code := runCLI(t, []string{"pawl", "status", "--json"})
-	if code != 5 {
-		t.Fatalf("exit %d, want 5; stderr %q", code, errOut)
+// dropWorkflowPath keeps plan.json parseable but removes its recorded
+// workflow path, which loadPinnedWorkflow rejects. (spec.Validate reports
+// rule violations in its Report, not as an error, so a plan whose workflow
+// merely violates rules is still a loadable, listed run.)
+func dropWorkflowPath(t *testing.T, dir string) {
+	t.Helper()
+	p := filepath.Join(dir, "plan.json")
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(errOut, bad) {
-		t.Errorf("stderr %q does not name broken run %s", errOut, bad)
+	var plan map[string]any
+	if err := json.Unmarshal(data, &plan); err != nil {
+		t.Fatal(err)
+	}
+	plan["workflow"].(map[string]any)["path"] = ""
+	out, _ := json.Marshal(plan)
+	if err := os.WriteFile(p, out, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertUnreadableEntry(t *testing.T, e map[string]any, id string) {
+	t.Helper()
+	if e["run_id"] != id || e["status"] != "unreadable" {
+		t.Errorf("entry = %v, want unreadable %s", e, id)
+	}
+	if r, _ := e["reason"].(string); r == "" {
+		t.Errorf("empty reason: %v", e)
+	}
+	if e["step"] != "" || e["attempt"] != float64(0) {
+		t.Errorf("unknowable fields not zero: %v", e)
+	}
+}
+
+func TestStatusJSON_UnreadablePlanDoesNotHideHealthyOnes(t *testing.T) {
+	_, good, bad, dir := startBrokenPair(t)
+	corruptPlan(t, dir)
+	out, errOut, code := runCLI(t, []string{"pawl", "status", "--json"})
+	if code != 0 || errOut != "" {
+		t.Fatalf("exit %d stderr %q, want 0 and empty", code, errOut)
 	}
 	runs := statusRuns(t, out)
-	if len(runs) != 1 || runs[0]["run_id"] != good {
-		t.Errorf("runs = %v, want only %s", runs, good)
+	if len(runs) != 2 {
+		t.Fatalf("runs = %v, want 2", runs)
+	}
+	byID := map[string]map[string]any{}
+	for _, r := range runs {
+		byID[r["run_id"].(string)] = r
+	}
+	if byID[good]["status"] != "running" {
+		t.Errorf("healthy run = %v", byID[good])
+	}
+	assertUnreadableEntry(t, byID[bad], bad)
+}
+
+func TestStatusJSON_PinnedLoadFailureListedUnreadable(t *testing.T) {
+	_, good, bad, dir := startBrokenPair(t)
+	dropWorkflowPath(t, dir)
+	out, errOut, code := runCLI(t, []string{"pawl", "status", "--json"})
+	if code != 0 || errOut != "" {
+		t.Fatalf("exit %d stderr %q, want 0 and empty", code, errOut)
+	}
+	runs := statusRuns(t, out)
+	if len(runs) != 2 {
+		t.Fatalf("runs = %v, want 2", runs)
+	}
+	for _, r := range runs {
+		if r["run_id"] == bad {
+			assertUnreadableEntry(t, r, bad)
+		} else if r["run_id"] != good {
+			t.Errorf("unexpected run %v", r)
+		}
+	}
+}
+
+func TestStatus_RunFlagUnreadable(t *testing.T) {
+	_, _, bad, dir := startBrokenPair(t)
+	corruptPlan(t, dir)
+	out, errOut, code := runCLI(t, []string{"pawl", "status", "--run", bad, "--json"})
+	if code != 0 || errOut != "" {
+		t.Fatalf("json: exit %d stderr %q", code, errOut)
+	}
+	runs := statusRuns(t, out)
+	if len(runs) != 1 {
+		t.Fatalf("runs = %v", runs)
+	}
+	assertUnreadableEntry(t, runs[0], bad)
+
+	out, errOut, code = runCLI(t, []string{"pawl", "status", "--run", bad})
+	if code != 0 || errOut != "" {
+		t.Fatalf("text: exit %d stderr %q", code, errOut)
+	}
+	for _, want := range []string{"status: unreadable", "detail:", "run: " + bad} {
+		if !strings.Contains(out, want) {
+			t.Errorf("text output %q lacks %q", out, want)
+		}
 	}
 }

@@ -52,7 +52,7 @@ points fail open and never exit 2 (see [`pawl hook`](#pawl-hook--hook)).
 | 2 | your input is wrong: a usage error (bad, unrecognised or repeated flag, missing or empty flag value, missing required arg), or a workflow that fails to parse or validate |
 | 3 | run is `BLOCKED` — paused, resumable, not an error (`pawl run`/`pawl submit`/`pawl poll` only) |
 | 4 | refused: `pawl run` with a binary whose version does not match the plugin's (see [`pawl version`](#pawl-version--human)), `pawl run` with no fresh `PreToolUse` heartbeat and enforcement not opted out, lock held, file changed, submit for a non-current step or kind, a poll of a current step that is not `kind: wait`, or a run that has already finished (the last one is `pawl submit`/`pawl abandon` only — `pawl poll` exits 0 quietly instead for the same case, see below), or `pawl abandon` of a non-blocked run in another working copy that another active session is driving, or `pawl run`/`submit`/`poll` of a run written by a newer pawl (format newer than this binary reads; upgrade or abandon it); separately, `pawl update` refusing to overwrite a source/`go install` build without `--force`, and refusing outright (even with `--force`) when the running binary is the one shipped by the agent-pawl Claude Code plugin |
-| 5 | internal or environment error — a bug (a recovered panic prints `pawl: internal error: …` and a stack to stderr and exits 5, not Go's default 2), a failed working-directory lookup, or a broken/unreadable run directory or journal (including `pawl run`/`submit`/`poll` of a run whose journal cannot be replayed in a known format; repair `events.jsonl` or abandon it); for `pawl update`, any failure resolving, downloading, verifying or installing the release |
+| 5 | internal or environment error — a bug (a recovered panic prints `pawl: internal error: …` and a stack to stderr and exits 5, not Go's default 2), a failed working-directory lookup, or a broken/unreadable run directory or journal (including `pawl run`/`submit`/`poll` of a run whose journal cannot be replayed in a known format; repair `events.jsonl` or abandon it; `pawl status` instead lists such a run as `unreadable` and exits 0, reserving 5 for an I/O error that stops enumeration); for `pawl update`, any failure resolving, downloading, verifying or installing the release |
 
 ---
 
@@ -202,9 +202,10 @@ The JSON contract:
   text mode prints nothing for them and exits 1 instead. Runs this pawl cannot read
   (`newer-format`/`unreadable`) are listed as normal `runs` entries with `reason` holding the
   refusal sentence; fields that can't be known are zero/empty, and `pawl status` exits 0. A run
-  whose `plan.json` is unreadable or whose pinned workflow fails validation does not hide the
-  others: it is left out of `runs`, one stderr line names its run id and the error, and the exit is
-  5. Exit 5 is only for such a failure to load, or an I/O error that stops enumeration.
+  that fails to load (an unreadable or unparsable `plan.json`, or a pinned workflow that fails to
+  load) is listed the same way as `unreadable`, with `reason` holding the load error, so it never
+  hides the others; text mode with `--run` prints a detail block with `status: unreadable` and
+  exits 0. Exit 5 is reserved for an I/O error that stops enumeration altogether.
 - `workflow` is the name `pawl run` accepts to start that workflow (for example `manage-mr/foo` for
   `.claude/workflows/manage-mr/foo.yaml`), or `""` when the run's pinned file no longer resolves to
   that name (moved, deleted, or shadowed by a different file of the same name). `workflow_path` is the
@@ -213,11 +214,12 @@ The JSON contract:
   can't be read back, notably a `newer-format` or `unreadable` run: its `workflow_path` is read from
   its `plan.json` when possible, and `workflow` is the name that path resolves to, or `""`.
 - `status` is one of `running`, `ok`, `blocked` or `abandoned`. Two more values may appear for a run
-  this pawl can't replay: `newer-format` (the run was written by a newer pawl) and `unreadable` (its
-  journal can't be read or replayed). Such a run is listed like any other entry, with `--run` or
-  without. Its `reason` carries the same sentence `pawl run`/`submit`/`poll` would refuse with. Fields that can't be known are zero
-  values (`""`, `0`, `{}`, `[]`), and the key set is unchanged. Values may be added; treat an unknown
-  value as not running.
+  this pawl can't replay or load: `newer-format` (the run was written by a newer pawl) and
+  `unreadable` (its journal can't be read or replayed, or its `plan.json`/pinned workflow can't be
+  loaded). Such a run is listed like any other entry, with `--run` or without. Its `reason` carries
+  the sentence `pawl run`/`submit`/`poll` would refuse with, or the load error. Fields that can't
+  be known are zero values (`""`, `0`, `{}`, `[]`), and the key set is unchanged. Values may be
+  added; treat an unknown value as not running.
 - `warning` and `reason` are empty strings, not omitted, when there is nothing to say. `warning` is set
   when the workflow file has changed since a still-live run started.
 

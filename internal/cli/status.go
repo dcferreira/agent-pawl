@@ -83,45 +83,36 @@ func cmdStatus(args []string, cwd string, stdout, stderr io.Writer) int {
 	}
 
 	var jsonRuns []statusRunJSON
-	broken := 0
 	for i := range refs {
 		ref := &refs[i]
 		if ref.Opaque != nil {
 			// A run this build cannot replay: read-only, show the run and
-			// why it cannot be driven. With --json it is a normal runs[]
-			// entry and does not count toward exit 5 (which is for runs
-			// that fail to load).
+			// why it cannot be driven. With --json it is a normal runs[] entry.
 			switch {
 			case asJSON:
 				jsonRuns = append(jsonRuns, opaqueStatusRunJSON(ref, cwd))
 			default:
-				w := &blockWriter{}
-				w.line(0, "root:", root)
-				w.line(0, "run:", ref.RunID)
-				w.line(0, "workflow:", ref.WorkflowID)
-				w.line(0, "status:", ref.StatusText())
-				w.line(0, "detail:", opaqueSentence(ref))
-				fmt.Fprint(stdout, w.String())
+				writeStatusDetailBlock(stdout, root, ref, ref.StatusText(), opaqueSentence(ref))
 			}
 			continue
 		}
 		// C1: read the workflow from plan.json, never by re-resolving the run
 		// directory's own workflow: id as a filename (see loadPinnedWorkflow).
-		// ref was just found by FindRun/Live, so a plan.json that has since
-		// become unreadable, or a pinned workflow spec.Validate itself can't
-		// process, is a broken run directory (exit 5), not an unknown run.
+		// A plan.json that is unreadable, or a pinned workflow spec.Validate
+		// can't process, makes the run unreadable here: it is listed (not
+		// skipped) so one broken run never fails the whole listing.
 		pinned, err := loadPinnedWorkflow(ref.Dir)
-		// One broken run must not hide the healthy ones: note it on stderr,
-		// keep going, and exit 5 at the end.
-		if err != nil {
-			printLine(stderr, fmt.Sprintf("pawl status: run %s: %s", ref.RunID, err.Error()))
-			broken++
-			continue
+		var report *spec.Report
+		if err == nil {
+			report, err = spec.Validate(pinned.Workflow)
 		}
-		report, err := spec.Validate(pinned.Workflow)
 		if err != nil {
-			printLine(stderr, fmt.Sprintf("pawl status: run %s: %s", ref.RunID, err.Error()))
-			broken++
+			switch {
+			case asJSON:
+				jsonRuns = append(jsonRuns, unreadableStatusRunJSON(ref, cwd, err.Error(), "unreadable"))
+			default:
+				writeStatusDetailBlock(stdout, root, ref, "unreadable", err.Error())
+			}
 			continue
 		}
 
@@ -158,9 +149,6 @@ func cmdStatus(args []string, cwd string, stdout, stderr io.Writer) int {
 	if asJSON {
 		fmt.Fprint(stdout, formatStatusJSON(root, jsonRuns))
 	}
-	if broken > 0 {
-		return exitInternal
-	}
 	// pawl status is a reporting command, deliberately exempt from the rest
 	// of the exit-code table's exit-3 row (run/submit/poll's BLOCKED
 	// terminal): the state it reports is in status, reason and (--json)
@@ -187,13 +175,32 @@ func formatVisits(visits map[string]int) string {
 	return strings.Join(parts, ", ")
 }
 
-// opaqueStatusRunJSON is the runs[] entry for a run this build cannot replay:
-// the documented envelope, with empty values for what cannot be known.
-// workflow_path is the path recorded in the run's own plan.json (decoded
-// leniently, so a newer-format plan still yields it), or "" when absent or
-// unreadable; workflow is resumeName of that path (the name pawl run accepts)
-// or "". The workflow ID is never re-resolved as a filename.
+// writeStatusDetailBlock is the text-mode block for a run pawl status
+// cannot show in full: opaque (newer-format/unreadable journal) or a run
+// that failed to load.
+func writeStatusDetailBlock(out io.Writer, root string, ref *journal.RunRef, status, detail string) {
+	w := &blockWriter{}
+	w.line(0, "root:", root)
+	w.line(0, "run:", ref.RunID)
+	w.line(0, "workflow:", ref.WorkflowID)
+	w.line(0, "status:", status)
+	w.line(0, "detail:", detail)
+	fmt.Fprint(out, w.String())
+}
+
+// opaqueStatusRunJSON is the runs[] entry for a run this build cannot replay.
 func opaqueStatusRunJSON(ref *journal.RunRef, cwd string) statusRunJSON {
+	return unreadableStatusRunJSON(ref, cwd, opaqueSentence(ref), ref.StatusText())
+}
+
+// unreadableStatusRunJSON is the runs[] entry for a run whose state cannot be
+// shown: the documented envelope, with empty values for what cannot be known.
+// workflow_path is the path recorded in the run's own plan.json (decoded
+// leniently, so a newer-format or otherwise damaged plan still yields it when
+// it can), or "" when absent or unreadable; workflow is resumeName of that
+// path (the name pawl run accepts) or "". The workflow ID is never
+// re-resolved as a filename.
+func unreadableStatusRunJSON(ref *journal.RunRef, cwd, reason, status string) statusRunJSON {
 	workflowPath := ""
 	if data, err := os.ReadFile(filepath.Join(ref.Dir, "plan.json")); err == nil {
 		var plan struct {
@@ -209,10 +216,10 @@ func opaqueStatusRunJSON(ref *journal.RunRef, cwd string) statusRunJSON {
 		RunID:        ref.RunID,
 		Workflow:     resumeName(workflowPath, cwd),
 		WorkflowPath: workflowPath,
-		Status:       ref.StatusText(),
+		Status:       status,
 		Visits:       map[string]int{},
 		StateKeys:    []string{},
-		Reason:       opaqueSentence(ref),
+		Reason:       reason,
 		Soft:         statusSoftJSON{StepIDs: []string{}},
 	}
 }
