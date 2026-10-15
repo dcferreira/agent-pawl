@@ -1,0 +1,30 @@
+// Package textstats computes simple statistics over text.
+package textstats
+
+import "strings"
+
+// WordCount returns the number of whitespace-separated words in s.
+func WordCount(s string)   int {
+	return len(strings.Fields(s))
+}
+
+// MostCommon returns the most frequent word in s (case-insensitive) and its
+// count. Ties are broken in favour of the word that appears first in s.
+// It returns "", 0 for empty input.
+func MostCommon(s string) (string, int) {
+	counts := map[string]int{}
+	var order []string
+	for _, w := range strings.Fields(strings.ToLower(s)) {
+		if counts[w] == 0 {
+			order = append(order, w)
+		}
+		counts[w]++
+	}
+	best, n := "", 0
+	for _, w := range order {
+		if counts[w] >= n {
+			best, n = w, counts[w]
+		}
+	}
+	return best, n
+}
