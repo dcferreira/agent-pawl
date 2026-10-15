@@ -166,6 +166,14 @@ line targets (the base of the latest `v*-rc.*.md`), for both a new rc and the fi
   `auto: major` (post-1.0.0 a breaking change must bump the major; see the comment there). It must
   not land earlier, or it would change what `auto` computes for the pre-1.0.0 cuts.
 
+Before cutting rc.1, and again on every release that reaches the marketplace (for example the
+0.8.0 → 0.9.0 re-check), run the install/update harness: `FROM=<previous> TO=<new> bash scripts/e2e-install/run.sh`, or for an
+rc, which is never on the live marketplace, `FROM=<previous> TO=<rc> SOURCE=local bash
+scripts/e2e-install/run.sh` (`FROM` defaults to 0.7.0 and `TO` to 0.8.0, so always set both). It installs, updates and
+upgrades mid-run in throwaway sandboxes, each with its own `HOME` and `CLAUDE_CONFIG_DIR`, so it needs
+network and the `claude` CLI but no login and never touches your real install; every scenario must pass
+(see `scripts/e2e-install/README.md`). It is a manual check, not part of CI.
+
 CI proves the rc flow end to end against a real, pinned changie (v1.26.0) in
 `scripts/release/test-checks.sh`; set `PAWL_REQUIRE_CHANGIE=1` to make a missing changie a failure
 rather than a skip (CI does).
