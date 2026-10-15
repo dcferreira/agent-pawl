@@ -16,7 +16,8 @@ import (
 )
 
 // DefaultTimeout is the engine-wide wall-clock ceiling applied to every
-// exec'd command — a step's run: or a postcondition's command:
+// exec'd command: a step's run:, each poll: tick, a postcondition's
+// command:, an invariant's check:, and each !cmd context entry
 // (DESIGN.md §3), overridable (for tests, or a future --timeout flag) via
 // Engine.Timeout.
 const DefaultTimeout = 10 * time.Minute

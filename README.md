@@ -80,4 +80,5 @@ Then in Claude Code:
 - [Writing workflows](docs/writing-workflows.md) and the [step types](docs/step-types.md)
 - [A full captured run](docs/dogfood.md) of `green-tests`
 - [CLI reference](docs/cli.md)
+- [Compatibility](docs/compatibility.md): what 1.x promises not to break
 - [Roadmap to v1](docs/roadmap.md) and [what runs today](docs/status.md)

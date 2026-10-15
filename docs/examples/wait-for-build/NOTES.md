@@ -49,7 +49,7 @@ exercised from the command line without editing the workflow or the scripts — 
 4. **`summarize_build`'s postcondition.** format-spec.md's field reference lists
    `postcondition:` as a "shell string, `{command}`, `{all_set}`, or `{equals}`"; a shell string
    checking both non-emptiness and a minimum length (`[ -n ${summary} ] && [ ${#summary} -ge 10 ]`)
-   was chosen over bare `{all_set: [summary]}` because `all_set` only checks the key was written at
-   all (non-empty per the field reference's own description elsewhere in the repo's examples), and
-   the task asked for a check that the subagent "wrote something sensible" — a trivial one- or
+   was chosen over bare `{all_set: [summary]}` because `all_set` passes when the key is present and
+   its value is not empty (not `""`, `null`, `false`, a numeric zero, `[]` or `{}`; format-spec §D),
+   and the task asked for a check that the subagent "wrote something sensible" — a trivial one- or
    two-character string would satisfy `all_set` but not obviously satisfy "sensible".

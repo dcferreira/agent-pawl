@@ -35,8 +35,8 @@ The outstanding parts of format-spec §I's Milestone 3:
 - [ ] `concurrency:`, so deterministic `foreach:` items can run concurrently. Today they run one
   after another; agentic items are already dispatched together.
 - [ ] An `outcome:` member of the agentic return schema, constrained to a declared enum.
-- [ ] A `when:` predicate. §I lists it as outstanding but §K lists `when:` as rejected, so
-  settle that first.
+- `when:` is not planned. It is rejected (format-spec §K); a conditional is a router step plus
+  `outcomes:` (format-spec §B.14).
 
 ## Docs and examples
 
@@ -48,9 +48,11 @@ The outstanding parts of format-spec §I's Milestone 3:
 
 ## Design questions to settle
 
-- [ ] Decide on, or explicitly defer, each open question in
-  [DESIGN.md §8](../DESIGN.md#8-open-questions). Examples: whether guards are worth keeping, and
-  whether one engine-wide wall-clock ceiling is enough.
+- [x] The questions in [DESIGN.md §8](../DESIGN.md#8-design-questions) are settled, except three
+  deferred items (a shared cap for two-entry cycles, `timeout:` on `deterministic`, `writes:`
+  granularity on structured keys) and one pending item (whether a non-author can author a real
+  workflow, to be settled by a non-author test before 1.0). The three deferred items are additive and can land in any 1.x. Settled decisions
+  are frozen in [compatibility.md](compatibility.md).
 
 ## After v1
 

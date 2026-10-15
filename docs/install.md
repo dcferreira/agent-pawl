@@ -45,8 +45,10 @@ auto-update, or declare it in `~/.claude/settings.json`:
 Third-party marketplaces default to auto-update OFF. When on, Claude Code checks after
 your first message of a session, with a random delay of up to ten minutes. A new version loads at the
 next launch or on `/reload-plugins`; until then the hooks keep using the old plugin path. Because the
-binary ships inside the plugin, plugin and binary always move together, and you never run an
-older binary against a newer hook wrapper. Updates are detected by the plugin's `version`: an install
+binary ships inside the plugin, plugin and binary move together. Without a bundled binary (a source
+checkout, or `--plugin-dir`), the plugin's launcher falls back to a `pawl` on `PATH`, and the two can
+drift apart. `pawl run` then refuses with exit 4, naming both versions (see
+[cli.md](cli.md#pawl-version--human)). A `dev` source build skips that check. Updates are detected by the plugin's `version`: an install
 only moves when that changes. To update by hand: `claude plugin marketplace update agent-pawl`, then
 `claude plugin update agent-pawl@agent-pawl`.
 
@@ -223,6 +225,25 @@ session after installing so the hooks bind.
   }
 }
 ```
+
+**Recommended: wrap each call so it fails open.** Claude Code reads a hook's exit code 2 as "block".
+A `pawl` binary older than the hook subcommand you wire exits 2 for an unknown command. Unwrapped, that exit 2 would deny every Bash call
+(including the reinstall that fixes it) and refuse every end of turn. The plugin's `bin/pawl-hook`
+maps every non-zero exit to exit 1, which Claude Code treats as a non-blocking error. Do the same:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [{ "matcher": "Bash", "hooks": [{ "type": "command", "command": "sh -c 'pawl hook pre; s=$?; [ $s -eq 0 ] || exit 1'" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "sh -c 'pawl hook stop; s=$?; [ $s -eq 0 ] || exit 1'" }] }],
+    "SubagentStop": [{ "hooks": [{ "type": "command", "command": "sh -c 'pawl hook subagent-stop; s=$?; [ $s -eq 0 ] || exit 1'" }] }]
+  }
+}
+```
+
+The payload on stdin still reaches `pawl`, and on exit 0 its stdout, including a JSON deny/block
+decision, passes through unchanged. A real `pawl hook` never exits 2 itself: it allows with exit 0
+and no output, and denies or blocks with exit 0 and a JSON decision on stdout.
 
 Without the `SubagentStop` entry the `Stop` hook still works, but you keep a race: a background subagent
 that finishes just before the turn ends is already gone from the Stop payload's `background_tasks` while
