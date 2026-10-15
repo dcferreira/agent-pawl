@@ -125,3 +125,49 @@ func TestPawlLauncher_UnreadableVersionClearsInherited(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+const echoLauncherScript = "#!/bin/sh\necho \"l=[${PAWL__LAUNCHER-UNSET}]\"\n"
+
+// The launcher exports its own fully resolved path as PAWL__LAUNCHER, in
+// both branches, overriding any inherited (stale) value, so the binary can
+// print instruction lines that run this launcher rather than whatever
+// `pawl` PATH finds first.
+func TestPawlLauncher_ExportsOwnResolvedPath(t *testing.T) {
+	plat := launcherPlatform(t)
+
+	t.Run("libexec", func(t *testing.T) {
+		plugin := newLauncherPlugin(t, nil)
+		bundled := filepath.Join(plugin, "libexec", plat)
+		if err := os.MkdirAll(bundled, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(bundled, "pawl"), []byte(echoLauncherScript), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		want := resolvedLauncher(t, plugin)
+		if got := runLauncher(t, plugin, "/usr/bin:/bin", "PAWL__LAUNCHER=/stale/bin/pawl"); got != "l=["+want+"]" {
+			t.Errorf("got %q, want l=[%s]", got, want)
+		}
+	})
+
+	t.Run("path fallback", func(t *testing.T) {
+		plugin := newLauncherPlugin(t, nil)
+		pathDir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(pathDir, "pawl"), []byte(echoLauncherScript), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		want := resolvedLauncher(t, plugin)
+		if got := runLauncher(t, plugin, pathDir+":/usr/bin:/bin"); got != "l=["+want+"]" {
+			t.Errorf("got %q, want l=[%s]", got, want)
+		}
+	})
+}
+
+func resolvedLauncher(t *testing.T, plugin string) string {
+	t.Helper()
+	p, err := filepath.EvalSymlinks(filepath.Join(plugin, "bin", "pawl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}

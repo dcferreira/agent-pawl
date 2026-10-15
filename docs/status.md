@@ -69,7 +69,7 @@ for a real, captured transcript of that run.
   blocked, 4 refused, 5 internal/environment error, panics included) with one exception, `pawl hook`,
   which fails open and never exits 2. `pawl status --json` carries `schema_version: 1`, a resolvable
   `workflow` name and a separate `workflow_path`. `pawl run` refuses (exit 4) a binary whose version
-  differs from the plugin's, via the launcher's `PAWL__PLUGIN_VERSION` (skipped when unset, and for a
+  differs from the plugin's, via the launcher's `PAWL__PLUGIN_VERSION`, or, when the hook heartbeat records the active plugin's version, that (skipped when neither exists, and for a
   `dev` build). See [cli.md](cli.md).
 
 A `docs/examples/` workflow is proven to run only if a test in [e2e/](../e2e/) runs it; one without

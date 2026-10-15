@@ -3,6 +3,7 @@ package journal
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -507,5 +508,46 @@ func TestSubagentStops_BadSessionIDsNeverEscape(t *testing.T) {
 	})
 	if len(found) != 0 {
 		t.Fatalf("files written anywhere: %v", found)
+	}
+}
+
+func TestHeartbeat_PluginVersionRoundTrip(t *testing.T) {
+	withStateDir(t)
+	root := t.TempDir()
+	now := time.Now()
+	if err := WriteHeartbeatWithPlugin(root, "s1", "0.9.0", now); err != nil {
+		t.Fatal(err)
+	}
+	if hb, ok, err := ReadHeartbeat(root); err != nil || !ok || hb.PluginVersion != "0.9.0" {
+		t.Fatalf("root hb=%+v ok=%v err=%v", hb, ok, err)
+	}
+	if err := WriteSessionHeartbeatWithPlugin("s1", "0.9.0", now); err != nil {
+		t.Fatal(err)
+	}
+	if hb, ok, err := ReadSessionHeartbeat("s1"); err != nil || !ok || hb.PluginVersion != "0.9.0" {
+		t.Fatalf("session hb=%+v ok=%v err=%v", hb, ok, err)
+	}
+}
+
+func TestHeartbeat_PluginVersionOmittedWhenEmptyAndOldFilesParse(t *testing.T) {
+	withStateDir(t)
+	root := t.TempDir()
+	if err := WriteHeartbeat(root, "s1", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(heartbeatPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "plugin_version") {
+		t.Errorf("empty plugin version must be omitted: %s", data)
+	}
+	old := `{"session_id":"s9","time":"2026-09-24T12:00:00Z"}`
+	if err := os.WriteFile(heartbeatPath(root), []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hb, ok, err := ReadHeartbeat(root)
+	if err != nil || !ok || hb.SessionID != "s9" || hb.PluginVersion != "" {
+		t.Fatalf("old heartbeat: %+v ok=%v err=%v", hb, ok, err)
 	}
 }

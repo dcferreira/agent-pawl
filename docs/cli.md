@@ -288,9 +288,17 @@ main.Version`); a binary built from source (`go build`/`go install`/`make instal
 the plugin's own `.claude-plugin/plugin.json`, before running the binary. `pawl run` (a start and a
 resume alike) compares it with its own version and, on a mismatch, refuses with exit 4, naming both
 versions and what to do. Only `pawl run` checks; `submit`, `poll`, `status` and the other commands do
-not. The check is skipped when the variable is unset (pawl was not run through the plugin's
-launcher, or the launcher could not read the plugin's version). A `dev` source build skips it too,
-with a note on stderr.
+not. The PreToolUse hook also records that version (`plugin_version`) on its heartbeat, and the
+heartbeat `pawl run` finds for enforcement (the session's, else this working copy's) is
+authoritative: its version is the expected one, and when it disagrees with `PAWL__PLUGIN_VERSION` the
+refusal names both (`hooks: …, launcher env: …`) and says to restart Claude Code. Without a heartbeat
+version (enforcement off, or an older heartbeat) the variable alone is used, as before; with neither,
+there is no check. A `dev` source build skips it too, with a note on stderr.
+
+The launcher also exports `PAWL__LAUNCHER`, its own resolved path. When it is an absolute path to an
+existing file, the `submit with:`, `or:` and `poll with:` lines pawl prints name it (shell-quoted)
+instead of `pawl`, so the driving agent runs the plugin's launcher rather than a `pawl` that shadows
+it on `PATH`. `resume:`/`abandon:` lines stay plain `pawl`.
 
 ## `pawl update` — human
 

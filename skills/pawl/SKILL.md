@@ -9,6 +9,14 @@ description: Drive a pawl workflow run (dispatch subagents for agentic steps, su
 many attempts and visits remain, what the next transition is. You never decide any of that
 yourself; you only do what the machine tells you to do next.
 
+**Run pawl by the plugin's own path, never as a bare `pawl`.** The pawl command is
+`"${CLAUDE_SKILL_DIR}/../../bin/pawl"`: every `pawl …` command in this skill — including the ones
+pawl prints (`submit with:`, `poll with:`, `resume:`, `abandon:`) — is run through it, so a `pawl`
+from a terminal install earlier on `PATH` cannot shadow the plugin's launcher or drive this skill
+with a stale binary. If that path does not start with `/` (Claude Code left the skill-directory
+placeholder unsubstituted), use plain `pawl` instead.
+Wherever this skill or a printed line says `pawl <args>`, run `<the pawl command> <args>`.
+
 **This build implements all five step kinds: `deterministic`, `agentic`, `wait`, `human` and
 `parallel`.** `pawl run` executes every consecutive `deterministic` step itself, without stopping.
 It only ever hands control back to you at an `agentic` step (`DISPATCH`), a group of one or more
@@ -39,8 +47,8 @@ The protocol below is what makes the loop honest beyond what the hooks catch; fo
 
 ## The loop
 
-1. Run `pawl run <name> [key=value …]` (or, to resume, `pawl submit` after a previous `DISPATCH`).
-   It prints one instruction block.
+1. Run `<the pawl command> run <name> [key=value …]` (or, to resume, `submit` after a previous
+   `DISPATCH`; same command). It prints one instruction block.
 2. **Find the instruction.** The instruction is the *first column-0 line* matching
    `^(DISPATCH|DISPATCH_PARALLEL|ASK|WAIT|TERMINAL)`. A line at column 0 reading
    `END DISPATCH <run> <step>`, `END DISPATCH_PARALLEL <run> <step>`, `END ASK <run> <step>`,

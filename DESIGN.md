@@ -599,10 +599,13 @@ plugin's `bin/pawl` launcher. (The original design had the skill run a `bin/inst
 use to fetch a pinned binary into `~/.claude/pawl/bin/pawl`; the bundled binary superseded it.)
 `pawl run` refuses to start (exit 4, start and resume alike) if the binary's version does not match
 the plugin's, naming both; the launcher exports `PAWL__PLUGIN_VERSION` from `plugin.json` and
-`pawl run` compares it with its own version, skipping the check when the variable is unset or the
-binary is a `dev` source build. No other command checks. `go install` puts `pawl` on `PATH` as an
-alternative (there is no Homebrew formula); the plugin's `bin/pawl` launcher prefers its bundled
-`libexec/<os>_<arch>/pawl` and uses a `pawl` on `PATH` only in a checkout without `libexec/`.
+`pawl run` compares it with its own version, skipping the check when neither the variable nor the
+enforcement heartbeat carries a plugin version, or the binary is a `dev` source build. The
+`pawl hook pre` heartbeat records that version too (`plugin_version`), and the heartbeat `pawl run`
+already finds for enforcement is authoritative over the variable when it carries one. No other
+command checks. `go install` puts `pawl` on `PATH` as an alternative (there is no Homebrew formula);
+the plugin's `bin/pawl` launcher prefers its bundled `libexec/<os>_<arch>/pawl` and uses a `pawl` on
+`PATH` only in a checkout without `libexec/`.
 
 **Workflow resolution**: repo-local `.claude/workflows/<name>.yaml` (searched from the current
 directory up to the working-copy root, inclusive), then user-level `~/.claude/workflows/<name>.yaml`; first match wins, and `pawl run`

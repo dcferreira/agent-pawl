@@ -709,3 +709,19 @@ func TestHookSubagentStop_OpaqueRunWritesNothing(t *testing.T) {
 		t.Fatalf("markers = %+v", m)
 	}
 }
+
+func TestHookPre_HeartbeatRecordsPluginVersion(t *testing.T) {
+	root := setupWorkingCopy(t)
+	t.Setenv(envPluginVersion, "0.9.0")
+	if code, _, _ := hookCall(t, "pre", prePayload(root, "s1", "pawl run x", "")); code != 0 {
+		t.Fatalf("code=%d", code)
+	}
+	hb, ok, err := journal.ReadHeartbeat(root)
+	if err != nil || !ok || hb.PluginVersion != "0.9.0" {
+		t.Fatalf("root hb=%+v ok=%v err=%v", hb, ok, err)
+	}
+	shb, ok, err := journal.ReadSessionHeartbeat("s1")
+	if err != nil || !ok || shb.PluginVersion != "0.9.0" {
+		t.Fatalf("session hb=%+v ok=%v err=%v", shb, ok, err)
+	}
+}
