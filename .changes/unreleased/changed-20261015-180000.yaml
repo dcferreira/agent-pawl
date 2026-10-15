@@ -1,5 +1,0 @@
-kind: changed
-body: The `/pawl` skill now says to pass `subagent_args` to the subagent and to state a field the harness can't enforce (such as `tools`) in the subagent's prompt; the docs explain `blocked` as how a workflow gives up, what `${visits}` means in a terminal message, and how to test failure paths.
-time: 2026-10-15T18:00:00.000000000+02:00
-custom:
-    PR: "83"

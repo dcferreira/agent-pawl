@@ -1,6 +1,6 @@
 {
   "name": "agent-pawl",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Claude Code skill for driving pawl, a state-machine workflow engine. Release builds of the plugin bundle the pawl binary for darwin and linux (amd64, arm64).",
   "author": {
     "name": "Daniel Ferreira"
