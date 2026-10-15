@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -10,6 +11,13 @@ func setBinaryVersion(t *testing.T, v string) {
 	old := Version
 	Version = v
 	t.Cleanup(func() { Version = old })
+}
+
+func setBinaryPath(t *testing.T, path string, err error) {
+	t.Helper()
+	old := selfExecutablePath
+	selfExecutablePath = func() (string, error) { return path, err }
+	t.Cleanup(func() { selfExecutablePath = old })
 }
 
 func versionCheckSetup(t *testing.T) {
@@ -32,6 +40,7 @@ func TestRunVersionCheck_Match(t *testing.T) {
 func TestRunVersionCheck_MismatchRefuses(t *testing.T) {
 	versionCheckSetup(t)
 	setBinaryVersion(t, "0.6.0")
+	setBinaryPath(t, "/opt/old/bin/pawl", nil)
 	t.Setenv("PAWL__PLUGIN_VERSION", "0.7.0")
 	stdout, stderr, code := runCLI(t, []string{"pawl", "run", "sample", "name=Ada"})
 	if code != 4 {
@@ -40,11 +49,39 @@ func TestRunVersionCheck_MismatchRefuses(t *testing.T) {
 	if stdout != "" {
 		t.Errorf("stdout = %q, want empty", stdout)
 	}
-	want := "pawl run: refusing to start: this pawl binary is 0.6.0 but the agent-pawl plugin expects 0.7.0. " +
-		"The plugin's skill and this binary must be the same version. Reinstall the plugin " +
-		"(/plugin marketplace update agent-pawl, then reinstall it), or install pawl 0.7.0 on PATH.\n"
-	if stderr != want {
-		t.Errorf("stderr = %q\nwant %q", stderr, want)
+	if !strings.HasPrefix(stderr, "pawl run: refusing to start: this pawl binary (/opt/old/bin/pawl) is 0.6.0 but the agent-pawl plugin expects 0.7.0.") {
+		t.Errorf("lead clause / versions / path wrong: %q", stderr)
+	}
+	if strings.Count(stderr, "\n") != 1 || !strings.HasSuffix(stderr, "\n") {
+		t.Errorf("want a single stderr line, got %q", stderr)
+	}
+	for _, frag := range []string{
+		"The plugin's skill and this binary must be the same version.",
+		"`pawl update --version v0.7.0`",
+		"`go install github.com/dcferreira/agent-pawl/cmd/pawl@v0.7.0`",
+		"`go install ./cmd/pawl`",
+		"no bundled binary",
+	} {
+		if !strings.Contains(stderr, frag) {
+			t.Errorf("stderr missing %q: %q", frag, stderr)
+		}
+	}
+}
+
+func TestRunVersionCheck_MismatchOmitsUnresolvablePath(t *testing.T) {
+	versionCheckSetup(t)
+	setBinaryVersion(t, "0.6.0")
+	setBinaryPath(t, "", errors.New("no exe"))
+	t.Setenv("PAWL__PLUGIN_VERSION", "0.7.0")
+	_, stderr, code := runCLI(t, []string{"pawl", "run", "sample", "name=Ada"})
+	if code != 4 {
+		t.Fatalf("code = %d, want 4", code)
+	}
+	if !strings.HasPrefix(stderr, "pawl run: refusing to start: this pawl binary is 0.6.0 but the agent-pawl plugin expects 0.7.0.") {
+		t.Errorf("stderr = %q", stderr)
+	}
+	if strings.Contains(stderr, "()") || strings.Contains(stderr, "binary (") {
+		t.Errorf("dangling path parenthetical: %q", stderr)
 	}
 }
 

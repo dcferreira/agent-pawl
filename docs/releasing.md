@@ -146,6 +146,10 @@ curl -fsSL https://raw.githubusercontent.com/dcferreira/agent-pawl/main/install.
 pawl update --version v1.0.0-rc.1   # an existing, non-plugin install
 ```
 
+Testers pin the plugin with the release's own `marketplace.json` asset; a git-ref marketplace
+(`#v1.0.0-rc.1`) installs the release before it, because the repo's `marketplace.json` is bumped
+only after the tag.
+
 ### Cutting the final release
 
 Run the workflow again with `version` set to the explicit `v1.0.0` and `prerelease` **empty**. While

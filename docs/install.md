@@ -48,6 +48,15 @@ drift apart. `pawl run` then refuses with exit 4, naming both versions (see
 only moves when that changes. To update by hand: `claude plugin marketplace update agent-pawl`, then
 `claude plugin update agent-pawl@agent-pawl`.
 
+After a plugin update, a long-lived Claude Code session keeps using the old plugin until you restart
+it or run `/reload-plugins`. The old version directory also stays in the plugin cache, marked
+`.orphaned_at`; Claude Code's plugin docs say a background cleanup removes it 14 days later (the
+marker was observed on Claude Code 2.1.300; the removal was not).
+
+A terminal-installed `pawl` earlier on `PATH` shadows the plugin's bundled binary (Claude Code appends
+the plugin's `bin/` to the end of `PATH`), and today the plugin's version check does not see this: keep
+one `pawl`, or keep both at the same version.
+
 `pawl update` refuses on a plugin-managed binary (one that lives at
 `<plugin root>/libexec/<os>_<arch>/pawl` inside an installed plugin) and tells you to run
 `claude plugin update agent-pawl@agent-pawl` instead.
@@ -67,7 +76,9 @@ work: Claude Code treats any github.com URL as a git repo. If you tried it there
 
 To pin a specific release, download that release's `marketplace.json` asset into
 `<dir>/.claude-plugin/marketplace.json` and run `/plugin marketplace add <dir>`; a directory
-marketplace stays on that release and does not auto-update.
+marketplace stays on that release and does not auto-update. Only the release's own `marketplace.json`
+asset pins correctly: a git-ref marketplace (`dcferreira/agent-pawl#vX`) installs the previous release,
+because the repo's `marketplace.json` is bumped to vX only after the tag.
 
 Contributors: `claude --plugin-dir .` from a checkout loads the working tree as the plugin; it has no
 `libexec/`, so `bin/pawl` falls back to a `pawl` on `PATH` (`go install ./cmd/pawl` / `make install`).
