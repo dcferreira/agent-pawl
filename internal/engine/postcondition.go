@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -77,8 +78,14 @@ func isEmptyValue(v any) bool {
 		return x == ""
 	case bool:
 		return !x
+	case int:
+		return x == 0
 	case int64:
 		return x == 0
+	case uint64:
+		return x == 0
+	case json.Number:
+		return jsonNumberIsZero(x)
 	case float64:
 		return x == 0
 	case []any:
@@ -118,7 +125,18 @@ func evaluateEquals(want map[string]any, raw map[string]any, vals render.Values,
 		if _, ok := raw[k]; !ok {
 			actual = ""
 		}
-		if actual != expected {
+		matched := actual == expected
+		// When both sides are numeric Go values, compare numerically so the
+		// spelling ("1e6" vs 1000000) and the Go type (json.Number after a
+		// replay, int64 from args, int from YAML) do not matter. Every other
+		// pairing keeps the plain text comparison above.
+		if en, ok := canonicalNumber(expectedRaw); ok {
+			if an, ok := canonicalNumber(raw[k]); ok {
+				matched = an == en
+				actual, expected = an, en
+			}
+		}
+		if !matched {
 			return checkResult{OK: false, Soft: soft, Text: fmt.Sprintf("equals: %q is %q, want %q", k, actual, expected)}
 		}
 	}

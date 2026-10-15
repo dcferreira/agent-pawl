@@ -92,7 +92,7 @@ func entry(i int, item any, outcome string, writes map[string]any, errText any) 
 	if writes == nil {
 		writes = map[string]any{}
 	}
-	return map[string]any{"index": float64(i), "item": item, "outcome": outcome, "writes": writes, "error": errText}
+	return map[string]any{"index": json.Number(strconv.Itoa(i)), "item": item, "outcome": outcome, "writes": writes, "error": errText}
 }
 
 func TestForeach_AllSuccess(t *testing.T) {
@@ -121,7 +121,7 @@ func TestForeach_MixedIsPartial(t *testing.T) {
 	}
 	for i, wantOutcome := range []string{"success", "failure", "success"} {
 		m := got[i].(map[string]any)
-		if m["outcome"] != wantOutcome || m["index"] != float64(i) {
+		if m["outcome"] != wantOutcome || m["index"] != json.Number(strconv.Itoa(i)) {
 			t.Errorf("entry %d = %v, want outcome %s", i, m, wantOutcome)
 		}
 	}
