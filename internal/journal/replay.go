@@ -94,6 +94,14 @@ type RunState struct {
 	// RESUME{intervention: true} (a fresh visit by design).
 	ResumedInFlight string
 
+	// PendingIntervention is true from a RESUME{intervention: true} until the
+	// next ungrouped STEP_ENTER or TRANSITION: a person intervened after a
+	// block and the resumed step has not been entered yet. It survives a crash
+	// before that STEP_ENTER, whose plain crash RESUME is no longer an
+	// intervention, so the engine can still flag the redispatch as
+	// interrupted.
+	PendingIntervention bool
+
 	// PendingBranches is, per in-flight kind: parallel step id, the set of
 	// its branch step ids not yet transitioned (present with value true
 	// while outstanding; deleted once the branch's TRANSITION is replayed).
@@ -263,6 +271,7 @@ func Replay(events []Event) (*RunState, error) {
 				rs.ResumedInFlight = ""
 			}
 			if e.Intervention {
+				rs.PendingIntervention = true
 				// A blocked resume starts a fresh visit: a later crash
 				// RESUME before its STEP_ENTER is a first entry, not a
 				// re-entry of an in-flight step.
@@ -365,6 +374,7 @@ func Replay(events []Event) (*RunState, error) {
 			if e.HardRetry == 0 {
 				rs.AttemptLastError = rs.LastError
 			}
+			rs.PendingIntervention = false
 			// A hard-failure retry (Event.HardRetry > 0, §B.16) re-runs the
 			// same attempt's body, exactly like an attempts:-driven Retry
 			// re-entry — neither counts as a fresh visit.
@@ -458,6 +468,7 @@ func Replay(events []Event) (*RunState, error) {
 			transitionedSinceEnter = true
 			inFlight = false
 			rs.ResumedInFlight = ""
+			rs.PendingIntervention = false
 			lastTarget = e.Target
 			// The §B.4 clearing rule as stated is a conjunction: cleared
 			// when the postcondition passed AND the step leaves by a

@@ -154,8 +154,9 @@ backoff; `max_attempts:` and `backoff:` are both required.
   after a resume alike.
 - **Human deadline.** A `human` answer submitted after its deadline routes `timeout`, whatever the
   answer was.
-- **Wait deadline.** A `wait` deadline is tied to the visit. A crash resume keeps the original
-  deadline. A resume of a blocked run starts a new visit and a new deadline.
+- **Wait and human deadlines.** A `wait` or `human` deadline is tied to the visit. A crash resume
+  keeps the original deadline. A resume of a blocked run starts a new visit and a new deadline.
+- **Crash resumes are free.** A crash resume never consumes a visit or an attempt.
 - **Guards** stay, advisory and pattern-matched. Invariants are the engine-checked guarantee.
 - **`when:`** is rejected. A conditional is a router step plus `outcomes:`
   (format-spec [§B.14](../design/format-spec.md)).

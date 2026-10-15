@@ -67,11 +67,6 @@ func (e *Engine) dispatchHuman(dir string, log *journal.Log, runID string, step 
 		return e.routeHuman(dir, log, runID, step, "failure", attempt)
 	}
 
-	question, rerr := render.RenderProse(step.Question, vals)
-	if rerr != nil {
-		question = step.Question
-	}
-
 	if _, err := log.Append(journal.Event{
 		Kind: journal.KindHumanAsked, RunID: runID, Step: step.ID, Attempt: attempt,
 	}); err != nil {
@@ -79,6 +74,18 @@ func (e *Engine) dispatchHuman(dir string, log *journal.Log, runID string, step 
 	}
 
 	_ = interrupted // Ask carries no Interrupted field (point 5) — nothing to set.
+	return buildAsk(runID, step, attempt, vals, options), nil
+}
+
+// buildAsk assembles the Ask for step from its already-resolved options and
+// the ${key} values: the question is prose-rendered, falling back to the
+// raw text if rendering fails. Shared by dispatchHuman (a fresh ask) and
+// reaskHuman (an idempotent re-print) so the two cannot drift apart.
+func buildAsk(runID string, step *spec.Step, attempt int, vals render.Values, options []string) Ask {
+	question, rerr := render.RenderProse(step.Question, vals)
+	if rerr != nil {
+		question = step.Question
+	}
 	return Ask{
 		RunID:    runID,
 		Step:     step.ID,
@@ -86,7 +93,66 @@ func (e *Engine) dispatchHuman(dir string, log *journal.Log, runID string, step 
 		Question: question,
 		Options:  options,
 		Multi:    step.Multi,
-	}, nil
+	}
+}
+
+// humanAskedSinceEnter reports whether a HUMAN_ASKED for (stepID, attempt)
+// has been journaled since stepID's latest ungrouped STEP_ENTER: i.e. the
+// run is parked on an outstanding ask rather than having crashed between
+// entering the step and asking. The scan also stops (false) at the step's
+// TRANSITION, any RUN_END, or an intervention RESUME, so a HUMAN_ASKED from
+// a previous visit never counts. Defence in depth: Engine.Resume also
+// requires RunState.ResumedInFlight.
+func humanAskedSinceEnter(dir, stepID string, attempt int) (bool, error) {
+	events, err := journal.ReadEvents(dir)
+	if err != nil {
+		return false, err
+	}
+	for i := len(events) - 1; i >= 0; i-- {
+		ev := events[i]
+		if ev.Kind == journal.KindRunEnd || (ev.Kind == journal.KindResume && ev.Intervention) {
+			return false, nil
+		}
+		if ev.Step != stepID {
+			continue
+		}
+		switch {
+		case ev.Kind == journal.KindTransition && ev.Group == "":
+			return false, nil
+		case ev.Kind == journal.KindHumanAsked && ev.Attempt == attempt:
+			return true, nil
+		case ev.Kind == journal.KindStepEnter && ev.Group == "":
+			return false, nil
+		}
+	}
+	return false, nil
+}
+
+// reaskHuman is Engine.Resume's crash path for a human step already parked
+// on an outstanding ask: an idempotent re-print of the same Ask. The engine
+// did no work while parked, so it appends no STEP_ENTER and no HUMAN_ASKED —
+// the latter would restart the step's timeout: clock, which
+// humanDeadlinePassed anchors on the last HUMAN_ASKED (the wait kind's
+// parkWait reentry does the same for its deadline). State is frozen while
+// parked, so option resolution cannot newly fail; if it does anyway it is
+// handled exactly as dispatchHuman does.
+func (e *Engine) reaskHuman(dir string, log *journal.Log, runID string, step *spec.Step, cur journal.Cursor) (Instruction, error) {
+	rs, err := replayDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	vals := buildValues(e.Workflow, rs, runID, step.ID, cur.Attempt, rs.Visits[step.ID])
+	options, derr := e.resolveHumanOptions(step, rs)
+	if derr != nil {
+		if !errors.Is(derr, errOptionsUnavailable) {
+			return nil, derr
+		}
+		if jerr := e.journalFailureDiagnostic(log, runID, step.ID, cur.Attempt, derr.Error()); jerr != nil {
+			return nil, jerr
+		}
+		return e.routeHuman(dir, log, runID, step, "failure", cur.Attempt)
+	}
+	return buildAsk(runID, step, cur.Attempt, vals, options), nil
 }
 
 // resolveHumanOptions returns step's display option list, in order: the
@@ -211,11 +277,18 @@ func (e *Engine) SubmitHuman(runID, stepID string, attempt int, result json.RawM
 		return nil, fmt.Errorf("%w: step %q is not a human step awaiting an answer", ErrRefused, stepID)
 	}
 
+	// An answer already accepted in time (its WRITES journaled after the
+	// latest HUMAN_ASKED, then a crash before the TRANSITION) is not
+	// re-judged against the deadline on the re-answer.
+	accepted, aerr := humanAnswerWrittenSinceAsked(dir, stepID, attempt)
+	if aerr != nil {
+		return nil, aerr
+	}
 	timedOut, terr := e.humanDeadlinePassed(dir, stepID, attempt, step.Timeout)
 	if terr != nil {
 		return nil, terr
 	}
-	if timedOut {
+	if timedOut && !accepted {
 		// §B.5: "On timeout nothing is written" — unconditional, regardless
 		// of what answer was actually submitted.
 		return e.routeHuman(dir, log, runID, step, "timeout", attempt)
@@ -274,6 +347,29 @@ func (e *Engine) SubmitHuman(runID, stepID string, attempt int, result json.RawM
 	}
 
 	return e.routeHuman(dir, log, runID, step, outcome, attempt)
+}
+
+// humanAnswerWrittenSinceAsked reports whether a WRITES for (stepID, attempt)
+// is journaled after the latest HUMAN_ASKED for it: SubmitHuman accepted an
+// answer in time and crashed before routeHuman's TRANSITION.
+func humanAnswerWrittenSinceAsked(dir, stepID string, attempt int) (bool, error) {
+	events, err := journal.ReadEvents(dir)
+	if err != nil {
+		return false, err
+	}
+	for i := len(events) - 1; i >= 0; i-- {
+		ev := events[i]
+		if ev.Step != stepID || ev.Attempt != attempt {
+			continue
+		}
+		switch ev.Kind {
+		case journal.KindWrites:
+			return true, nil
+		case journal.KindHumanAsked:
+			return false, nil
+		}
+	}
+	return false, nil
 }
 
 // humanDeadlinePassed reports whether stepID's most recent HUMAN_ASKED event
