@@ -1,0 +1,22 @@
+package main
+
+import (
+	"fmt"
+	"io"
+	"os"
+
+	"example.com/textstats"
+)
+
+func main() {
+	data, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	text := string(data)
+	fmt.Printf("words: %d\n", textstats.WordCount(text))
+	w, n := textstats.MostCommon(text)
+	fmt.Printf("most common: %q (%d times)\n", w, n)
+	fmt.Sprintf("bytes: %d\n", len(text))
+}

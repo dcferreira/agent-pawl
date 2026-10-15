@@ -1,0 +1,23 @@
+package textstats
+
+import "testing"
+
+func TestWordCount(t *testing.T) {
+	if got := WordCount("  the quick  brown fox "); got != 4 {
+		t.Fatalf("WordCount = %d, want 4", got)
+	}
+}
+
+func TestMostCommon(t *testing.T) {
+	w, n := MostCommon("the cat and The dog and the bird")
+	if w != "the" || n != 3 {
+		t.Fatalf("MostCommon = %q, %d; want \"the\", 3", w, n)
+	}
+}
+
+func TestMostCommonTie(t *testing.T) {
+	w, n := MostCommon("b a b a c")
+	if w != "b" || n != 2 {
+		t.Fatalf("MostCommon = %q, %d; want \"b\", 2", w, n)
+	}
+}
