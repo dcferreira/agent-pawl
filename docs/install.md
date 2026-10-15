@@ -53,9 +53,13 @@ it or run `/reload-plugins`. The old version directory also stays in the plugin 
 `.orphaned_at`; Claude Code's plugin docs say a background cleanup removes it 14 days later (the
 marker was observed on Claude Code 2.1.300; the removal was not).
 
-A terminal-installed `pawl` earlier on `PATH` shadows the plugin's bundled binary (Claude Code appends
-the plugin's `bin/` to the end of `PATH`), and today the plugin's version check does not see this: keep
-one `pawl`, or keep both at the same version.
+A terminal-installed `pawl` earlier on `PATH` can shadow the plugin's bundled binary (Claude Code appends
+the plugin's `bin/` to the end of `PATH`). The `/pawl` skill therefore runs the plugin's own launcher by
+path (`"${CLAUDE_SKILL_DIR}/../../bin/pawl"`) rather than a bare `pawl`, and `pawl run` refuses (exit 4)
+when its own version differs from that of the plugin whose hooks are active (the hooks' version, recorded
+on the PreToolUse heartbeat, wins over the launcher's `PAWL__PLUGIN_VERSION`). This applies to binaries
+from this release on: an older shadowing binary has no such check, so keep one `pawl`, or keep both at
+the same version.
 
 `pawl update` refuses on a plugin-managed binary (one that lives at
 `<plugin root>/libexec/<os>_<arch>/pawl` inside an installed plugin) and tells you to run

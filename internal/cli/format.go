@@ -359,7 +359,7 @@ func formatDispatch(d engine.Dispatch, maxAttempts int) string {
 	w := &blockWriter{}
 	w.line(0, "DISPATCH", d.RunID, d.Step)
 	writeDispatchBody(w, 0, d, maxAttempts)
-	w.line(0, "submit with:", fmt.Sprintf("pawl submit --run %s --step %s --json '<the object above>'", d.RunID, d.Step))
+	w.line(0, "submit with:", fmt.Sprintf("%s submit --run %s --step %s --json '<the object above>'", pawlCommand(), d.RunID, d.Step))
 	w.line(0, "END", "DISPATCH", d.RunID, d.Step)
 	return w.String()
 }
@@ -440,7 +440,7 @@ func formatDispatchParallel(d engine.DispatchParallel, maxAttempts map[string]in
 		}
 		w.line(1, "DISPATCH", branch.RunID, label)
 		writeDispatchBody(w, 1, branch, maxAttempts[branch.Step])
-		w.line(1, "submit with:", fmt.Sprintf("pawl submit --run %s --step %s%s --json '<the object above>'", branch.RunID, branch.Step, itemFlag))
+		w.line(1, "submit with:", fmt.Sprintf("%s submit --run %s --step %s%s --json '<the object above>'", pawlCommand(), branch.RunID, branch.Step, itemFlag))
 		w.line(1, "END", "DISPATCH", branch.RunID, label)
 	}
 	w.line(0, "END", "DISPATCH_PARALLEL", d.RunID, d.Step)
@@ -503,7 +503,7 @@ func formatWait(v engine.Wait) string {
 	w.line(0, "WAIT", v.RunID, v.Step)
 	w.line(0, "every:", v.Every)
 	w.line(0, "timeout:", v.Timeout)
-	w.line(0, "poll with:", fmt.Sprintf("pawl poll --run %s --step %s", v.RunID, v.Step))
+	w.line(0, "poll with:", fmt.Sprintf("%s poll --run %s --step %s", pawlCommand(), v.RunID, v.Step))
 	w.line(0, "END", "WAIT", v.RunID, v.Step)
 	return w.String()
 }
@@ -576,7 +576,7 @@ func formatAsk(a engine.Ask) string {
 	// them (on a static-options step, both is rejected and routes to the
 	// step's failure outcome), and with no options there is
 	// nothing to select, so only other applies.
-	submit := fmt.Sprintf("pawl submit --run %s --step %s --json ", a.RunID, a.Step)
+	submit := fmt.Sprintf("%s submit --run %s --step %s --json ", pawlCommand(), a.RunID, a.Step)
 	switch {
 	case a.Multi:
 		w.line(0, "submit with:", submit+`'{"selected": ["<option label>"], "other": "<free text, if any>"}'`)

@@ -1,0 +1,5 @@
+kind: fixed
+body: A terminal-installed or stale `pawl` earlier on PATH no longer silently drives the plugin's skill - the skill runs the plugin's own launcher, and `pawl run` refuses when its version differs from the plugin whose hooks are active.
+custom:
+  PR: "75"
+time: 2026-10-15T17:00:00.000000000+02:00

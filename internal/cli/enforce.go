@@ -25,6 +25,9 @@ type enforcementMode struct {
 	// a plain terminal): the run stays enforced, but no hooked session
 	// vouched for this call, so none is stamped as the driver.
 	BoundNoHeartbeat bool
+	// HookPluginVersion is the plugin version recorded on the heartbeat that
+	// vouched for this invocation ("" when none, or the heartbeat has none).
+	HookPluginVersion string
 }
 
 //lint:ignore ST1005 verbatim two-sentence refusal message (Global Constraint: "Refusal message, verbatim")
@@ -86,19 +89,19 @@ func freshHeartbeat(root string) (journal.Heartbeat, bool) {
 }
 
 // checkEnforcement decides whether pawl run may start: an explicit opt-out,
-// or a PreToolUse heartbeat for root no older than journal.HeartbeatTTL.
-func checkEnforcement(root string, flagOff bool) (enforcementMode, error) {
+// or a PreToolUse heartbeat for root no older than journal.HeartbeatTTL
+// (hb, ok: the freshHeartbeat(root) result, looked up once by the caller).
+func checkEnforcement(root string, flagOff bool, hb journal.Heartbeat, ok bool) (enforcementMode, error) {
 	if flagOff {
 		return enforcementMode{OffReason: "--no-enforcement"}, nil
 	}
 	if os.Getenv(envEnforcement) == "off" {
 		return enforcementMode{OffReason: envEnforcement + "=off"}, nil
 	}
-	hb, ok := freshHeartbeat(root)
 	if !ok {
 		return enforcementMode{}, noHeartbeatError(root)
 	}
-	return enforcementMode{On: true, SessionID: hb.SessionID}, nil
+	return enforcementMode{On: true, SessionID: hb.SessionID, HookPluginVersion: hb.PluginVersion}, nil
 }
 
 // resumeEnforcement is checkEnforcement for a resume of ref. A run's mode is
@@ -116,7 +119,7 @@ func checkEnforcement(root string, flagOff bool) (enforcementMode, error) {
 //     its next DISPATCH/ASK as usual; the hooks keep applying to it. Only a
 //     fresh heartbeat (a hooked session resuming) makes this invocation's
 //     session the run's new driver.
-func resumeEnforcement(root string, ref *journal.RunRef, flagOff bool) (enforcementMode, error) {
+func resumeEnforcement(ref *journal.RunRef, flagOff bool, hb journal.Heartbeat, ok bool) (enforcementMode, error) {
 	if ref.State != nil && ref.State.EnforcementOff() {
 		reason := strings.TrimSuffix(strings.TrimPrefix(ref.State.Enforcement, "off ("), ")")
 		return enforcementMode{OffReason: "bound at run start: " + reason}, nil
@@ -128,11 +131,10 @@ func resumeEnforcement(root string, ref *journal.RunRef, flagOff bool) (enforcem
 		}
 		return enforcementMode{}, fmt.Errorf("pawl run: run %s was started with enforcement on, and enforcement is bound at run start — %s cannot turn it off. To continue the run, resume without it (no hook heartbeat is needed to resume); it stays enforced", ref.RunID, how)
 	}
-	hb, ok := freshHeartbeat(root)
 	if !ok {
 		return enforcementMode{On: true, BoundNoHeartbeat: true}, nil
 	}
-	return enforcementMode{On: true, SessionID: hb.SessionID}, nil
+	return enforcementMode{On: true, SessionID: hb.SessionID, HookPluginVersion: hb.PluginVersion}, nil
 }
 
 // enforcementLabel is RUN_START's hook_self_test value:

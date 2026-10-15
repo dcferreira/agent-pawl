@@ -174,8 +174,9 @@ Free to change in any 1.x release.
   skill and the bundled binary ship together in the plugin. The guard that keeps them in step is a
   binary-to-plugin version match. The plugin's `bin/pawl` launcher exports `PAWL__PLUGIN_VERSION`
   (the plugin's own version), and `pawl run`, on both start and resume, refuses a mismatch with exit 4,
-  naming both versions ([cli.md#pawl-version--human](cli.md#pawl-version--human)). The check is
-  skipped when the variable is unset (`pawl` not run through the plugin's launcher), and for a `dev`
+  naming both versions ([cli.md#pawl-version--human](cli.md#pawl-version--human)); the version the
+  PreToolUse hook records on its heartbeat, when present, wins over the variable. The check is
+  skipped when neither is set (`pawl` not run through the plugin's launcher), and for a `dev`
   source build. Because the grammar is internal, a skill and a binary from different releases are
   never expected to work together.
 - The run-directory layout, `live/`, heartbeat and driver files, and the shapes of `plan.json` and

@@ -917,7 +917,8 @@ workflow file has changed since it started, and offers `--fresh`. `--force` brea
 `pawl run` (start and resume) refuses with exit 4, naming both versions, when the binary's version
 doesn't match the plugin's: the plugin's `bin/pawl` launcher exports `PAWL__PLUGIN_VERSION` (the
 `version` in the plugin's `plugin.json`) and `pawl run` compares it with its own. The check is
-skipped when that variable is unset (not run through the plugin), and, with a stderr note, for a
+skipped when that variable is unset and no hook heartbeat carries a plugin version (the heartbeat's
+`plugin_version`, recorded by `pawl hook pre`, wins over the variable when both exist), and, with a stderr note, for a
 `dev` source build; no other command checks (see docs/cli.md's `pawl version`). `--run <id>` is
 needed only to disambiguate when several runs resolve (§B.12). Internal commands, which the model
 calls and an author never writes: `pawl submit --run … --step … --json …`, `pawl poll --run … --step

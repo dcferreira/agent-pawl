@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"time"
 
@@ -77,12 +78,16 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 		return failOpen(err.Error())
 	}
 	if event == "pre" && hook.IsPawlCommand(p.Command) {
-		if err := journal.WriteHeartbeat(root, p.SessionID, nowFunc()); err != nil {
+		// The hook always runs through the plugin's own bin/pawl-hook and
+		// launcher, so this env is the version of the plugin whose hooks are
+		// bound: recorded so pawl run can treat it as authoritative.
+		pluginVersion := os.Getenv(envPluginVersion)
+		if err := journal.WriteHeartbeatWithPlugin(root, p.SessionID, pluginVersion, nowFunc()); err != nil {
 			printLine(stderr, "pawl hook pre: writing heartbeat:", err.Error())
 		}
 		// Also keyed by session: pawl run/submit/poll may run in a working
 		// copy other than this payload's cwd (issue #18).
-		if err := journal.WriteSessionHeartbeat(p.SessionID, nowFunc()); err != nil {
+		if err := journal.WriteSessionHeartbeatWithPlugin(p.SessionID, pluginVersion, nowFunc()); err != nil {
 			printLine(stderr, "pawl hook pre: writing session heartbeat:", err.Error())
 		}
 	}

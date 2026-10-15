@@ -19,6 +19,10 @@
 #   file is missing, unreadable or has no usable "version", the variable is
 #   unset rather than guessed, and pawl skips the check.
 #
+# - Both branches also export PAWL__LAUNCHER, this script's own resolved path
+#   (see below), which pawl uses as the command name in the instruction lines
+#   it prints for the driving agent.
+#
 # TRAP (fallback only): Claude Code puts a plugin's bin/ on PATH, so this
 # script is itself named `pawl` and sits ahead of everywhere else. A naive
 # `exec pawl "$@"` would find itself and recurse forever. Skipping our own
@@ -69,6 +73,14 @@ case "$plugin_version" in
   ""|*[!A-Za-z0-9._+-]*) unset PAWL__PLUGIN_VERSION ;;
   *) export PAWL__PLUGIN_VERSION="$plugin_version" ;;
 esac
+
+# PAWL__LAUNCHER: this script's own fully resolved absolute path, exported in
+# both branches (overriding any inherited, possibly stale, value). Claude Code
+# appends a plugin's bin/ to the END of PATH, so a `pawl` earlier on PATH can
+# shadow this launcher; pawl prints its `submit with:` / `poll with:` lines
+# with this path as the command so the agent runs the launcher, not whatever
+# PATH finds first.
+export PAWL__LAUNCHER="$self"
 
 if [ -d "$plugin_root/libexec" ]; then
   uname_s="$(uname -s)"

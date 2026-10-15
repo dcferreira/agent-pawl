@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 
@@ -57,9 +58,25 @@ func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 		return exitUsage
 	}
 
-	// Before anything is resolved, printed or gated (start and resume alike):
-	// a binary that is not the plugin's version must not drive its skill.
-	if !checkPluginVersion(stderr) {
+	root, err := journal.ResolveRoot(cwd)
+	if err != nil {
+		printLine(stderr, err.Error())
+		return exitNotFound
+	}
+
+	// Before the workflow is resolved, loaded or validated, and before
+	// anything is printed or run (start and resume alike): a binary that is
+	// not the plugin's version must not drive its skill, and must be named
+	// as the problem rather than surface as a spec error about a workflow
+	// that a newer binary would accept. The hooks' plugin version comes off
+	// the heartbeat, which needs only root; it is skipped when enforcement
+	// is opted out (a heartbeat is then irrelevant, env alone is checked).
+	hb, hbOK := freshHeartbeat(root) // looked up once: the gate below reuses it
+	hookVersion := ""
+	if hbOK && !flags.NoEnforcement && os.Getenv(envEnforcement) != "off" {
+		hookVersion = hb.PluginVersion
+	}
+	if !checkPluginVersion(stderr, hookVersion) {
 		return exitRefused
 	}
 
@@ -83,12 +100,6 @@ func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 		// its own clause under 2 (usage/validation), not 1 (resolution) —
 		// the file resolved fine; spec.Validate is what refused it.
 		return exitUsage
-	}
-
-	root, err := journal.ResolveRoot(cwd)
-	if err != nil {
-		printLine(stderr, err.Error())
-		return exitNotFound
 	}
 
 	// A resume is resolved before the enforcement gate: a run's enforcement
@@ -130,9 +141,9 @@ func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 
 	var mode enforcementMode
 	if ref != nil {
-		mode, err = resumeEnforcement(root, ref, flags.NoEnforcement)
+		mode, err = resumeEnforcement(ref, flags.NoEnforcement, hb, hbOK)
 	} else {
-		mode, err = checkEnforcement(root, flags.NoEnforcement)
+		mode, err = checkEnforcement(root, flags.NoEnforcement, hb, hbOK)
 	}
 	if err != nil {
 		if errors.Is(err, errNoHeartbeat) {

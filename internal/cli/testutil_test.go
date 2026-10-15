@@ -34,6 +34,8 @@ func setupWorkingCopy(t *testing.T) string {
 	// `go test` run as a step of a plugin-launched run; version-check
 	// tests set it explicitly.
 	t.Setenv(envPluginVersion, "")
+	// Likewise the launcher path: the golden output tests expect plain `pawl`.
+	t.Setenv(envLauncher, "")
 	return root
 }
 

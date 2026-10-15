@@ -36,6 +36,11 @@ func heartbeatPath(root string) string {
 type Heartbeat struct {
 	SessionID string    `json:"session_id"`
 	Time      time.Time `json:"time"`
+	// PluginVersion is the agent-pawl plugin version the hook's launcher
+	// reported (PAWL__PLUGIN_VERSION) when it wrote this heartbeat: the
+	// version of the plugin whose hooks are active. Omitted when unset;
+	// heartbeats written before this field existed simply lack it.
+	PluginVersion string `json:"plugin_version,omitempty"`
 }
 
 // Fresh reports whether h was written no more than HeartbeatTTL before now
@@ -46,7 +51,13 @@ func (h Heartbeat) Fresh(now time.Time) bool {
 }
 
 func WriteHeartbeat(root, sessionID string, now time.Time) error {
-	return writeJSONAtomic(heartbeatPath(root), Heartbeat{SessionID: sessionID, Time: now})
+	return WriteHeartbeatWithPlugin(root, sessionID, "", now)
+}
+
+// WriteHeartbeatWithPlugin is WriteHeartbeat recording pluginVersion too
+// ("" omits it).
+func WriteHeartbeatWithPlugin(root, sessionID, pluginVersion string, now time.Time) error {
+	return writeJSONAtomic(heartbeatPath(root), Heartbeat{SessionID: sessionID, Time: now, PluginVersion: pluginVersion})
 }
 
 func ReadHeartbeat(root string) (Heartbeat, bool, error) {
@@ -91,11 +102,17 @@ func safeFileName(s string) bool {
 // works in another working copy (issue #18). A session id that is not a
 // safe file name writes nothing and is not an error.
 func WriteSessionHeartbeat(sessionID string, now time.Time) error {
+	return WriteSessionHeartbeatWithPlugin(sessionID, "", now)
+}
+
+// WriteSessionHeartbeatWithPlugin is WriteSessionHeartbeat recording
+// pluginVersion too ("" omits it).
+func WriteSessionHeartbeatWithPlugin(sessionID, pluginVersion string, now time.Time) error {
 	path, ok := sessionHeartbeatPath(sessionID)
 	if !ok {
 		return nil
 	}
-	return writeJSONAtomic(path, Heartbeat{SessionID: sessionID, Time: now})
+	return writeJSONAtomic(path, Heartbeat{SessionID: sessionID, Time: now, PluginVersion: pluginVersion})
 }
 
 // ReadSessionHeartbeat reads sessionID's heartbeat; a bad id reads as absent.
