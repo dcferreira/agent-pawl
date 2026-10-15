@@ -907,6 +907,28 @@ func TestList(t *testing.T) {
 	}
 }
 
+// TestList_NoWorkflowsSaysWhereItLooked: an empty result keeps stdout empty
+// (the TSV contract) and exits 0, but explains itself with one stderr line
+// naming the directories searched.
+func TestList_NoWorkflowsSaysWhereItLooked(t *testing.T) {
+	root := setupWorkingCopy(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	stdout, stderr, code := runCLI(t, []string{"pawl", "list"})
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr = %q", code, stderr)
+	}
+	if stdout != "" {
+		t.Errorf("stdout = %q, want empty", stdout)
+	}
+	want := "no workflows found; searched " + filepath.Join(root, ".claude", "workflows") +
+		", " + filepath.Join(home, ".claude", "workflows") + "\n"
+	if stderr != want {
+		t.Errorf("stderr = %q, want %q", stderr, want)
+	}
+}
+
 // aliasedWorkflow declares workflow: renamed in a file that pawl run will be
 // asked for as "alias" — the C1 scenario: the run directory's own id
 // ("renamed") is not the filename ("alias") a session would ever pass to

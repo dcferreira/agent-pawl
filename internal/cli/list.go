@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/dcferreira/agent-pawl/internal/journal"
 )
@@ -38,6 +39,7 @@ func cmdList(args []string, cwd string, stdout, stderr io.Writer) int {
 	}
 	seen := map[string]bool{}
 	var entries []entry
+	searched := []string{filepath.Join(root, ".claude", "workflows")}
 
 	repoDir := filepath.Join(root, ".claude", "workflows")
 	for _, name := range listYAMLBaseNames(repoDir) {
@@ -46,6 +48,7 @@ func cmdList(args []string, cwd string, stdout, stderr io.Writer) int {
 	}
 	if home, herr := os.UserHomeDir(); herr == nil {
 		userDir := filepath.Join(home, ".claude", "workflows")
+		searched = append(searched, userDir)
 		for _, name := range listYAMLBaseNames(userDir) {
 			if seen[name] {
 				continue
@@ -54,6 +57,12 @@ func cmdList(args []string, cwd string, stdout, stderr io.Writer) int {
 		}
 	}
 
+	if len(entries) == 0 {
+		// stdout stays empty (the TSV contract); the explanation goes to
+		// stderr, exit 0 — an empty list is not an error.
+		printLine(stderr, "no workflows found; searched "+strings.Join(searched, ", "))
+		return exitOK
+	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].name < entries[j].name })
 	w := &blockWriter{}
 	for _, e := range entries {

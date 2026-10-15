@@ -167,7 +167,7 @@ const (
         internal: Claude Code hook entry point (PreToolUse / Stop / SubagentStop);
         reads the hook payload on stdin. Wired by the plugin's hooks/hooks.json.
 `
-	usageVersion = `  pawl version
+	usageVersion = `  pawl version | --version | -v
         print the pawl version
 `
 	usageUpdate = `  pawl update [--check] [--version <vX.Y.Z>] [--force]
