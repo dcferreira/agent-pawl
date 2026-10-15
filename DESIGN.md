@@ -1,9 +1,7 @@
 # A state-machine workflow engine for Claude Code
 
-**Status:** implemented through Milestone 1 — all five kinds, state and resume, `pawl validate`, and
-the enforcement hooks (§5: `pawl hook pre|stop|subagent-stop`, `PreToolUse`/`Stop`/`SubagentStop`). The fuller distribution story
-(§9: self-installing pinned release binaries via the hooks) is not built. See docs/status.md for
-the authoritative list of what runs today.
+**Status:** [docs/status.md](docs/status.md) is the authority on what this build runs. §9 marks each
+distribution claim as built, not built or superseded, row by row.
 
 `design/format-spec.md` is authoritative for what an author writes — the nouns, the fields, the
 validator, the roadmap. This document defines the engine: the handshake between `pawl` and the model,
@@ -504,8 +502,10 @@ The hooks fail toward the least surprising side on an internal error: `pawl hook
 that run (above); `pawl hook stop` never fails closed — any error allows, so a bug in the hook can
 never trap a session mid-turn; `pawl hook subagent-stop` fails open with exit 0 and no output.
 
-**Invariants are engine checks, not a hook**, evaluated after every step completion and every `pawl
-submit`. A violation journals the reason into `RUN_END` and sets the run `BLOCKED`.
+**Invariants are engine checks, not a hook**, evaluated in declaration order after every step
+completion and every `pawl submit`/`pawl poll`, strictly before the completed step's own `TRANSITION`
+is journaled, so a violation pre-empts even a route straight to a terminal. The first violated one
+journals the reason into `RUN_END` and sets the run `BLOCKED`.
 
 | Behaviour | Prevented | Caught after the fact | Residual |
 |---|---|---|---|
@@ -574,25 +574,41 @@ additive and can land in any 1.x.
 
 ## 9. Implementation and distribution
 
+| Claim | Status | Where |
+|---|---|---|
+| Go, a single static binary `pawl` | Built | `cmd/pawl`, `.goreleaser.yaml` (`CGO_ENABLED=0`) |
+| goreleaser cross-compile for linux/darwin × amd64/arm64, published as GitHub Releases | Built | `.goreleaser.yaml`, `.github/workflows/release.yml` |
+| A Claude Code plugin with the `/pawl` skill | Built | `skills/pawl/SKILL.md`, `.claude-plugin/plugin.json` |
+| `hooks/hooks.json` declaring static hooks behind the `pawl-hook` fast-path wrapper (three events: `PreToolUse`, `Stop`, `SubagentStop`) | Built | `hooks/hooks.json`, `bin/pawl-hook`, `e2e/pawl_hook_test.go` |
+| `bin/install.sh` run by the skill on first use, pinning `~/.claude/pawl/bin/pawl` | Superseded | The release plugin archive bundles `libexec/<os>_<arch>/pawl` and `bin/pawl` execs it (`bin/pawl`, `e2e/pawl_launcher_test.go`; see [docs/install.md](docs/install.md)). `install.sh` at the repo root is a standalone installer for terminal use; the skill does not run it. |
+| `pawl run` refuses (exit 4) a binary whose version differs from the plugin's, via `PAWL__PLUGIN_VERSION` | Built | `internal/cli/version_check.go`, `internal/cli/version_check_test.go` |
+| `brew install` | Not built | No Homebrew formula or tap; `.goreleaser.yaml` has no `brews` section |
+| `go install` | Built | `cmd/pawl` |
+| Workflow resolution: repo-local `.claude/workflows/<name>.yaml`, then `~/.claude/workflows/<name>.yaml`, first match wins, `pawl run` prints which | Built | `internal/cli/workflow.go` (`resolveWorkflowFile`); the banner line is checked in `internal/cli/cli_test.go` (`TestRun_FirstDispatch`, repo-local case) |
+| `scripts/` resolve relative to the workflow file | Built | `internal/engine/scriptpath.go`, `internal/engine/scriptpath_test.go` |
+| Plugin-shipped workflows | Not built | [docs/roadmap.md](docs/roadmap.md#after-v1) |
+
 **Language: Go.** Single static binary `pawl`, ~1 ms startup, cross-compiled for linux/macOS ×
 amd64/arm64 via goreleaser, published as GitHub Releases — chosen for single-binary distribution and
 fast startup in a CLI invoked dozens of times per run.
 
 **Distribution: a Claude Code plugin**, containing (a) the `/pawl` skill, (b) `hooks/hooks.json`
-declaring the two static hooks behind the `pawl-hook` fast-path wrapper (§5), and (c) `bin/install.sh`.
-The skill runs `install.sh` on first use — not a `SessionStart` hook, to avoid a second hook — which
-ensures `~/.claude/pawl/bin/pawl` exists at the version pinned in the plugin manifest, downloading the
-matching release if not. `pawl run` refuses to start (exit 4, start and resume alike) if the binary's version does not match
-the plugin's, naming both; as built, the plugin's `bin/pawl` launcher exports `PAWL__PLUGIN_VERSION`
-from `plugin.json` and `pawl run` compares it with its own version, skipping the check when the
-variable is unset or the binary is a `dev` source build. No other command checks. `brew install` / `go install` remain as alternatives that put `pawl` on `PATH`;
-as built today, the plugin's `bin/pawl` launcher prefers its bundled `libexec/<os>_<arch>/pawl` and
-uses a `pawl` on `PATH` only in a checkout without `libexec/`.
+declaring the static hooks behind the `pawl-hook` fast-path wrapper (§5), and (c) the `pawl` binary,
+bundled per platform under `libexec/<os>_<arch>/pawl` in the release plugin archive and run by the
+plugin's `bin/pawl` launcher. (The original design had the skill run a `bin/install.sh` on first
+use to fetch a pinned binary into `~/.claude/pawl/bin/pawl`; the bundled binary superseded it.)
+`pawl run` refuses to start (exit 4, start and resume alike) if the binary's version does not match
+the plugin's, naming both; the launcher exports `PAWL__PLUGIN_VERSION` from `plugin.json` and
+`pawl run` compares it with its own version, skipping the check when the variable is unset or the
+binary is a `dev` source build. No other command checks. `go install` puts `pawl` on `PATH` as an
+alternative (there is no Homebrew formula); the plugin's `bin/pawl` launcher prefers its bundled
+`libexec/<os>_<arch>/pawl` and uses a `pawl` on `PATH` only in a checkout without `libexec/`.
 
-**Workflow resolution**: repo-local `.claude/workflows/<name>.yaml` (found by walking up from the
-working-copy root), then user-level `~/.claude/workflows/<name>.yaml`; first match wins, and `pawl run`
+**Workflow resolution**: repo-local `.claude/workflows/<name>.yaml` (searched from the current
+directory up to the working-copy root, inclusive), then user-level `~/.claude/workflows/<name>.yaml`; first match wins, and `pawl run`
 prints which one it used. `scripts/` resolve relative to the workflow file (the first token of a command, when it contains a
 `/` and is not absolute — a bare command name goes through `PATH`; `design/format-spec.md` §B.2,
 "Script base"); there is no `prompts/`
-convention, since `description:` is inline. Plugin-shipped workflows are Milestone 2, "if free" — only
-if Claude Code exposes enabled-plugin paths to hooks and skills without dedicated code.
+convention, since `description:` is inline. Plugin-shipped workflows are not built; they are listed under "After v1" in
+[docs/roadmap.md](docs/roadmap.md#after-v1), "if free" — only if Claude Code exposes enabled-plugin
+paths to hooks and skills without dedicated code.

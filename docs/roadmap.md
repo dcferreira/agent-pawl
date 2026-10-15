@@ -15,6 +15,9 @@ Tick an item off in the same PR that ships it.
 - [x] **`pawl run` refuses a binary whose version doesn't match the plugin's pin**, naming both
   versions (exit 4; the plugin launcher exports `PAWL__PLUGIN_VERSION`) ([format-spec §I](../design/format-spec.md#i-cli-and-roadmap),
   [DESIGN.md §9](../DESIGN.md#9-implementation-and-distribution)).
+- Not planned: a skill-run `install.sh` that pins `~/.claude/pawl/bin/pawl`. The bundled
+  `libexec/<os>_<arch>/pawl` binary in the release plugin archive superseded it
+  ([install.md](install.md), [DESIGN.md §9](../DESIGN.md#9-implementation-and-distribution)).
 - [ ] **Release pipeline polish:** an App-bot committer, and moving goreleaser-action off Node 20
   (#25).
 
@@ -59,3 +62,5 @@ The outstanding parts of format-spec §I's Milestone 3:
 - Plugin-shipped workflows: only "if free", meaning only if Claude Code exposes enabled-plugin
   paths to hooks and skills without dedicated code
   ([DESIGN.md §9](../DESIGN.md#9-implementation-and-distribution)).
+- A Homebrew formula or tap. There is none today (`.goreleaser.yaml` has no `brews` section);
+  `go install`, `install.sh` and the plugin cover installation.

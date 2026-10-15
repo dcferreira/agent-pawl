@@ -20,36 +20,32 @@ steps:
     kind: deterministic
     run: pytest -q
     postcondition: pytest -q
+    next: done
 terminal: {done: {status: ok}}
 ```
 
-```
-› /pawl run tidy
-  hooks: PreToolUse ✔ (heartbeat)  Stop assumed (same hooks.json)
-  ✔ format → test
-  ✔ test → done
-  TERMINAL a41c ok
-```
+<!-- pawl-capture: readme/tidy-run (captured output added in the next PR) -->
 
 ## Read in this order
 
 1. [install.md](install.md) — get `pawl` onto your machine.
-2. [quickstart.md](quickstart.md) — write and run your first workflow in under ten minutes.
-3. [concepts.md](concepts.md) — the eight nouns, and why postconditions are the engine's job.
-4. [step-types.md](step-types.md) — the five step kinds at a glance, and which one to reach for.
-5. [running.md](running.md) — what a run looks like: the banner, the step lines, `pawl status`, resume, BLOCKED.
-6. [writing-workflows.md](writing-workflows.md) — the file skeleton, transitions, state, caps, a full example.
-7. The five step kinds, in full:
+2. [status.md](status.md) — what this build runs, and what it does not.
+3. [quickstart.md](quickstart.md) — write and run your first workflow in under ten minutes.
+4. [concepts.md](concepts.md) — the eight nouns, and why postconditions are the engine's job.
+5. [step-types.md](step-types.md) — the five step kinds at a glance, and which one to reach for.
+6. [running.md](running.md) — what a run looks like: the banner, the step lines, `pawl status`, resume, BLOCKED.
+7. [writing-workflows.md](writing-workflows.md) — the file skeleton, transitions, state, caps, a full example.
+8. The five step kinds, in full:
    [deterministic](steps/deterministic.md) ·
    [agentic](steps/agentic.md) ·
    [wait](steps/wait.md) ·
    [human](steps/human.md) ·
    [parallel](steps/parallel.md)
-8. [guards-and-invariants.md](guards-and-invariants.md) — the two enforcement layers, and what they do not cover.
-9. [validation.md](validation.md) — every `pawl validate` check and its error message.
-10. [cli.md](cli.md) — the full command reference.
-11. [troubleshooting.md](troubleshooting.md) and [faq.md](faq.md).
-12. [compatibility.md](compatibility.md) — what 1.x promises not to break, and what is internal.
+9. [guards-and-invariants.md](guards-and-invariants.md) — the two enforcement layers, and what they do not cover.
+10. [validation.md](validation.md) — every `pawl validate` check and its error message.
+11. [cli.md](cli.md) — the full command reference.
+12. [troubleshooting.md](troubleshooting.md) and [faq.md](faq.md).
+13. [compatibility.md](compatibility.md) — what 1.x promises not to break, and what is internal.
 
 ## What it is for
 
@@ -66,20 +62,7 @@ manage your files; steps do that, and nothing is ever rolled back.
 
 ## Not yet
 
-These are planned but not available:
-
-- `pawl graph` — a Mermaid diagram of the parsed graph.
-- `pawl validate --walk step=TOKEN,…` — print the step sequence a given outcome assignment produces,
-  without executing anything.
-- `pawl status --history` — the full journal, not just the current position.
-- `pawl run <name> --from <step>` — resume a run at an arbitrary step rather than the one it blocked
-  at.
-- Concurrent *execution* of `foreach:` items (`concurrency:`). `kind: parallel` with a declared
-  branch group (all-or-nothing) and `foreach:` over a `deterministic` or `agentic` body (per-item
-  postconditions and `attempts:`, a `success`/`partial`/`failure` join) already ship; see
-  [format-spec §B.15](../design/format-spec.md), [examples/foreach-fanout](examples/foreach-fanout/)
-  and [examples/foreach-agentic](examples/foreach-agentic/).
-- Workflows shipped inside a plugin. Today a workflow comes from your repo or your home directory.
+What this build does not do yet is listed in [status.md#not-built](status.md#not-built); plans are in [roadmap.md](roadmap.md).
 
 ---
 
