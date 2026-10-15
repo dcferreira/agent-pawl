@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/dcferreira/agent-pawl/internal/render"
+	"github.com/dcferreira/agent-pawl/internal/spec"
 )
 
 // cmdValidate implements pawl validate <workflow-name> | --path <file>
@@ -118,6 +119,10 @@ func cmdValidate(args []string, cwd string, stdout, stderr io.Writer) int {
 		printLine(stderr, err.Error())
 		return exitForLoadErr(err)
 	}
+
+	// Rule 16 (referenced files exist) needs the filesystem, so it is not in
+	// spec.Validate; its errors are reported exactly like Validate's.
+	report.Errors = append(report.Errors, spec.CheckFiles(wf)...)
 
 	w := &blockWriter{}
 	w.line(0, "workflow:", rw.Path, "("+rw.Source+")")

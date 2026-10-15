@@ -595,6 +595,7 @@ func TestRun_DigestMismatchOffersFresh(t *testing.T) {
 func TestValidate_Clean(t *testing.T) {
 	root := setupWorkingCopy(t)
 	writeWorkflow(t, root, "sample", sampleWorkflow)
+	writeContextFile(t, root, "notes.txt", "x\n")
 
 	stdout, stderr, code := runCLI(t, []string{"pawl", "validate", "sample"})
 	if code != 0 {
@@ -621,6 +622,7 @@ func TestValidate_Clean(t *testing.T) {
 func TestValidate_ReportsDeclaredGuards(t *testing.T) {
 	root := setupWorkingCopy(t)
 	writeWorkflow(t, root, "sample-guards", sampleWorkflowWithGuards)
+	writeContextFile(t, root, "notes.txt", "x\n")
 
 	stdout, stderr, code := runCLI(t, []string{"pawl", "validate", "sample-guards"})
 	if code != 0 {
@@ -1006,7 +1008,7 @@ steps:
   - id: greet
     kind: agentic
     description: "Greet."
-    context: ["missing.txt"]
+    context: ["${greeting}missing.txt"]
     subagent_args: {tools: [Read]}
     writes:
       greeting: {type: string}

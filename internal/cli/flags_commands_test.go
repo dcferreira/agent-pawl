@@ -144,6 +144,7 @@ func TestStatusAbandon_EqualsForm(t *testing.T) {
 func TestValidate_EqualsForm(t *testing.T) {
 	root := setupWorkingCopy(t)
 	writeWorkflow(t, root, "sample", sampleWorkflow)
+	writeContextFile(t, root, "notes.txt", "x\n")
 	if out, e, code := runCLI(t, []string{"pawl", "validate", "--path=.claude/workflows/sample.yaml"}); code != 0 || !strings.Contains(out, "workflow:") {
 		t.Fatalf("%d %q %q", code, out, e)
 	}

@@ -49,8 +49,13 @@ func (r *Report) SoftPercent() float64 {
 // (Ruling R3); wait's own required fields (poll:) and duration parsing
 // (every:, timeout:) are checked alongside rule 7, human's own required
 // fields and options routing are checked by rule 8, and a step's retry:
-// block (Ruling R7, no longer deferred) is checked by rule 19. Rule 16 and
-// the two warnings are deferred per R4.
+// block (Ruling R7, no longer deferred) is checked by rule 19. Rule 16
+// (referenced files exist) is not checked here: it needs the filesystem, so
+// it lives in CheckFiles (validate_files.go), enforced only by `pawl
+// validate` and by `pawl run` when starting a NEW run — never on resume,
+// `pawl status` or hooks, because a script deleted after its step already ran
+// must not make a live run unresumable. The two warnings stay deferred per
+// R4.
 func Validate(w *Workflow) (*Report, error) {
 	if w == nil {
 		return nil, fmt.Errorf("spec: Validate: nil workflow")

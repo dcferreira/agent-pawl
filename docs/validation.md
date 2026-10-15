@@ -82,10 +82,13 @@ enforced (enforcement off)` instead — whenever a workflow declares any. `pawl 
 no run to be enforced or not, adds `guards: N declared (enforced only when a run starts with the
 pawl hooks installed)`. Full field-by-field rules: `design/format-spec.md` §H rule 15.
 
-**16 — missing or non-executable file.** A referenced script doesn't exist (relative to
-`.claude/workflows/`), or isn't `chmod +x`. Not implemented in this build: `validate` never touches
-the filesystem beyond parsing the YAML, so a missing or non-executable script or context file passes
-`validate` clean and only shows up as a BLOCKED run when `pawl run` actually tries it.
+**16 — missing or non-executable file.** A literal-path command reference (`run:`, `poll:`,
+postcondition `command:`, invariant `check:`, `!cmd` `context:`; first token contains `/` and no
+`${`) doesn't exist or isn't `chmod +x`, or a plain `context:` file doesn't exist or isn't readable.
+Paths resolve relative to the workflow file's directory. Checked by `pawl validate` and when
+`pawl run` starts a new run — never on resume, `pawl status` or hooks, so a script deleted after its
+step already ran can't make a live run unresumable. Bare commands (`go test ./...`) and paths
+containing `${key}` are skipped.
 
 **17 — bad `kind: parallel` branch.** `branches:` needs ≥ 2 entries, each a declared
 `deterministic`/`agentic` step (no nesting), listed once, claimed by only one `parallel` step, not
