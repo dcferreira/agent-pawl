@@ -45,9 +45,10 @@ func renderValue(declType string, v any) render.Value {
 
 // formatScalar renders a non-string, non-json state/arg value as text by its
 // declared type, never in exponent form: a float64 renders via fmt.Sprint as
-// "1e+06" for 1000000. (Journal replay hands numbers back as json.Number,
-// like the fresh submit path; float64 still arises from number-typed zero
-// defaults and YAML defaults.) An integer
+// "1e+06" for 1000000. (Journal replay hands numbers back as exact
+// json.Number text, whereas the fresh path coerces `integer` to int64 and
+// `number` to float64; float64 also arises from number-typed zero defaults
+// and YAML defaults.) An integer
 // renders as a plain decimal integer; a number as the shortest exact decimal.
 func formatScalar(declType string, v any) string {
 	switch x := v.(type) {

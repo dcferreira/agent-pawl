@@ -167,8 +167,9 @@ func parseJournal(data []byte) (events []Event, validLen int, err error) {
 }
 
 // decodeRecord decodes one events.jsonl record with UseNumber, so numbers in
-// Args/Writes/Items replay as json.Number (exact text) — the same type the
-// fresh submit/emit path produces — rather than a lossy float64. Like
+// Args/Writes/Items replay as json.Number (exact text) rather than a lossy
+// float64. (The fresh submit/emit path instead coerces `integer` to int64 and
+// `number` to float64; value-level helpers keep the two in agreement.) Like
 // json.Unmarshal it rejects trailing data after the record.
 func decodeRecord(line []byte, e *Event) error {
 	dec := json.NewDecoder(bytes.NewReader(line))
