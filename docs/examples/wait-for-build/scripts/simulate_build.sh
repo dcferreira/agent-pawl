@@ -3,7 +3,9 @@
 #
 # Stands in for an async CI run: sleeps ~17s (roughly the middle of the
 # "15-20 seconds" this example targets — kept fixed, not randomized, so the
-# example stays deterministic and easy to reason about in tests) and then
+# example stays deterministic and easy to reason about in tests; override the
+# duration with the SIMULATE_BUILD_SECONDS env var, default 17, which is how
+# e2e/wait_for_build_test.go keeps the run fast) and then
 # appends a single line, PASSED or FAILED, to status_file. Meant to be
 # launched backgrounded (`&`, via nohup) by kick_off_build.sh so the
 # deterministic step that starts it returns immediately.
@@ -21,7 +23,7 @@ case "$result" in
   *) result=PASSED ;;
 esac
 
-sleep 17
+sleep "${SIMULATE_BUILD_SECONDS:-17}"
 
 mkdir -p "$(dirname -- "$status_file")"
 echo "$result" >> "$status_file"

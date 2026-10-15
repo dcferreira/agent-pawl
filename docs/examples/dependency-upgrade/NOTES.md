@@ -1,5 +1,7 @@
 # NOTES — authoring `dependency-upgrade` against the UX proposal
 
+> **Authoring exercise, not run.** This workflow is a design sketch: it validates (`pawl validate`), but no test runs it and its external dependencies are not stubbed. See [../README.md](../README.md).
+
 ## Current format
 
 `dependency-upgrade` now exercises: named deterministic outcomes
@@ -481,3 +483,8 @@ Errata 1 resolves item §4 above in favor of the annotated example: the
 removed along with the comments explaining the now-resolved ambiguity.
 `postcondition:` remains optional (and omitted) on all three `wait`/`human`
 steps in this workflow.
+
+## External dependencies (not shipped)
+
+- Every script under `scripts/` is a placeholder that exits 1; the real logic is not shipped.
+- Tools the sketch assumes on `PATH`: `uv`, `pytest`, and a VCS plus a CI/PR host CLI.

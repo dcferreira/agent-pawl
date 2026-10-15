@@ -1,5 +1,7 @@
 # NOTES — what this example exercises
 
+> **Authoring exercise, not run.** This workflow is a design sketch: it validates (`pawl validate`), but no test runs it and its external dependencies are not stubbed. See [../README.md](../README.md).
+
 ## Current format
 
 `manage-mr` now exercises: guards + invariants together; a `wait` step
@@ -67,3 +69,8 @@ the reserved token `chosen` and the actual pick lands in `writes:`,
 branched on downstream.
 
 See `design/format-spec.md` for the field reference these steps use.
+
+## External dependencies (not shipped)
+
+- Every script under `scripts/` is a placeholder that exits 1; the real logic is not shipped.
+- Tools the sketch assumes on `PATH`: `glab` (GitLab API), a VCS CLI, and CodeRabbit on the target MR.
