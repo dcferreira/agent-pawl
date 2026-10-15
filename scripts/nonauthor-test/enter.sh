@@ -48,6 +48,7 @@ args+=(
   --setenv TERM "${TERM:-xterm-256color}"
   --setenv LANG C.UTF-8
   --setenv DISABLE_AUTOUPDATER 1
+  --setenv ENABLE_CLAUDEAI_MCP_SERVERS false
   --setenv GOTELEMETRY off
   --chdir "$SB_HOME"
 )
