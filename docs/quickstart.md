@@ -66,10 +66,10 @@ soft: 0/2 steps (0.0%): (none)
 
 The first line says which file `pawl` resolved the name to (repo-local before home). The second is
 the soft census: how many steps advance on a `soft: true` postcondition (none here). Nothing else
-means the workflow is valid; the exit status is 0. Validation is static: it checks the graph, state keys and caps. It does not check that a referenced
-script or context file exists — that's not caught until `pawl run` actually tries to gather it, and a
-missing one then ends the run `BLOCKED`, not `pawl validate` refusing to start. It runs nothing itself
-— the fastest feedback in the tool, so get in the habit.
+means the workflow is valid; the exit status is 0. Validation checks the graph, state keys and caps, and that a script or context file referenced by
+a literal path exists (and a script is executable); a path containing `${key}` can't be checked
+until the run fills it in ([validation.md](validation.md) rule 16). It runs nothing itself — the
+fastest feedback in the tool, so get in the habit.
 
 Break it on purpose to see the shape of an error — change `next: count` to `next: cuont`. Each error is
 one line: the file, the step, the rule number, what is wrong and how to fix it. The exit status is 2:

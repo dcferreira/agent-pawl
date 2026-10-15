@@ -60,6 +60,7 @@ type docScenario struct {
 	files    map[string]string // project-relative path -> content (.sh files are executable)
 	copies   map[string]string // project-relative path -> repo-relative source file
 	homeCopy map[string]string // HOME-relative path -> repo-relative source file
+	copyDirs map[string]string // project-relative dir -> repo-relative source dir, copied recursively
 	path     map[string]string // extra executables placed first on PATH: name -> script body
 	enforced bool              // see the package comment
 	gitRepo  bool              // make the project a real git repository with the copied files committed
@@ -291,8 +292,9 @@ var docScenarios = map[string]docScenario{
 	},
 
 	"validate/manage-mr": {
-		copies: map[string]string{".claude/workflows/manage-mr.yaml": "docs/examples/manage-mr/workflow.yaml"},
-		cmds:   []docCmd{pawlCmd("validate", "manage-mr")},
+		copies:   map[string]string{".claude/workflows/manage-mr.yaml": "docs/examples/manage-mr/workflow.yaml"},
+		copyDirs: map[string]string{".claude/workflows/scripts": "docs/examples/manage-mr/scripts"},
+		cmds:     []docCmd{pawlCmd("validate", "manage-mr")},
 	},
 
 	"cli/refuse-no-heartbeat": {
@@ -547,6 +549,22 @@ func runDocScenario(t *testing.T, s docScenario) string {
 	}
 	for rel, src := range s.homeCopy {
 		put(home, rel, read(src))
+	}
+	for rel, src := range s.copyDirs {
+		err := filepath.WalkDir(filepath.Join(repo, src), func(p string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			sub, err := filepath.Rel(filepath.Join(repo, src), p)
+			if err != nil {
+				return err
+			}
+			put(project, filepath.Join(rel, sub), read(filepath.Join(src, sub)))
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	for name, body := range s.path {
 		if err := os.WriteFile(filepath.Join(binDir, name), []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {

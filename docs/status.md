@@ -88,8 +88,6 @@ The docs or design describe these, and this build does not do them. Plans live i
 - An `outcome:` enum member of the agentic return schema: not built. See
   [roadmap](roadmap.md#workflow-format).
 - Plugin-shipped workflows: not built. See [roadmap](roadmap.md#after-v1).
-- Validator rule 16 (referenced files exist and are executable): not built, in progress
-  ([#69](https://github.com/dcferreira/agent-pawl/pull/69)).
 - A skill-run `install.sh` that pins `~/.claude/pawl/bin/pawl`: not built, and superseded by the
   bundled binary. See [roadmap](roadmap.md#distribution).
 - Homebrew (there is no formula or tap): not built. See [roadmap](roadmap.md#after-v1).
