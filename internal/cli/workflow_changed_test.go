@@ -94,3 +94,15 @@ func TestResumeRefusal_AddedAndRemovedSteps(t *testing.T) {
 		t.Errorf("removed detail = %q, want %q", removed, "count (removed), greet")
 	}
 }
+
+func TestResumeRefusal_ReorderedStepsSaysOrderChanged(t *testing.T) {
+	got := resumeRefusalDetail(t, func(s string) string {
+		i := strings.Index(s, "  - id: greet")
+		j := strings.Index(s, "  - id: count")
+		k := strings.Index(s, "terminal:")
+		return s[:i] + s[j:k] + s[i:j] + s[k:]
+	})
+	if got != "step order changed" {
+		t.Errorf("reorder detail = %q, want %q", got, "step order changed")
+	}
+}

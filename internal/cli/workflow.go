@@ -184,6 +184,11 @@ func diffSteps(old, new *spec.Workflow) string {
 	}
 	sort.Strings(changed)
 	if len(changed) == 0 {
+		for i := range old.Steps {
+			if old.Steps[i].ID != new.Steps[i].ID {
+				return "step order changed"
+			}
+		}
 		return "workflow-level fields only (start:, args:, state:, terminal:, …)"
 	}
 	return strings.Join(changed, ", ")
