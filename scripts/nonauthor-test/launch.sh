@@ -71,7 +71,12 @@ fi
 verified=no
 for _ in $(seq 1 30); do
   pane="$(command tmux capture-pane -p -t "$SESSION" 2>/dev/null || true)"
-  if printf '%s\n' "$pane" | grep -qE '^[[:space:]]*(>|❯)|╭─|│ >|shift\+tab|\? for shortcuts|bypass permissions'; then
+  # The one-time bypass-permissions dialog also draws a box and a ❯ selector: never count it.
+  if printf '%s\n' "$pane" | grep -qE 'Yes, I accept|No, exit'; then
+    sleep 2
+    continue
+  fi
+  if printf '%s\n' "$pane" | grep -qE '^[[:space:]]*(>|❯)|╭─|│ >|shift\+tab|\? for shortcuts|bypass permissions on'; then
     verified=yes
     break
   fi

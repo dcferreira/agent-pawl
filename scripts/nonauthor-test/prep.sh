@@ -174,7 +174,8 @@ cp "$HERE/friction-template.md" "$SB_HOME/FRICTION.md"
 sf="$SB_CFG/settings.json"
 [ -f "$sf" ] || echo '{}' >"$sf"
 jq '.permissions.deny = ((.permissions.deny // []) + ["WebFetch", "WebSearch"] | unique)
-    | .env.DISABLE_AUTOUPDATER = "1"' "$sf" >"$sf.new"
+    | .env.DISABLE_AUTOUPDATER = "1"
+    | .skipDangerousModePermissionPrompt = true' "$sf" >"$sf.new"
 mv "$sf.new" "$sf"
 
 # --- shell init (no plugin bin dir on PATH: a stranger's terminal does not have it) ---------------
