@@ -1,5 +1,0 @@
-kind: breaking
-body: String state now keeps real newlines and tabs instead of storing them as a literal `\u000a`/`\u0009`; every other control character and DEL is still stored as a visible `\u00XX` escape, now uniformly for emit json/pairs and agentic submit (string and json). `max_length` counts the value as stored (a newline is 1). Values stored by an older pawl stay literal on resume (no migration).
-time: 2026-10-14T17:32:54.573899363+02:00
-custom:
-    PR: "63"

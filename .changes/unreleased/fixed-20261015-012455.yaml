@@ -1,5 +1,0 @@
-kind: fixed
-body: 'Journal replay now keeps numbers exact: integers above 2^53 survive a resume, and `equals:` compares numeric values by value (1000000 matches 1e6) whether the step ran fresh or after a replay. A numeric 0 now counts as unset for `all_set:` on every path, as format-spec §D always said.'
-time: 2026-10-15T01:24:55.234035778+02:00
-custom:
-    PR: "64"

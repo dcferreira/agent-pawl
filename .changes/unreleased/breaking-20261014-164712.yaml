@@ -1,5 +1,0 @@
-kind: breaking
-body: Run directories now carry a format version (format 2) and `plan.json` uses snake_case keys; a run started by this pawl cannot be resumed by an older pawl (downgrading is not supported), while runs started by older pawl still resume. The workflow-changed check now re-digests the pinned plan with the running code, so a future digest change can't falsely refuse an in-flight run.
-time: 2026-10-14T16:47:12.538248628+02:00
-custom:
-  PR: "56"

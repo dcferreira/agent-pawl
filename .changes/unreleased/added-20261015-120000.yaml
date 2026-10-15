@@ -1,5 +1,0 @@
-kind: added
-body: '`docs/compatibility.md` defines what 1.x keeps stable (the workflow format, the step-script contract, the CLI as scripts use it, the hook entry points, resume across 1.x and the frozen defaults) and what stays internal. format-spec §D now defines `all_set:` precisely, and docs/install.md shows a fail-open wrapper for wiring the hooks without the plugin.'
-time: 2026-10-15T12:00:00.000000000+00:00
-custom:
-    PR: "65"

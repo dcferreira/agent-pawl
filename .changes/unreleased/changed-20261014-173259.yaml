@@ -1,5 +1,0 @@
-kind: changed
-body: A `!cmd` context entry that exits non-zero or times out now adds an engine-written `(context command exited N)` / `(context command timed out)` line under that context item in the DISPATCH block instead of passing silently.
-time: 2026-10-14T17:32:59.909941271+02:00
-custom:
-    PR: "63"
