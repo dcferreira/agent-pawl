@@ -12,6 +12,13 @@
 # - No libexec/ at all (a source checkout, or --plugin-dir): fall back to
 #   searching PATH for a real `pawl`.
 #
+# - Both branches export PAWL__PLUGIN_VERSION, the "version" from the plugin's
+#   own .claude-plugin/plugin.json, before exec. `pawl run` compares it with
+#   its own version and refuses to start on a mismatch, so a stale binary can
+#   not drive a newer skill. It is read with sed (no jq dependency); if the
+#   file is missing, unreadable or has no usable "version", the variable is
+#   unset rather than guessed, and pawl skips the check.
+#
 # TRAP (fallback only): Claude Code puts a plugin's bin/ on PATH, so this
 # script is itself named `pawl` and sits ahead of everywhere else. A naive
 # `exec pawl "$@"` would find itself and recurse forever. Skipping our own
@@ -50,6 +57,18 @@ self="$(resolve "${BASH_SOURCE[0]}")" || {
   exit 1
 }
 plugin_root="$(dirname "$(dirname "$self")")"
+
+# Read "version" from plugin.json without jq. Every step is guarded so a
+# missing or garbled file cannot trip `set -e`/pipefail.
+plugin_version=""
+if [ -r "$plugin_root/.claude-plugin/plugin.json" ]; then
+  plugin_version="$(sed -n 's/^.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*$/\1/p' \
+    "$plugin_root/.claude-plugin/plugin.json" 2>/dev/null | head -n 1 || true)"
+fi
+case "$plugin_version" in
+  ""|*[!A-Za-z0-9._+-]*) unset PAWL__PLUGIN_VERSION ;;
+  *) export PAWL__PLUGIN_VERSION="$plugin_version" ;;
+esac
 
 if [ -d "$plugin_root/libexec" ]; then
   uname_s="$(uname -s)"

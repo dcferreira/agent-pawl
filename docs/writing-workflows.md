@@ -28,9 +28,9 @@ A `!cmd` context entry whose command exits non-zero or times out still contribut
 
 ```
 › pawl list
-manage-mr           repo   .claude/workflows/manage-mr.yaml
-dependency-upgrade  repo   .claude/workflows/dependency-upgrade.yaml
-brain-dispatch      user   ~/.claude/workflows/brain-dispatch.yaml
+manage-mr	repo-local	/path/to/repo/.claude/workflows/manage-mr.yaml
+dependency-upgrade	repo-local	/path/to/repo/.claude/workflows/dependency-upgrade.yaml
+brain-dispatch	user	/home/you/.claude/workflows/brain-dispatch.yaml
 ```
 
 Steps run with cwd at the working-copy root, never wherever the session happened to be.

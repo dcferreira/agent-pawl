@@ -583,7 +583,7 @@ func TestRun_DigestMismatchOffersFresh(t *testing.T) {
 
 	_, stderr, code2 := runCLI(t, []string{"pawl", "run", "sample"})
 	if code2 != 4 {
-		t.Fatalf("exit = %d, want 4 (a refusal, docs/cli.md's exit-code table); stderr = %q", code2, stderr)
+		t.Fatalf("exit = %d, want 4 (a refusal, the frozen exit-code table (exitcode.go)); stderr = %q", code2, stderr)
 	}
 	if !strings.Contains(stderr, "--fresh") || !strings.Contains(stderr, "greet") {
 		t.Errorf("stderr = %q, want it to name step %q and offer --fresh", stderr, "greet")
@@ -644,12 +644,12 @@ steps:
     kind: deterministic
     run: echo hi
 `)
-	stdout, _, code := runCLI(t, []string{"pawl", "validate", "broken"})
+	_, stderr, code := runCLI(t, []string{"pawl", "validate", "broken"})
 	if code != 2 {
-		t.Fatalf("exit = %d, want 2 (validation failed, docs/cli.md's exit-code table)", code)
+		t.Fatalf("exit = %d, want 2 (validation failed, the frozen exit-code table (exitcode.go))", code)
 	}
-	if !strings.Contains(stdout, `step "a"`) {
-		t.Errorf("stdout missing the failing step id: %q", stdout)
+	if !strings.Contains(stderr, `step "a"`) {
+		t.Errorf("stderr missing the failing step id: %q", stderr)
 	}
 }
 
@@ -983,7 +983,7 @@ func TestSubmitRefusesMidRunEdit(t *testing.T) {
 
 	stdout2, stderr2, code2 := runCLI(t, []string{"pawl", "submit", "--run", runID, "--step", "greet", "--json", `{"greeting":"hi"}`})
 	if code2 != 4 {
-		t.Fatalf("exit = %d, want 4 (a refusal, docs/cli.md's exit-code table); stdout = %q", code2, stdout2)
+		t.Fatalf("exit = %d, want 4 (a refusal, the frozen exit-code table (exitcode.go)); stdout = %q", code2, stdout2)
 	}
 	if !strings.Contains(stderr2, "changed") || !strings.Contains(stderr2, "abandon") {
 		t.Errorf("stderr = %q, want it to say the workflow changed and suggest abandon", stderr2)
@@ -1026,7 +1026,7 @@ func TestTerminalBlockedSurfacesDetail(t *testing.T) {
 
 	stdout, _, code := runCLI(t, []string{"pawl", "run", "blocked-demo"})
 	if code != 3 {
-		t.Fatalf("pawl run: exit %d, want 3 (BLOCKED terminal, docs/cli.md's exit-code table); stdout = %q", code, stdout)
+		t.Fatalf("pawl run: exit %d, want 3 (BLOCKED terminal, the frozen exit-code table (exitcode.go)); stdout = %q", code, stdout)
 	}
 	if !strings.Contains(stdout, "TERMINAL") || !strings.Contains(stdout, " blocked") {
 		t.Fatalf("expected a blocked TERMINAL; stdout = %q", stdout)
@@ -1181,7 +1181,8 @@ func TestStatusJSON(t *testing.T) {
 	}
 
 	assertJSONStringKey(t, "one-run", run, "run_id", runID)
-	assertJSONStringKey(t, "one-run", run, "workflow", "")
+	assertJSONStringKey(t, "one-run", run, "workflow", "sample")
+	assertJSONStringKey(t, "one-run", run, "workflow_path", "")
 	assertJSONStringKey(t, "one-run", run, "status", "running")
 	assertJSONStringKey(t, "one-run", run, "step", "greet")
 	assertJSONNumberKey(t, "one-run", run, "attempt")
@@ -1230,42 +1231,6 @@ func TestStatusJSON(t *testing.T) {
 	}
 	assertJSONStringKey(t, "abandoned", run2, "status", "abandoned")
 	assertJSONStringKey(t, "abandoned", run2, "reason", "testing --json")
-}
-
-// TestStatusJSON_MultipleLiveRuns is reviewer finding B3's other missing
-// coverage: with more than one live run and no --run to disambiguate,
-// --json must refuse exactly like the human path does — a plain-text
-// usage-refusal on stderr, exit 1 — never a JSON array of more than one
-// run (docs/cli.md's contract: pawl status never actually prints more than
-// one run itself).
-func TestStatusJSON_MultipleLiveRuns(t *testing.T) {
-	root := setupWorkingCopy(t)
-	writeWorkflow(t, root, "sample", sampleWorkflow)
-	// A second, distinct workflow — not just a second file with the same
-	// internal workflow: id, which would resolve to the SAME run namespace
-	// (journal state is keyed by the workflow: field, not the filename)
-	// and make the second pawl run resume the first run instead of
-	// starting a genuinely separate live one.
-	writeWorkflow(t, root, "sample2", strings.Replace(sampleWorkflow, "workflow: sample\n", "workflow: sample2\n", 1))
-	writeContextFile(t, root, "notes.txt", "x\n")
-
-	if _, _, code := runCLI(t, []string{"pawl", "run", "sample", "name=Ada"}); code != 0 {
-		t.Fatalf("pawl run sample: exit %d", code)
-	}
-	if _, _, code := runCLI(t, []string{"pawl", "run", "sample2", "name=Bea"}); code != 0 {
-		t.Fatalf("pawl run sample2: exit %d", code)
-	}
-
-	stdout, stderr, code := runCLI(t, []string{"pawl", "status", "--json"})
-	if code == 0 {
-		t.Fatalf("pawl status --json with two live runs: exit 0, want a disambiguation refusal; stdout = %q", stdout)
-	}
-	if stdout != "" {
-		t.Errorf("pawl status --json with two live runs: stdout = %q, want nothing on stdout (refusal goes to stderr, not JSON)", stdout)
-	}
-	if !strings.Contains(stderr, "--run") {
-		t.Errorf("pawl status --json with two live runs: stderr = %q, want it to mention --run", stderr)
-	}
 }
 
 // TestAbandonReason is task B1: --reason is journalled onto the RUN_END

@@ -12,8 +12,8 @@ Tick an item off in the same PR that ships it.
 
 - [x] **The plugin ships the `pawl` binary.** Since v0.6.0, each release publishes a plugin
   archive that bundles the binary, plus a release `marketplace.json` (see [install.md](install.md)).
-- [ ] **`pawl run` refuses a binary whose version doesn't match the plugin's pin**, naming both
-  versions ([format-spec §I](../design/format-spec.md#i-cli-and-roadmap),
+- [x] **`pawl run` refuses a binary whose version doesn't match the plugin's pin**, naming both
+  versions (exit 4; the plugin launcher exports `PAWL__PLUGIN_VERSION`) ([format-spec §I](../design/format-spec.md#i-cli-and-roadmap),
   [DESIGN.md §9](../DESIGN.md#9-implementation-and-distribution)).
 - [ ] **Release pipeline polish:** an App-bot committer, and moving goreleaser-action off Node 20
   (#25).

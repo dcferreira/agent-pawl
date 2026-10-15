@@ -20,38 +20,27 @@ import (
 // Like pawl submit it takes no attempt number: the journal is authoritative
 // about where the run is. Unlike pawl submit it takes no result at all — the
 // poll: command's own stdout is the result.
+var pollCmd = &command{
+	name:  "poll",
+	usage: cmdUsage(usagePoll),
+	flags: []flagDef{{name: "run"}, {name: "step"}},
+}
+
 func cmdPoll(args []string, cwd string, stdout, stderr io.Writer) int {
-	var runID, stepID string
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--run":
-			i++
-			if i >= len(args) {
-				fmt.Fprintln(stderr, "pawl poll: --run needs a value")
-				return 2
-			}
-			runID = args[i]
-		case "--step":
-			i++
-			if i >= len(args) {
-				fmt.Fprintln(stderr, "pawl poll: --step needs a value")
-				return 2
-			}
-			stepID = args[i]
-		default:
-			printLine(stderr, "pawl poll: unrecognised argument", args[i])
-			return 2
-		}
+	pf, code, done := pollCmd.parseOrExit(args, stdout, stderr)
+	if done {
+		return code
 	}
+	runID, stepID := pf.value("run"), pf.value("step")
 	if runID == "" || stepID == "" {
 		fmt.Fprintln(stderr, "usage: pawl poll --run <id> --step <name>")
-		return 2
+		return exitUsage
 	}
 
 	root, err := journal.ResolveRoot(cwd)
 	if err != nil {
 		printLine(stderr, err.Error())
-		return 1
+		return exitNotFound
 	}
 	ref, err := findRunByID(root, runID)
 	if err != nil {
@@ -67,7 +56,7 @@ func cmdPoll(args []string, cwd string, stdout, stderr io.Writer) int {
 			// Abandoned (or otherwise ended) without being replayable: the
 			// same quiet no-op as an ended run.
 			printLine(stdout, fmt.Sprintf("poll: nothing to do: run %s has already ended", runID))
-			return 0
+			return exitOK
 		}
 		return opaqueRefusal(stderr, "pawl poll", ref)
 	}
@@ -81,7 +70,7 @@ func cmdPoll(args []string, cwd string, stdout, stderr io.Writer) int {
 		// submit/pawl abandon, which a person or the driving session reads
 		// synchronously and can act on a refusal.
 		printLine(stdout, fmt.Sprintf("poll: nothing to do: run %s has already ended (%s)", runID, ref.State.Status()))
-		return 0
+		return exitOK
 	}
 
 	// Same reasoning as pawl submit's: the run's own pinned copy of the
@@ -91,11 +80,11 @@ func cmdPoll(args []string, cwd string, stdout, stderr io.Writer) int {
 		// Same reasoning as pawl submit's: findLiveRun already confirmed
 		// this run exists and is live, so a plan.json that has since become
 		// unreadable is a broken run directory (exit 5), not an unknown run.
-		return printEngineErr(stderr, "pawl poll", runID, err, 5)
+		return printEngineErr(stderr, "pawl poll", runID, err, exitInternal)
 	}
 	if pinned.Changed {
 		printLine(stderr, fmt.Sprintf("pawl poll: workflow file changed since run %s started (changed: %s); this run cannot continue safely — abandon it with `pawl abandon --run %s` and start a fresh run", runID, pinned.Detail, runID))
-		return 4
+		return exitRefused
 	}
 	w := pinned.Workflow
 
@@ -112,9 +101,9 @@ func cmdPoll(args []string, cwd string, stdout, stderr io.Writer) int {
 	if err != nil {
 		if errors.Is(err, engine.ErrPollNotCurrent) {
 			printLine(stdout, "poll: nothing to do:", err.Error())
-			return 0
+			return exitOK
 		}
-		return printEngineErr(stderr, "pawl poll", runID, err, 5)
+		return printEngineErr(stderr, "pawl poll", runID, err, exitInternal)
 	}
 	stampDriver(root, w.Workflow, runID)
 	fmt.Fprint(stdout, formatInstruction(instr, w, root, cwd))

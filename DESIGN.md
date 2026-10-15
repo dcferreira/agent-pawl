@@ -577,8 +577,10 @@ fast startup in a CLI invoked dozens of times per run.
 declaring the two static hooks behind the `pawl-hook` fast-path wrapper (§5), and (c) `bin/install.sh`.
 The skill runs `install.sh` on first use — not a `SessionStart` hook, to avoid a second hook — which
 ensures `~/.claude/pawl/bin/pawl` exists at the version pinned in the plugin manifest, downloading the
-matching release if not. `pawl run` refuses to start if the installed binary's version does not match
-the pin, naming both. `brew install` / `go install` remain as alternatives that put `pawl` on `PATH`;
+matching release if not. `pawl run` refuses to start (exit 4, start and resume alike) if the binary's version does not match
+the plugin's, naming both; as built, the plugin's `bin/pawl` launcher exports `PAWL__PLUGIN_VERSION`
+from `plugin.json` and `pawl run` compares it with its own version, skipping the check when the
+variable is unset or the binary is a `dev` source build. No other command checks. `brew install` / `go install` remain as alternatives that put `pawl` on `PATH`;
 as built today, the plugin's `bin/pawl` launcher prefers its bundled `libexec/<os>_<arch>/pawl` and
 uses a `pawl` on `PATH` only in a checkout without `libexec/`.
 

@@ -40,55 +40,31 @@ import (
 // this without any change to spec: it does not matter which rule's message
 // carried the hostile text, or whether that rule happens to quote its
 // interpolation correctly.
+var validateCmd = &command{
+	name:   "validate",
+	usage:  cmdUsage(usageValidate),
+	flags:  []flagDef{{name: "path"}},
+	maxPos: 1,
+}
+
 func cmdValidate(args []string, cwd string, stdout, stderr io.Writer) int {
-	var name, path string
-	var haveName, havePath bool
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		switch {
-		case arg == "--path":
-			i++
-			if i >= len(args) {
-				fmt.Fprintln(stderr, "pawl validate: --path needs a value")
-				return 2
-			}
-			if havePath {
-				// A repeated --path used to silently keep the last value —
-				// the same "hide a discrepancy instead of reporting it"
-				// failure the name/--path mutual-exclusion check below
-				// exists to refuse (reviewer finding 10).
-				printLine(stderr, "pawl validate: --path given more than once")
-				return 2
-			}
-			path = args[i]
-			havePath = true
-		case strings.HasPrefix(arg, "-"):
-			// Any other argument starting with "-" — a bad flag, a typo, or
-			// --strict (documented once, never implemented — see below) —
-			// is never treated as a positional name, in either argument
-			// order. It used to fall through to the name branch below,
-			// so `pawl validate --strict` looked up a workflow literally
-			// named "--strict" and failed with a resolution error (exit 1)
-			// instead of the usage error (exit 2) an unrecognised flag is
-			// everywhere else in this package (reviewer finding 9).
-			printLine(stderr, "pawl validate: unrecognised argument", arg)
-			return 2
-		default:
-			if haveName {
-				printLine(stderr, "pawl validate: unrecognised argument", arg)
-				return 2
-			}
-			name = arg
-			haveName = true
-		}
+	pf, code, done := validateCmd.parseOrExit(args, stdout, stderr)
+	if done {
+		return code
+	}
+	path, havePath := pf.value("path"), pf.has("path")
+	var name string
+	haveName := len(pf.pos) > 0
+	if haveName {
+		name = pf.pos[0]
 	}
 	if haveName && havePath {
 		fmt.Fprintln(stderr, "usage: pawl validate <workflow-name> | --path <file> — a name and --path are mutually exclusive")
-		return 2
+		return exitUsage
 	}
 	if !haveName && !havePath {
 		fmt.Fprintln(stderr, "usage: pawl validate <workflow-name> | --path <file>")
-		return 2
+		return exitUsage
 	}
 
 	var rw *resolvedWorkflow
@@ -103,7 +79,7 @@ func cmdValidate(args []string, cwd string, stdout, stderr io.Writer) int {
 		}
 		if !fileExists(abs) {
 			printLine(stderr, fmt.Sprintf("pawl: no workflow file at %q", abs))
-			return 1
+			return exitNotFound
 		}
 		rw = &resolvedWorkflow{Path: abs, Source: "path"}
 	} else {
@@ -129,7 +105,7 @@ func cmdValidate(args []string, cwd string, stdout, stderr io.Writer) int {
 				}
 			}
 			printLine(stderr, msg)
-			return 1
+			return exitNotFound
 		}
 	}
 
@@ -146,17 +122,21 @@ func cmdValidate(args []string, cwd string, stdout, stderr io.Writer) int {
 	w := &blockWriter{}
 	w.line(0, "workflow:", rw.Path, "("+rw.Source+")")
 	writeGuardsLine(w, len(wf.Guards), guardsValidate)
-	for _, e := range report.Errors {
-		w.line(0, e)
-	}
 	writeSoftCensus(w, report)
 	fmt.Fprint(stdout, w.String())
 
+	// Validator errors go to stderr, so a script can capture them apart
+	// from the workflow/guards/census lines on stdout.
 	if len(report.Errors) > 0 {
-		// docs/cli.md's exit-code table (~line 33): "validation failed" is
+		eb := &blockWriter{}
+		for _, e := range report.Errors {
+			eb.line(0, e)
+		}
+		fmt.Fprint(stderr, eb.String())
+		// the frozen exit-code table (exitcode.go): "validation failed" is
 		// its own clause under 2 (usage/validation), not 1 (resolution) —
 		// the file resolved fine; spec.Validate is what refused it.
-		return 2
+		return exitUsage
 	}
-	return 0
+	return exitOK
 }

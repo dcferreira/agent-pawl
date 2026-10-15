@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/dcferreira/agent-pawl/internal/selfupdate"
 )
@@ -35,30 +34,10 @@ func validatePin(pin string) error {
 	return nil
 }
 
-func parseUpdateArgs(args []string) (updateFlags, error) {
-	var f updateFlags
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch {
-		case a == "--check":
-			f.Check = true
-		case a == "--force":
-			f.Force = true
-		case a == "--version":
-			i++
-			if i >= len(args) {
-				return f, fmt.Errorf("pawl update: --version needs a value")
-			}
-			f.Pin = args[i]
-			f.VersionGiven = true
-		case strings.HasPrefix(a, "--version="):
-			f.Pin = strings.TrimPrefix(a, "--version=")
-			f.VersionGiven = true
-		default:
-			return f, fmt.Errorf("pawl update: unrecognised argument %q", a)
-		}
-	}
-	return f, nil
+var updateCmd = &command{
+	name:  "update",
+	usage: cmdUsage(usageUpdate),
+	flags: []flagDef{{name: "check", isBool: true}, {name: "force", isBool: true}, {name: "version"}},
 }
 
 // osExecutable and evalSymlinks are os.Executable/filepath.EvalSymlinks,
@@ -140,23 +119,24 @@ func resolveExePath(cfg selfupdate.Config) (string, error) {
 // target directory, or the "impossible" case of a CompareVersions error
 // against an already-validated target version — see below).
 func CmdUpdate(args []string, stdout, stderr io.Writer, currentVersion string, cfg *selfupdate.Config) int {
-	flags, err := parseUpdateArgs(args)
-	if err != nil {
-		printLine(stderr, err.Error())
-		return 2
+	pf, code, done := updateCmd.parseOrExit(args, stdout, stderr)
+	if done {
+		return code
 	}
-	if flags.VersionGiven && flags.Pin == "" {
-		printLine(stderr, "pawl update: --version needs a non-empty value")
-		return 2
+	flags := updateFlags{
+		Check:        pf.boolean("check"),
+		Force:        pf.boolean("force"),
+		Pin:          pf.value("version"),
+		VersionGiven: pf.has("version"),
 	}
 	if flags.Check && flags.VersionGiven {
 		printLine(stderr, "pawl update: --check and --version are mutually exclusive")
-		return 2
+		return exitUsage
 	}
 	if flags.Pin != "" {
 		if err := validatePin(flags.Pin); err != nil {
 			printLine(stderr, err.Error())
-			return 2
+			return exitUsage
 		}
 	}
 
@@ -176,7 +156,7 @@ func CmdUpdate(args []string, stdout, stderr io.Writer, currentVersion string, c
 	if exe, rerr := resolveExePath(resolved); rerr == nil {
 		if root, ok := pluginRootOf(exe, resolved.GOOS, resolved.GOARCH, pathExists); ok {
 			printLine(stderr, fmt.Sprintf("pawl update: this pawl is managed by the agent-pawl Claude Code plugin (%s); update it through the plugin instead: run \"claude plugin update agent-pawl@agent-pawl\" (or enable auto-update for the marketplace under /plugin > Marketplaces), then restart Claude Code or run /reload-plugins. A self-update here would be overwritten by the plugin and bypass its checksum check.", root))
-			return 4
+			return exitRefused
 		}
 	}
 
@@ -191,14 +171,14 @@ func CmdUpdate(args []string, stdout, stderr io.Writer, currentVersion string, c
 		w.line(1, "or rebuild from source (see docs/install.md)")
 		w.line(0, "--force replaces it with a release binary anyway (see docs/cli.md).")
 		fmt.Fprint(stderr, w.String())
-		return 4
+		return exitRefused
 	}
 
 	if flags.Check {
 		tag, err := selfupdate.ResolveTag(resolved, "")
 		if err != nil {
 			printLine(stderr, "pawl update:", err.Error())
-			return 5
+			return exitInternal
 		}
 		latest := selfupdate.VersionNoV(tag)
 		if isDevBuild {
@@ -208,13 +188,13 @@ func CmdUpdate(args []string, stdout, stderr io.Writer, currentVersion string, c
 			available := cerr == nil && cmp < 0
 			printLine(stdout, fmt.Sprintf("current: %s latest: %s update available: %v", currentVersion, latest, available))
 		}
-		return 0
+		return exitOK
 	}
 
 	exePath, err := resolveExePath(resolved)
 	if err != nil {
 		printLine(stderr, "pawl update:", err.Error())
-		return 5
+		return exitInternal
 	}
 	resolved.ExePath = exePath
 
@@ -225,7 +205,7 @@ func CmdUpdate(args []string, stdout, stderr io.Writer, currentVersion string, c
 		tag, err = selfupdate.ResolveTag(resolved, "")
 		if err != nil {
 			printLine(stderr, "pawl update:", err.Error())
-			return 5
+			return exitInternal
 		}
 	}
 	targetVersion := selfupdate.VersionNoV(tag)
@@ -242,7 +222,7 @@ func CmdUpdate(args []string, stdout, stderr io.Writer, currentVersion string, c
 		cmp, cerr := selfupdate.CompareVersions(currentVersion, targetVersion)
 		if cerr != nil {
 			printLine(stderr, fmt.Sprintf("pawl update: internal error: comparing %q to %q: %s", currentVersion, targetVersion, cerr.Error()))
-			return 5
+			return exitInternal
 		}
 		switch {
 		case cmp == 0:
@@ -251,18 +231,18 @@ func CmdUpdate(args []string, stdout, stderr io.Writer, currentVersion string, c
 			} else {
 				printLine(stdout, fmt.Sprintf("already up to date (%s)", currentVersion))
 			}
-			return 0
+			return exitOK
 		case cmp > 0 && flags.Pin == "":
 			printLine(stdout, fmt.Sprintf("current version %s is newer than latest release %s; not downgrading", currentVersion, targetVersion))
-			return 0
+			return exitOK
 		}
 	}
 
 	if err := selfupdate.Apply(resolved, tag); err != nil {
 		printLine(stderr, "pawl update:", err.Error())
-		return 5
+		return exitInternal
 	}
 
 	printLine(stdout, fmt.Sprintf("pawl updated: %s -> %s (%s)", currentVersion, targetVersion, resolved.ExePath))
-	return 0
+	return exitOK
 }

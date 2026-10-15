@@ -66,6 +66,14 @@ describe:
   [docs/releasing.md](releasing.md).
 - `pawl poll --run … --step …` drives a `wait` step; `pawl hook pre|stop|subagent-stop` is the
   `PreToolUse`/`Stop`/`SubagentStop` hook entry point (see the enforcement bullet above).
+- **The CLI contract is frozen for 1.0.** Every command parses flags the same way (`--f v` and
+  `--f=v`; a repeated, empty-valued or unknown flag is exit 2; `-h`/`--help` prints usage and exits
+  0), and the exit codes are one table (0 ok, 1 not found/ambiguous, 2 your input is wrong, 3 run
+  blocked, 4 refused, 5 internal/environment error, panics included) with one exception, `pawl hook`,
+  which fails open and never exits 2. `pawl status --json` carries `schema_version: 1`, a resolvable
+  `workflow` name and a separate `workflow_path`. `pawl run` refuses (exit 4) a binary whose version
+  differs from the plugin's, via the launcher's `PAWL__PLUGIN_VERSION` (skipped when unset, and for a
+  `dev` build). See [cli.md](cli.md).
 - `pawl graph` (a Mermaid diagram of the parsed workflow) is not built yet.
 
 The workflows under `docs/examples/` beyond `green-tests`, `foreach-fanout` and `foreach-agentic` (all covered by

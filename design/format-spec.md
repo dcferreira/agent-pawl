@@ -911,8 +911,11 @@ pawl list                                           resolvable workflows and the
 
 `--fresh` starts a new run and resets every counter; `pawl run` refuses to resume a run whose
 workflow file has changed since it started, and offers `--fresh`. `--force` breaks a stale lock.
-Refusing to start when the installed binary's version doesn't match the plugin's pinned version,
-naming both, is designed but not yet built (see docs/cli.md's `pawl version`). `--run <id>` is
+`pawl run` (start and resume) refuses with exit 4, naming both versions, when the binary's version
+doesn't match the plugin's: the plugin's `bin/pawl` launcher exports `PAWL__PLUGIN_VERSION` (the
+`version` in the plugin's `plugin.json`) and `pawl run` compares it with its own. The check is
+skipped when that variable is unset (not run through the plugin), and, with a stderr note, for a
+`dev` source build; no other command checks (see docs/cli.md's `pawl version`). `--run <id>` is
 needed only to disambiguate when several runs resolve (§B.12). Internal commands, which the model
 calls and an author never writes: `pawl submit --run … --step … --json …`, `pawl poll --run … --step
 …` (§B.13), and `pawl hook pre|stop`, the `PreToolUse`/`Stop` enforcement hooks (see

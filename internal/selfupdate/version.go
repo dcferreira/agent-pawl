@@ -22,10 +22,8 @@ import (
 var versionPattern = regexp.MustCompile(`^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$`)
 
 // Version is a parsed MAJOR.MINOR.PATCH, with an optional pre-release
-// suffix carried along only to make a same-MAJOR.MINOR.PATCH release sort
-// after its own pre-releases (CompareVersions) — nothing here does full
-// semver precedence across multiple pre-release identifiers, since this
-// project's own tags (.goreleaser.yaml, cmd/pawl/main.go) never use them.
+// suffix (stored without the leading "-"), ordered by CompareVersions
+// per semver 2.0.0 §11.
 type Version struct {
 	Major, Minor, Patch int
 	PreRelease          string
@@ -83,12 +81,7 @@ func CompareVersions(a, b string) (int, error) {
 		return c, nil
 	}
 	// Same MAJOR.MINOR.PATCH: a pre-release is older than the plain
-	// release it precedes (semver's own rule), and two different
-	// pre-releases are ordered lexically rather than treated as equal —
-	// this project doesn't tag pre-releases, so there's no real ordering
-	// convention to defer to, but "different strings, equal version" was
-	// actively wrong: it made `pawl update --version v0.3.0-rc2` print
-	// "already on 0.3.0-rc1" and install nothing on a v0.3.0-rc1 binary.
+	// release it precedes; two pre-releases follow semver 2.0.0 §11.
 	switch {
 	case va.PreRelease == vb.PreRelease:
 		return 0, nil
@@ -97,7 +90,54 @@ func CompareVersions(a, b string) (int, error) {
 	case vb.PreRelease == "":
 		return -1, nil
 	default:
-		return strings.Compare(va.PreRelease, vb.PreRelease), nil
+		return comparePreRelease(va.PreRelease, vb.PreRelease), nil
+	}
+}
+
+// comparePreRelease orders two non-empty pre-release strings (without the
+// leading "-") by semver 2.0.0 §11: dot-separated identifiers compare left
+// to right; all-digit identifiers compare numerically and rank below
+// alphanumeric ones, which compare in ASCII order; if every shared
+// identifier is equal, the longer list wins.
+func comparePreRelease(a, b string) int {
+	ia, ib := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(ia) && i < len(ib); i++ {
+		if c := compareIdent(ia[i], ib[i]); c != 0 {
+			return c
+		}
+	}
+	return cmp(len(ia), len(ib))
+}
+
+func isNumeric(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func compareIdent(a, b string) int {
+	na, nb := isNumeric(a), isNumeric(b)
+	switch {
+	case na && nb:
+		// Numeric compare without overflow: strip leading zeros, then
+		// longer is larger, equal length compares lexically.
+		a, b = strings.TrimLeft(a, "0"), strings.TrimLeft(b, "0")
+		if c := cmp(len(a), len(b)); c != 0 {
+			return c
+		}
+		return strings.Compare(a, b)
+	case na:
+		return -1
+	case nb:
+		return 1
+	default:
+		return strings.Compare(a, b)
 	}
 }
 

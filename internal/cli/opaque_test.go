@@ -297,21 +297,91 @@ func TestOpaque_StatusJSONEnvelope(t *testing.T) {
 		t.Fatalf("exit=%d stderr=%q", code, stderr)
 	}
 	var got struct {
-		Root string
-		Runs []struct {
-			RunID    string `json:"run_id"`
-			Workflow string
-			Status   string
-			Reason   string
+		SchemaVersion int `json:"schema_version"`
+		Root          string
+		Runs          []struct {
+			RunID        string `json:"run_id"`
+			Workflow     string
+			WorkflowPath string `json:"workflow_path"`
+			Status       string
+			Reason       string
 		}
 	}
 	if err := json.Unmarshal([]byte(stdout), &got); err != nil || len(got.Runs) != 1 {
 		t.Fatalf("stdout=%q err=%v", stdout, err)
 	}
-	if got.Runs[0].Workflow != wfPath {
-		t.Errorf("workflow = %q, want %q", got.Runs[0].Workflow, wfPath)
+	if got.SchemaVersion != 1 {
+		t.Errorf("schema_version = %d, want 1", got.SchemaVersion)
+	}
+	// wfPath is not a file this machine can resolve, so there is no resume
+	// name: workflow is "" (never the workflow-id dir name).
+	if got.Runs[0].Workflow != "" {
+		t.Errorf("workflow = %q, want \"\" (no resume name resolves)", got.Runs[0].Workflow)
+	}
+	if got.Runs[0].WorkflowPath != wfPath {
+		t.Errorf("workflow_path = %q, want %q", got.Runs[0].WorkflowPath, wfPath)
 	}
 	if r := got.Runs[0]; r.RunID != "ab99" || r.Status != "newer-format" || !strings.Contains(r.Reason, "newer pawl") {
 		t.Errorf("run = %+v", r)
+	}
+}
+
+const unreadableEvents = `{"kind":"RUN_START","run_id":"ab99","seq":0,"time":"2026-01-01T00:00:00Z","format":2}` + "\n" + "garbage\n" +
+	`{"kind":"STEP_ENTER","run_id":"ab99","seq":2,"step":"greet","attempt":1}` + "\n"
+
+func opaqueJSONRuns(t *testing.T, args ...string) []map[string]any {
+	t.Helper()
+	stdout, stderr, code := runCLI(t, append([]string{"pawl", "status", "--json"}, args...))
+	if code != 0 || stderr != "" {
+		t.Fatalf("exit=%d stderr=%q stdout=%q", code, stderr, stdout)
+	}
+	return statusRuns(t, stdout)
+}
+
+func TestOpaque_StatusJSONMultiRunListsOpaque(t *testing.T) {
+	for _, tc := range []struct{ name, events, status string }{
+		{"newer-format", newerEvents, "newer-format"},
+		{"unreadable", unreadableEvents, "unreadable"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := setupWorkingCopy(t)
+			writeWorkflow(t, root, "sample", sampleWorkflow)
+			writeContextFile(t, root, "notes.txt", "x\n")
+			good := startStatusRun(t, "sample", "name=Ada")
+			seedOpaque(t, root, "other", "ab99", tc.events, "")
+
+			runs := opaqueJSONRuns(t)
+			if len(runs) != 2 {
+				t.Fatalf("runs = %v, want 2", runs)
+			}
+			seen := map[string]map[string]any{}
+			for _, r := range runs {
+				seen[r["run_id"].(string)] = r
+			}
+			if seen[good] == nil || seen["ab99"] == nil {
+				t.Fatalf("runs = %v", runs)
+			}
+			o := seen["ab99"]
+			if o["status"] != tc.status || o["reason"] == "" {
+				t.Errorf("opaque entry = %v", o)
+			}
+		})
+	}
+}
+
+func TestOpaque_StatusJSONWorkflowIsResumeNameOrEmpty(t *testing.T) {
+	root := setupWorkingCopy(t)
+	writeWorkflow(t, root, "sample", sampleWorkflow)
+	wfPath := filepath.Join(root, ".claude", "workflows", "sample.yaml")
+	seedOpaque(t, root, "dirslug", "ab99", newerEvents, `{"format":99,"workflow":{"path":"`+wfPath+`"}}`)
+	runs := opaqueJSONRuns(t, "--run", "ab99")
+	if runs[0]["workflow"] != "sample" || runs[0]["workflow_path"] != wfPath {
+		t.Errorf("with plan: %v", runs[0])
+	}
+
+	seedOpaque(t, root, "dirslug2", "cd01", unreadableEvents, "")
+	runs = opaqueJSONRuns(t, "--run", "cd01")
+	if runs[0]["workflow"] != "" || runs[0]["workflow_path"] != "" {
+		t.Errorf("no plan: %v", runs[0])
 	}
 }

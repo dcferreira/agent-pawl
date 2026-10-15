@@ -19,20 +19,40 @@ pawl list
 pawl abandon --run <id> [--reason <text>]
 pawl version
 pawl update [--check] [--version <vX.Y.Z>] [--force]
+pawl help | --help | -h          # usage for every command
+pawl <command> --help | -h       # usage for one command
 ```
+
+## Flags
+
+Every command parses its flags the same way:
+
+- A value flag takes `--flag value` or `--flag=value`. An empty value (`--flag ""`, `--flag=`) is a
+  usage error (exit 2), except `pawl abandon --reason`, where an empty reason is allowed. A value
+  flag consumes the next argument whatever it looks like.
+- A boolean flag takes no value; `--flag=x` is a usage error.
+- A flag given twice is a usage error (exit 2), not last-wins. So is an unknown flag, and so is any
+  single-dash argument other than `-h`.
+- Flags may appear before or after positionals; for `pawl run` that includes before the workflow
+  name.
+- `-h` or `--help` anywhere on a command prints that command's usage to stdout and exits 0, whatever
+  else is on the line. `pawl help`, `pawl --help` and `pawl -h` print the usage for every command,
+  exit 0. `pawl` with no command, or an unknown command, prints it to stderr and exits 2.
+- `pawl version` takes no arguments; `pawl version extra` is exit 2.
 
 ## Exit codes
 
-Every command uses the same table (`pawl status` is the one deliberate exception — see below).
+Every command except `pawl hook` uses the same table. `pawl hook` is the one exception: hook entry
+points fail open and never exit 2 (see [`pawl hook`](#pawl-hook--hook)).
 
 | Code | Meaning |
 |---|---|
 | 0 | fine — incl. stopped at `DISPATCH`/`ASK`/`WAIT`, or ended `ok` |
-| 1 | resolution error: unknown workflow, or another non-flag problem hit while resolving it |
-| 2 | usage error: bad/unrecognised flag, missing a flag's value, missing required arg, or validation failed |
+| 1 | not found, or ambiguous: unknown workflow, a run id that does not exist or matches several runs, or another non-flag problem hit while resolving one |
+| 2 | your input is wrong: a usage error (bad, unrecognised or repeated flag, missing or empty flag value, missing required arg), or a workflow that fails to parse or validate |
 | 3 | run is `BLOCKED` — paused, resumable, not an error (`pawl run`/`pawl submit`/`pawl poll` only) |
-| 4 | refused: `pawl run` with no fresh `PreToolUse` heartbeat and enforcement not opted out, lock held, file changed, submit for a non-current step or kind, a poll of a current step that is not `kind: wait`, or a run that has already finished (the last one is `pawl submit`/`pawl abandon` only — `pawl poll` exits 0 quietly instead for the same case, see below), or `pawl abandon` of a non-blocked run in another working copy that another active session is driving, or `pawl run`/`submit`/`poll` of a run written by a newer pawl (format newer than this binary reads; upgrade or abandon it); separately, `pawl update` refusing to overwrite a source/`go install` build without `--force`, and refusing outright (even with `--force`) when the running binary is the one shipped by the agent-pawl Claude Code plugin |
-| 5 | engine error — a bug, or a broken/unreadable run directory or journal (including `pawl run`/`submit`/`poll` of a run whose journal cannot be replayed in a known format; repair `events.jsonl` or abandon it); for `pawl update`, any failure resolving, downloading, verifying or installing the release |
+| 4 | refused: `pawl run` with a binary whose version does not match the plugin's (see [`pawl version`](#pawl-version--human)), `pawl run` with no fresh `PreToolUse` heartbeat and enforcement not opted out, lock held, file changed, submit for a non-current step or kind, a poll of a current step that is not `kind: wait`, or a run that has already finished (the last one is `pawl submit`/`pawl abandon` only — `pawl poll` exits 0 quietly instead for the same case, see below), or `pawl abandon` of a non-blocked run in another working copy that another active session is driving, or `pawl run`/`submit`/`poll` of a run written by a newer pawl (format newer than this binary reads; upgrade or abandon it); separately, `pawl update` refusing to overwrite a source/`go install` build without `--force`, and refusing outright (even with `--force`) when the running binary is the one shipped by the agent-pawl Claude Code plugin |
+| 5 | internal or environment error — a bug (a recovered panic prints `pawl: internal error: …` and a stack to stderr and exits 5, not Go's default 2), a failed working-directory lookup, or a broken/unreadable run directory or journal (including `pawl run`/`submit`/`poll` of a run whose journal cannot be replayed in a known format; repair `events.jsonl` or abandon it; `pawl status` instead lists such a run as `unreadable` and exits 0, reserving 5 for an I/O error that stops enumeration); for `pawl update`, any failure resolving, downloading, verifying or installing the release |
 
 ---
 
@@ -128,8 +148,10 @@ workflow: .claude/workflows/manage-mr.yaml (repo-local)
 soft: 6/23 steps (26.1%): entry, changelog, fix_issues
 ```
 
-Exit 0 clean, 2 on any error (including a missing/unrecognised flag or giving both/neither of a name
-and `--path`); a missing or unreadable `--path` file is exit 1, consistent with an unknown name. Full
+The summary lines go to stdout. Validator errors go to stderr, so a script can capture them apart
+from the summary. Exit 0 clean, 2 on any error (including a missing/unrecognised flag or giving
+both/neither of a name and `--path`); a missing or unreadable `--path` file is exit 1, consistent with
+an unknown name. Full
 check list and messages: [validation.md](validation.md).
 
 `--strict` does not exist in this build, despite an earlier version of this doc claiming it turns the
@@ -143,19 +165,21 @@ expecting it to do anything today.
 pawl status [--run <id>] [--json]
 ```
 
-No flags: every live run for this working copy (exactly one live run prints it directly; more than
-one is a usage error — disambiguate with `--run <id>`). `--run` finds a run whether it's still live
-or already ended (e.g. an abandoned run, to see its `--reason`). `--json` prints the same fields
-machine-readably, always exit 0 on a successful lookup (see below; `--all` does not exist — every
-run for the machine isn't listable by this command).
+No flags: every live run for this working copy. In text mode, exactly one live run prints it
+directly; more than one is exit 1 (ambiguous) — disambiguate with `--run <id>`. `--run` finds a run
+whether it's still live or already ended (e.g. an abandoned run, to see its `--reason`). `--json`
+prints the same fields machine-readably, always exit 0 on a successful lookup (see below; `--all`
+does not exist — every run for the machine isn't listable by this command).
 
 ```json
 {
+  "schema_version": 1,
   "root": "/path/to/working/copy",
   "runs": [
     {
       "run_id": "a98d",
-      "workflow": "/path/.claude/workflows/sample.yaml",
+      "workflow": "sample",
+      "workflow_path": "/path/.claude/workflows/sample.yaml",
       "warning": "",
       "status": "running",
       "step": "greet",
@@ -169,15 +193,38 @@ run for the machine isn't listable by this command).
 }
 ```
 
-`runs` is always an array so the "no live runs" case (`{"root": "...", "runs": []}`) and the
-one-run case share a shape; `pawl status` never actually prints more than one run itself (more than
-one live run resolving, with no `--run` to disambiguate, is a resolution error, exit 1, `--json`
-included — not a multi-element `runs`; the same classing `pawl run`'s own ambiguous-resume refusal
-gets, since either way the ambiguity is "which run did you mean", not a refusal by a specific run).
-`warning` and `reason` are empty strings, not omitted, when there is nothing to say.
+The JSON contract:
+
+- `schema_version` is `1`. Every key shown above is always present, with the type shown — an empty
+  string, `[]` or `{}` rather than an omitted key when there is nothing to say.
+- `runs` is always an array: `[]` when no run is live, one element for one run. With `--json` and
+  several live runs and no `--run`, every live run is listed (in run-id order) and the exit is 0;
+  text mode prints nothing for them and exits 1 instead. Runs this pawl cannot read
+  (`newer-format`/`unreadable`) are listed as normal `runs` entries with `reason` holding the
+  refusal sentence; fields that can't be known are zero/empty, and `pawl status` exits 0. A run
+  that fails to load (an unreadable or unparsable `plan.json`, or a pinned workflow that fails to
+  load) is listed the same way as `unreadable`, with `reason` holding the load error, so it never
+  hides the others; text mode with `--run` prints a detail block with `status: unreadable` and
+  exits 0. Exit 5 is reserved for an I/O error that stops enumeration altogether.
+- `workflow` is the name `pawl run` accepts to start that workflow (for example `manage-mr/foo` for
+  `.claude/workflows/manage-mr/foo.yaml`), or `""` when the run's pinned file no longer resolves to
+  that name (moved, deleted, or shadowed by a different file of the same name). `workflow_path` is the
+  absolute path of the file the run pinned. A consumer that needs the file reads `workflow_path`, and
+  one that wants to resume reads `workflow`. `workflow_path` may be empty for a run whose workflow
+  can't be read back, notably a `newer-format` or `unreadable` run: its `workflow_path` is read from
+  its `plan.json` when possible, and `workflow` is the name that path resolves to, or `""`.
+- `status` is one of `running`, `ok`, `blocked` or `abandoned`. Two more values may appear for a run
+  this pawl can't replay or load: `newer-format` (the run was written by a newer pawl) and
+  `unreadable` (its journal can't be read or replayed, or its `plan.json`/pinned workflow can't be
+  loaded). Such a run is listed like any other entry, with `--run` or without. Its `reason` carries
+  the sentence `pawl run`/`submit`/`poll` would refuse with, or the load error. Fields that can't
+  be known are zero values (`""`, `0`, `{}`, `[]`), and the key set is unchanged. Values may be
+  added; treat an unknown value as not running.
+- `warning` and `reason` are empty strings, not omitted, when there is nothing to say. `warning` is set
+  when the workflow file has changed since a still-live run started.
 
 `pawl status` is deliberately exempt from the exit-code table's row 3 (`BLOCKED` → exit 3): it exits 0
-on every successful lookup, `BLOCKED`, `abandoned` or otherwise, because it's a reporting command —
+on every successful lookup (`BLOCKED`, `abandoned`, a changed workflow file flagged in `warning`, or otherwise), because it's a reporting command —
 the run's status is in its own output (plain text and `--json` alike), not something a non-zero exit
 would add to. This is a design choice, not a gap to fill in later.
 [running.md#pawl-status](running.md#pawl-status) has more on reading the output.
@@ -188,14 +235,23 @@ would add to. This is a design choice, not a gap to fill in later.
 pawl list
 ```
 
-Every workflow `pawl run` can resolve, and where it's from. Repo-local shadows user-level; the shadowed
-one is still shown, so you know why. No `--json` — machine-readable output isn't implemented for this
-command.
+Every top-level workflow `pawl run` can resolve, and where it's from. Output is TSV, one line per workflow,
+with no header, sorted by name:
+
+```
+name<TAB>repo-local|user<TAB>absolute-path
+```
+
+A repo-local workflow wins over a user-level one of the same name, and the user-level one is not
+printed. The TSV is the documented machine format; there is no `--json`.
+
+Only top-level `<name>.yaml` files are listed. Nested workflows (for example `manage-mr/foo`) are
+not, even though `pawl run manage-mr/foo` resolves them.
 
 ```
 › pawl list
-manage-mr           repo   .claude/workflows/manage-mr.yaml
-tidy                user   ~/.claude/workflows/tidy.yaml  (shadowed by repo)
+manage-mr	repo-local	/path/to/repo/.claude/workflows/manage-mr.yaml
+tidy	user	/home/you/.claude/workflows/tidy.yaml
 ```
 
 ## `pawl abandon` — human
@@ -223,11 +279,18 @@ newer pawl, or with a corrupt journal) can still be abandoned: the end is append
 pawl dev
 ```
 
-Prints `Version` (`main.Version` in `cmd/pawl`), always exit 0. Release binaries print the released
-version (stamped at build time by goreleaser's `-ldflags -X main.Version`); a binary built from
-source (`go build`/`go install`/`make install`) always prints `pawl dev`. There is still no
-plugin-pin comparison: the plugin manifest's pin is not checked against `Version`, and there is no
-refusal tied to it.
+Prints `Version` (`main.Version` in `cmd/pawl`), always exit 0; it takes no arguments. Release
+binaries print the released version (stamped at build time by goreleaser's `-ldflags -X
+main.Version`); a binary built from source (`go build`/`go install`/`make install`) always prints
+`pawl dev`.
+
+**Version match.** The plugin's `bin/pawl` launcher exports `PAWL__PLUGIN_VERSION`, the `version` in
+the plugin's own `.claude-plugin/plugin.json`, before running the binary. `pawl run` (a start and a
+resume alike) compares it with its own version and, on a mismatch, refuses with exit 4, naming both
+versions and what to do. Only `pawl run` checks; `submit`, `poll`, `status` and the other commands do
+not. The check is skipped when the variable is unset (pawl was not run through the plugin's
+launcher, or the launcher could not read the plugin's version). A `dev` source build skips it too,
+with a note on stderr.
 
 ## `pawl update` — human
 
@@ -238,7 +301,7 @@ pawl update [--check] [--version <vX.Y.Z>] [--force]
 Self-updates the *running* binary in place: downloads the release archive for the target GitHub
 release, verifies its sha256 against that release's `checksums.txt` before writing anything, and
 atomically replaces the binary at its own resolved path (`os.Executable` + symlink resolution). No
-flags: resolves the latest release, refuses to downgrade, and no-ops if already current. `--check`
+flags: resolves the latest release (pre-release versions compare by semver precedence, so `rc.2` is older than `rc.10`), refuses to downgrade, and no-ops if already current. `--check`
 reports current vs. latest and installs nothing. `--version vX.Y.Z` (`v` optional) pins an exact
 release, including an older one — a rollback. `--force` skips every "nothing to do" check and
 reinstalls regardless.
@@ -297,16 +360,22 @@ by hand; doing so can leave the run and the session disagreeing about who is doi
 ### `pawl submit` — model
 
 ```
-pawl submit --run <id> --step <step> [--json '<obj>']
-                                   [--option <choice> …] [--other '<text>']
+pawl submit --run <id> --step <step> --json '<obj>' [--item <n>]
 ```
 
-Delivers an `agentic` or `human` result. The engine runs the postcondition, resolves the outcome,
-transitions, re-checks invariants, runs following deterministic steps, and prints the next line.
+Delivers an `agentic` or `human` result (`--item <n>` addresses one item of a `foreach` fan-out).
+`--run`, `--step` and `--json` are all required. The engine runs the postcondition, resolves the
+outcome, transitions, re-checks invariants, runs following deterministic steps, and prints the next
+line.
 
-- `--json` — an agentic step's return; must match `writes:`.
-- `--option` — a `human` answer; repeat for a multi-select.
-- `--other` — the free-text "Other" answer, always yielding `chosen`.
+- `--json` — the result object. For an `agentic` step it must match `writes:`. For a `human` step
+  it is the answer the `ASK` block asks for, shaped `{"selected": ["<option label>", …], "other": "<free text>"}` (either key may be omitted). Human answers go through `--json` too; there is no
+  separate flag for them.
+
+`pawl submit` and `pawl poll` are internal: the `/pawl` skill calls them, and they are not part of
+the stable CLI surface. The binary-and-plugin version-match check (see
+[`pawl version`](#pawl-version--human)) is what keeps a skill from driving a binary that does not
+match it.
 
 No `--token` flag: a `wait` result is never submitted by the model — `pawl poll` delivers it
 internally. It refuses any `(run, step, attempt)` other than the one the journal is waiting on,
@@ -367,7 +436,8 @@ Exit protocol: allow = exit 0 with no output; `pre` deny = exit 0 with
 `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"<reason>"}}`
 on stdout; `stop` block = exit 0 with `{"decision":"block","reason":"<reason>"}` on stdout;
 unparseable input or an I/O error = exit 1 for `pre` (fail open, non-blocking), while `stop` never
-fails closed — any error there allows. `pawl hook` never exits 2. `bin/pawl-hook`, the wrapper Claude
+fails closed — any error there allows. A usage error (a missing or unknown event) exits 1, not 2, and a panic is recovered and fails open the same way (never exit 5). `pawl hook --help` prints the usage and exits 0.
+`pawl hook` never exits 2, unlike every other command. `bin/pawl-hook`, the wrapper Claude
 Code actually calls, exits in a few ms when no run is live and the payload doesn't mention `pawl`,
 and turns any non-zero exit from the binary into exit 1 — so a `pawl` binary older than the plugin
 (no `hook` subcommand, usage exit 2) fails open instead of blocking.

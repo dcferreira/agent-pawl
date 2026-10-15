@@ -17,27 +17,56 @@ import (
 // workflow, gate on spec.Validate, resume a live run when exactly one
 // resolves (--run only disambiguates), or bind args and start a fresh one,
 // then print the start banner and the first instruction line.
+var runCmd = &command{
+	name:   "run",
+	usage:  cmdUsage(usageRun),
+	maxPos: -1,
+	flags: []flagDef{
+		{name: "fresh", isBool: true},
+		{name: "force", isBool: true},
+		{name: "no-enforcement", isBool: true},
+		{name: "run"},
+	},
+}
+
 func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
-	if len(args) < 1 {
-		fmt.Fprintln(stderr, "pawl run: missing workflow name")
-		fmt.Fprintln(stderr, "usage: pawl run <name> [key=value …] [--fresh] [--force] [--run <id>] [--no-enforcement]")
-		return 2
+	pf, code, done := runCmd.parseOrExit(args, stdout, stderr)
+	if done {
+		return code
 	}
-	name := args[0]
-	raw, flags, err := parseRunArgs(args[1:])
-	if err != nil {
-		printLine(stderr, err.Error())
-		return 2
+	if len(pf.pos) < 1 {
+		return runCmd.fail(stderr, "missing workflow name")
+	}
+	name := pf.pos[0]
+	raw := map[string]string{}
+	for _, kv := range pf.pos[1:] {
+		k, v, ok := strings.Cut(kv, "=")
+		if !ok {
+			return runCmd.fail(stderr, fmt.Sprintf("unrecognised argument %q", kv))
+		}
+		raw[k] = v
+	}
+	flags := runFlags{
+		Fresh:         pf.boolean("fresh"),
+		Force:         pf.boolean("force"),
+		NoEnforcement: pf.boolean("no-enforcement"),
+		RunID:         pf.value("run"),
 	}
 	if flags.Fresh && flags.RunID != "" {
 		fmt.Fprintln(stderr, "pawl run: --run is only used to disambiguate a resume; it does not name a fresh run's id — drop --run or drop --fresh")
-		return 2
+		return exitUsage
+	}
+
+	// Before anything is resolved, printed or gated (start and resume alike):
+	// a binary that is not the plugin's version must not drive its skill.
+	if !checkPluginVersion(stderr) {
+		return exitRefused
 	}
 
 	rw, err := resolveWorkflowFile(cwd, name)
 	if err != nil {
 		printLine(stderr, err.Error())
-		return 1
+		return exitNotFound
 	}
 	w, report, err := loadAndValidate(rw.Path)
 	if err != nil {
@@ -50,16 +79,16 @@ func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 			errBlock.line(0, e)
 		}
 		fmt.Fprint(stderr, errBlock.String())
-		// docs/cli.md's exit-code table (~line 33): "validation failed" is
+		// the frozen exit-code table (exitcode.go): "validation failed" is
 		// its own clause under 2 (usage/validation), not 1 (resolution) —
 		// the file resolved fine; spec.Validate is what refused it.
-		return 2
+		return exitUsage
 	}
 
 	root, err := journal.ResolveRoot(cwd)
 	if err != nil {
 		printLine(stderr, err.Error())
-		return 1
+		return exitNotFound
 	}
 
 	// A resume is resolved before the enforcement gate: a run's enforcement
@@ -97,7 +126,7 @@ func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 		} else {
 			printLine(stderr, err.Error())
 		}
-		return 4
+		return exitRefused
 	}
 
 	e := engine.New(w, root)
@@ -132,7 +161,7 @@ func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 			// this used to reach stderr via a bare Fprintf, and a raw CR
 			// in a bound arg's value re-homed the cursor to column 0).
 			printLine(stderr, fmt.Sprintf("pawl run: args are bound at run start; run %s was started with %s — use --fresh to rebind", ref.RunID, formatArgsKV(ref.State.Args)))
-			return 2
+			return exitUsage
 		}
 		instr, ierr := e.Resume(ref.RunID, flags.Force)
 		if ierr != nil {
@@ -160,15 +189,15 @@ func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 			b.line(0, ue.Reason)
 			writeArgsUsage(b, ue.Decls)
 			fmt.Fprint(stderr, b.String())
-			return 2
+			return exitUsage
 		}
 		printLine(stderr, err.Error())
-		return 2
+		return exitUsage
 	}
 	runID := newRunID()
 	instr, err := e.Start(runID, boundArgs)
 	if err != nil {
-		return printEngineErr(stderr, "pawl run", runID, err, 5)
+		return printEngineErr(stderr, "pawl run", runID, err, exitInternal)
 	}
 	fmt.Fprint(stdout, formatInstruction(instr, w, root, cwd))
 	return instructionExitCode(instr)
@@ -220,13 +249,13 @@ func handleRunErr(err error, stderr io.Writer, root string, w *spec.Workflow, ru
 	if errors.Is(err, engine.ErrDigestMismatch) {
 		changed := diffChangedSteps(root, w, runID)
 		printLine(stderr, fmt.Sprintf("pawl run: workflow file has changed since run %s started (changed: %s); use --fresh to start a new run", runID, changed))
-		// docs/cli.md's exit-code table (~line 33): a changed workflow file
+		// the frozen exit-code table (exitcode.go): a changed workflow file
 		// is a refusal, exit 4 — the run itself is fine, resuming it with
 		// the file as it now stands is what's refused, and --fresh is the
 		// offered way out, not a typo to go fix and retype.
-		return 4
+		return exitRefused
 	}
-	return printEngineErr(stderr, "pawl run", runID, err, 5)
+	return printEngineErr(stderr, "pawl run", runID, err, exitInternal)
 }
 
 // diffChangedSteps compares the workflow plan.json recorded when runID

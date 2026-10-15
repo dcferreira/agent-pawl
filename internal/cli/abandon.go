@@ -73,34 +73,23 @@ func runBeingDriven(dir string) bool {
 // the RUN_END event directly via internal/journal, the same package the
 // engine itself uses to end a run, with status "abandoned" (anything but
 // "blocked" is terminal per journal.RunState.Terminal).
+var abandonCmd = &command{
+	name:  "abandon",
+	usage: cmdUsage(usageAbandon),
+	// An empty --reason is legitimate: it falls back to the default text.
+	flags: []flagDef{{name: "run"}, {name: "reason", allowEmpty: true}},
+}
+
 func cmdAbandon(args []string, cwd string, stdout, stderr io.Writer) int {
-	var runID, reason string
-	haveReason := false
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--run":
-			i++
-			if i >= len(args) {
-				fmt.Fprintln(stderr, "pawl abandon: --run needs a value")
-				return 2
-			}
-			runID = args[i]
-		case "--reason":
-			i++
-			if i >= len(args) {
-				fmt.Fprintln(stderr, "pawl abandon: --reason needs a value")
-				return 2
-			}
-			reason = args[i]
-			haveReason = true
-		default:
-			printLine(stderr, "pawl abandon: unrecognised argument", args[i])
-			return 2
-		}
+	pf, code, done := abandonCmd.parseOrExit(args, stdout, stderr)
+	if done {
+		return code
 	}
+	runID, reason := pf.value("run"), pf.value("reason")
+	haveReason := pf.has("reason")
 	if runID == "" {
 		fmt.Fprintln(stderr, "usage: pawl abandon --run <id> [--reason <text>]")
-		return 2
+		return exitUsage
 	}
 	// --reason is optional free text; omitting it (or passing "") keeps the
 	// journalled reason that existed before --reason was added, so an old
@@ -112,7 +101,7 @@ func cmdAbandon(args []string, cwd string, stdout, stderr io.Writer) int {
 	root, err := journal.ResolveRoot(cwd)
 	if err != nil {
 		printLine(stderr, err.Error())
-		return 1
+		return exitNotFound
 	}
 	ref, err := findRunByID(root, runID)
 	elsewhere := false
@@ -147,7 +136,7 @@ func cmdAbandon(args []string, cwd string, stdout, stderr io.Writer) int {
 	// findRunByID already confirmed runID exists and is live; anything failing from here
 	// on is either the same lock-held refusal every other command can hit
 	// (exit 4) or a broken run directory / journal it could not act on
-	// (exit 5) — docs/cli.md's exit-code table (~line 33), which applies to
+	// (exit 5) — the frozen exit-code table (exitcode.go), which applies to
 	// pawl abandon exactly as it does to run/submit/poll.
 	lock, err := journal.AcquireLock(ref.Dir, false)
 	if err != nil {
@@ -188,7 +177,7 @@ func cmdAbandon(args []string, cwd string, stdout, stderr io.Writer) int {
 		Outcome: "abandoned",
 		Message: fmt.Sprintf("run %s abandoned at step %q by user request.", runID, ref.State.Cursor.Step),
 	}, "", resumeHint{}))
-	return 0
+	return exitOK
 }
 
 // abandonOpaque ends a run this build cannot replay (newer format, or a
@@ -222,5 +211,5 @@ func abandonOpaque(ref *journal.RunRef, runID, reason string, elsewhere bool, st
 		Outcome: "abandoned",
 		Message: fmt.Sprintf("run %s abandoned by user request.", runID),
 	}, "", resumeHint{}))
-	return 0
+	return exitOK
 }
