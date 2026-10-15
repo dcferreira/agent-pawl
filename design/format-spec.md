@@ -133,6 +133,10 @@ never `true`). See `docs/dogfood.md`'s "traps" section for a worked example.
 `item_index`, are scoped to a `foreach:` body's own fields and reserved everywhere else (§B.15,
 §H rules 27, 38).
 
+In a terminal's `message:`, `step`, `attempt` and `visits` are not about a step of the run: `${step}` is
+the terminal's id, `${attempt}` is `0`, and `${visits}` is the visit count of the step that routed to the
+terminal (for an invariant block, the step the cursor was at) — not the run's total step entries.
+
 **`blocked_reason`** is set by the engine, and only the engine, when a run enters `BLOCKED`: the
 violated invariant's `message:`, or a fixed engine string naming the step and outcome (e.g.
 `"wait_for_ci: timeout"`, `"fix_tests: exhausted"`). It is always set by the time a `blocked`
@@ -830,7 +834,10 @@ work to an agent. See `docs/quickstart.md`.
     that does not accept it, rule 30); `max_attempts:` missing or less than 2; `backoff:` missing, not
     a valid duration, or not greater than zero; or an unknown key inside `retry:`.
 20. A `terminal:` entry's `status:` is anything other than `ok` or `blocked` (§B.12, §D) — including an
-    omitted `status:`.
+    omitted `status:`. (Explanatory, not a format change: `blocked` is how a workflow gives up, e.g.
+    `terminal: {done: {status: ok}, gave_up: {status: blocked, message: "…"}}` with a `catch:` or
+    `exhausted` route to `gave_up`. The run stays live — resumable, or closed with `pawl abandon`; nothing
+    is rolled back, and a person decides, §B.12.)
 21. A key name in `state:`, `args:` or a step's `writes:` does not match `^[A-Za-z_][A-Za-z0-9_]*$`
     (§B.2): keys are exported as `PAWL_<KEY>` environment variables, so they must be identifier-like.
     A `writes:` key must also be declared in `state:` (rule 11), so the `state:` check already covers

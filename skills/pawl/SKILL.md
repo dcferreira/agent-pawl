@@ -104,15 +104,17 @@ END DISPATCH 9074 fix_tests
   names its source and byte count, with the body indented beneath it.
 - `return:` — the exact JSON keys (and types) the subagent's result must contain. Nothing more,
   nothing less.
-- `subagent_args:` — printed verbatim, uninterpreted by `pawl`. Honor it when you dispatch (e.g.
-  its `tools:` list, `model:`) using whatever your harness's Agent-dispatch mechanism understands.
+- `subagent_args:` — printed verbatim, uninterpreted by `pawl`. Pass it to the subagent as given. Where
+  your harness's Agent tool can't enforce a field (e.g. `tools:` has no per-call parameter in Claude
+  Code's Agent tool), state the field in the subagent's prompt instead ("You may use only these tools:
+  …"). It is advisory: `pawl` doesn't enforce it.
 
 **What to do:** build the subagent prompt from `description:` and `context:` **as given** — the
 description is the workflow author's contract. Don't add your own questions, hints, scope rules,
 author intent or summaries of the change, however much you know from this session: the engine can't
 see them, and they steer the subagent where the author didn't ask. Only mechanical harness details
-(working directory, how to return JSON) may be added. Dispatch the subagent honoring
-`subagent_args:`. When it returns, submit exactly what it returned, as JSON matching `return:`,
+(working directory, how to return JSON) may be added. Dispatch the subagent with
+`subagent_args:` applied as above. When it returns, submit exactly what it returned, as JSON matching `return:`,
 with the exact command shown on `submit with:`:
 
 ```

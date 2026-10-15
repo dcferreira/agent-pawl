@@ -79,8 +79,8 @@ id and step, and exits — the `/pawl` skill's handshake.
 `DISPATCH` ([agentic](steps/agentic.md)) is the block in the run above: `pawl` prints `attempt:`,
 `description:`, `context:` (each entry with its byte count — `git diff` is empty above because
 the example repository has no uncommitted changes; a `!cmd` that fails is flagged with its exit status), `return:` (the keys of `writes:`),
-`subagent_args:` as given, and the exact `pawl submit` line. The session composes the prompt, honours
-`subagent_args:`, and reports with `pawl submit --json '…'`.
+`subagent_args:` as given, and the exact `pawl submit` line. The session composes the prompt, passes
+`subagent_args:` on (stating in the prompt any it can't enforce), and reports with `pawl submit --json '…'`.
 
 `ASK` ([human](steps/human.md)) asks via `AskUserQuestion` — the listed options plus "Other"
 free-text — and the answer goes back through `pawl submit`:
@@ -239,6 +239,12 @@ abandon:
 END TERMINAL 7f3a blocked
 exit 3
 ```
+
+`blocked` is also how a workflow gives up. There are only two terminal statuses, `ok` and `blocked`; to
+end in failure, route to a terminal with `status: blocked`, e.g. `terminal: {done: {status: ok},
+gave_up: {status: blocked, message: "${blocked_reason}"}}` with `catch:`/`exhausted:` pointing at
+`gave_up`. The run deliberately stays live: it can be resumed after a fix, or closed with `pawl abandon`.
+Nothing is rolled back (fix-forward), and a person decides which.
 
 It releases `Stop` — the session is yours again; guards still deny, the run is still live.
 

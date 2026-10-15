@@ -570,7 +570,7 @@ additive and can land in any 1.x.
 | Does `deterministic` need its own `timeout:`? | Deferred | The engine-wide ceiling stays and `timeout:` on `deterministic` stays rejected (format-spec §K). Adding it later is additive. |
 | What is the right granularity for `writes:` on a structured key? | Deferred | Additive. |
 | Is `emits: pairs` permanent? | Settled | Permanent, no warning. |
-| Can a non-author author a real workflow? | Pending | To be settled by a non-author test before 1.0: a fresh session with only the docs authors and runs a real workflow. |
+| Can a non-author author a real workflow? | Settled | A non-author authored and ran a workflow to TERMINAL ok using only the docs (0.9.0 pre-release). |
 
 ## 9. Implementation and distribution
 

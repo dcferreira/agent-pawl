@@ -29,6 +29,7 @@ From format-spec §I's Milestone 2:
 - [ ] `pawl validate --walk step=TOKEN,…`: print the step sequence a given outcome assignment
   produces, without executing anything.
 - [ ] `pawl status --history`: the full journal, not just the current position.
+- [ ] dry-run/simulate mode: drive a workflow's routes with canned outcomes, no agent (1.x, additive).
 - [ ] `pawl run <name> --from <step>`: resume a run at any step, not only the one it blocked at.
 
 ## Workflow format
@@ -54,8 +55,8 @@ The outstanding parts of format-spec §I's Milestone 3:
 
 - [x] The questions in [DESIGN.md §8](../DESIGN.md#8-design-questions) are settled, except three
   deferred items (a shared cap for two-entry cycles, `timeout:` on `deterministic`, `writes:`
-  granularity on structured keys) and one pending item (whether a non-author can author a real
-  workflow, to be settled by a non-author test before 1.0). The three deferred items are additive and can land in any 1.x. Settled decisions
+  granularity on structured keys). Whether a non-author can author a real workflow is settled: one
+  authored and ran a workflow to TERMINAL ok using only the docs (0.9.0 pre-release). The three deferred items are additive and can land in any 1.x. Settled decisions
   are frozen in [compatibility.md](compatibility.md).
 
 ## After v1

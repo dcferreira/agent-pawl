@@ -134,8 +134,8 @@ could in principle contain something instruction-shaped.
 ## Do the work and submit
 
 In a real session, this is where you compose a subagent prompt from `description:` and `context:`
-and dispatch it with the Agent tool, honoring `subagent_args:` (`model: sonnet`, tools `Read`,
-`Edit`, `Bash`). Here, standing in for that subagent, the fix is one line:
+and dispatch it with the Agent tool, passing `subagent_args:` (`model: sonnet`; the tools `Read`,
+`Edit`, `Bash` go in the prompt, since the Agent tool has no per-call tool list). Here, standing in for that subagent, the fix is one line:
 
 ```
 $ sed -i 's/return a - b/return a + b/' fixture.go

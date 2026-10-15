@@ -51,8 +51,9 @@ the five kinds compare.
 ```
 
 The engine prints a `DISPATCH` block: rendered `description`, gathered `context`, the `writes:`
-schema, `subagent_args:` (printed as given). The session composes the subagent prompt, dispatches
-honouring the `subagent_args:` settings its harness understands, and submits the result via
+schema, `subagent_args:` (printed as given). The session composes the subagent prompt, passes
+`subagent_args:` to the subagent as given (a field the harness's Agent tool can't enforce, such as
+`tools:`, is stated in the subagent's prompt instead; it is advisory, `pawl` doesn't enforce it), and submits the result via
 `pawl submit`.
 
 ## Outcomes

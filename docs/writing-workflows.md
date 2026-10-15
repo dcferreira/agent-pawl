@@ -86,7 +86,10 @@ quotes survives an argument boundary intact. In prose contexts (`description:`, 
 `message:`) the raw value goes in, JSON pretty-printed.
 
 Six pseudo-keys are always readable and never declared: `run_id`, `step`, `attempt`, `visits`,
-`last_error`, `blocked_reason` (plus `item`/`item_index` inside a `foreach:` body). Scripts also get
+`last_error`, `blocked_reason` (plus `item`/`item_index` inside a `foreach:` body). In a step's own
+fields, `step`, `attempt` and `visits` describe that step. In a terminal `message:` they don't:
+`${step}` is the terminal's id, `${attempt}` is `0`, and `${visits}` is the visit count of the step that
+routed to the terminal (the last step that ran), not the total number of step entries in the run. Scripts also get
 state through the environment, but only per command: each command (`run:`, `poll:`, `check:`,
 postcondition `command:`, `!cmd`) gets `PAWL_<KEY>`, upper-cased, for just the keys *its own*
 template references — `run: scripts/x.sh ${branch}` also sees `$PAWL_BRANCH`, but a key used only in
@@ -265,6 +268,21 @@ mean something:
       ask:  confirm_story
       skip: launch
 ```
+
+## Testing your workflow's failure paths
+
+`pawl validate` checks that every `catch:`/`outcomes:` route exists, not that the route behaves. To
+see an exhaustion or `catch:` route fire, drive it by hand with a real run:
+
+- Agentic step: `pawl run <name>`, then `pawl submit` a deliberately failing result (valid JSON for
+  `return:`, but one that leaves the `postcondition:` false). Each submit prints the next `DISPATCH`
+  (`attempt: 2 of 2`, with the failed postcondition's output) until `attempts:` is spent; the next submit
+  then fires the `catch:` route (default `failure → blocked`, printed as a `TERMINAL … blocked` and exit 3).
+- Deterministic step: make its command fail (or print the failing token) temporarily, then `pawl run`.
+  For `exhausted`, lower `max_visits:` while testing.
+- Afterwards `pawl abandon --run <id>` the blocked run, and put the workflow back.
+
+There is no dry-run mode yet; see the [roadmap](roadmap.md).
 
 ## Sharing
 

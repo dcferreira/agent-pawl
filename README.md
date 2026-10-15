@@ -14,34 +14,45 @@ Run the tests; if they fail, have a subagent fix the code, then run them again:
 ```yaml
 workflow: green-tests
 start: run_tests
+args:
+  test_cmd:  {type: string, default: "go test ./..."}
+  build_cmd: {type: string, default: "go build ./..."}
 state:
-  failures: {type: string, default: ""}
+  failures:    {type: string, default: ""}
   fix_summary: {type: string, default: ""}
 steps:
   - id: run_tests
-    kind: deterministic                 # pawl runs this itself
-    run: scripts/run-tests.sh 'go test ./...'   # prints PASS, or FAIL {"failures": "..."}
+    kind: deterministic
+    run: scripts/run-tests.sh ${test_cmd}
+    emits: json
     writes: [failures]
     max_visits: 4
-    outcomes: {PASS: done, FAIL: fix_tests, exhausted: gave_up}
+    outcomes:
+      PASS: done
+      FAIL: fix_tests
+      exhausted: gave_up
   - id: fix_tests
-    kind: agentic                       # handed to a subagent
+    kind: agentic
     description: |
-      The tests fail. Fix the code, not the tests:
+      The test suite is failing. Fix the code so that it passes.
+      Do not edit, weaken or delete tests to make them pass — fix the code under test.
+      The failures:
       ${failures}
+    context:
+      - !cmd "git diff"
     writes: {fix_summary: {type: string}}
+    subagent_args: {model: sonnet, tools: [Read, Edit, Bash]}
     attempts: 3
-    postcondition: go build ./...       # pawl checks this, not the agent
+    postcondition: {command: "sh -c ${build_cmd}"}
     next: run_tests
 terminal:
-  done:    {status: ok, message: "Tests pass."}
-  gave_up: {status: blocked, message: "${blocked_reason}"}
+  done:     {status: ok,      message: "Suite green after ${visits} runs."}
+  gave_up:  {status: blocked, message: "${blocked_reason}"}
 ```
 
-The subagent can't declare the job done. `pawl` re-runs the tests itself, and the loop ends only
+This is [`docs/examples/green-tests/workflow.yaml`](docs/examples/green-tests/workflow.yaml), with one comment trimmed. The subagent can't declare the job done. `pawl` re-runs the tests itself, and the loop ends only
 when they pass. After 4 test runs it stops as `blocked` (the last failures stay in the `failures`
-state key). The full version
-is [`docs/examples/green-tests`](docs/examples/green-tests/workflow.yaml).
+state key).
 
 ## Install
 
