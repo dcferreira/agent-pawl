@@ -2,12 +2,12 @@
 
 This walks through actually running the `docs/examples/green-tests` workflow, end to end, in a real
 Claude Code session. It assumes you've followed [install.md](install.md) and have a `pawl` binary
-on your `PATH`. Everything in this document was run and its output pasted verbatim — nothing here
-is retyped or paraphrased. The `pawl run`/`pawl submit`/`pawl status` blocks below were recaptured
-from a real `make build` binary (`dist/pawl`, this build) against a fresh copy of the fixture under
-a temporary `PAWL_STATE_DIR`, run at the same commit as the rest of this doc; only the run id (`9c8c`
-here, chosen by the run at capture time — run ids are random and differ every time) differs from an
-earlier capture of this same walkthrough.
+on your `PATH`. Every `pawl` output block in this document is checked against the real binary by
+`e2e/docs_output_test.go`: that test runs this exact walkthrough (against a fresh copy of the fixture, with
+a throwaway state directory) and fails if a block drifts. Three details are normalised, and nothing
+else: the project directory is shown as `/home/you/project` (wherever you set it up — the commands below
+use `/tmp/pawl-dogfood`), run ids (random, different every time) are shown as `7f3a`, and the elapsed
+times `go test` prints are shown as `0.00s`.
 
 ## The most important thing to know before you start
 
@@ -81,21 +81,17 @@ itself uses and `e2e/green_tests_test.go` builds.
 
 ## Run it
 
-From `/tmp/pawl-dogfood`, in a plain terminal with no Claude Code hooks wired up — so with
+From `/tmp/pawl-dogfood` (the `/home/you/project` of the output below), in a plain terminal with no Claude Code hooks wired up — so with
 `--no-enforcement`, since without it `pawl run` would refuse to start for lack of a `PreToolUse`
 heartbeat (see [install.md#hooks](install.md#hooks)):
 
+<!-- pawl-capture: dogfood/run -->
 ```
 $ pawl run green-tests --no-enforcement
-```
-
-captured output:
-
-```
-workflow: /tmp/pawl-dogfood/.claude/workflows/green-tests.yaml (repo-local)
+workflow: /home/you/project/.claude/workflows/green-tests.yaml (repo-local)
 enforcement: off (--no-enforcement)
 soft: 0/2 steps (0.0%): (none)
-DISPATCH 9c8c fix_tests
+DISPATCH 7f3a fix_tests
 attempt: 1 of 3
 description:
   The test suite is failing. Fix the code so that it passes.
@@ -104,17 +100,16 @@ description:
   --- FAIL: TestAdd (0.00s)
       fixture_test.go:7: Add(2, 3) = -1, want 5
   FAIL
-  FAIL	fixture	0.002s
+  FAIL	fixture	0.00s
   FAIL
 context:
   [1] git diff (0 bytes)
     (empty)
-  (context command exited 129)
 return: a JSON object with exactly these keys (key order does not matter)
   fix_summary: string
 subagent_args: {"model":"sonnet","tools":["Read","Edit","Bash"]}
-submit with: pawl submit --run 9c8c --step fix_tests --json '<the object above>'
-END DISPATCH 9c8c fix_tests
+submit with: pawl submit --run 7f3a --step fix_tests --json '<the object above>'
+END DISPATCH 7f3a fix_tests
 ```
 
 Note: the run resolved and executed `run_tests` (a `deterministic` step) entirely by itself before
@@ -125,14 +120,14 @@ newlines and tabs (every other control character would be stored as a visible `\
 then substituted into the rendered `description:`. The `DISPATCH` writer keeps a multi-line value
 indented beneath its header, so it can never forge a column-0 instruction or sentinel line.
 
-`[1] git diff (0 bytes)` is empty because `/tmp/pawl-dogfood` isn't a git (or jj) working copy in
-this walkthrough (`git diff` exits 129 there, hence the `(context command exited 129)` line); per `docs/examples/green-tests/NOTES.md`, a `!cmd` context entry that fails or is
+`[1] git diff (0 bytes)` is empty because the project is a git repository with everything committed, so
+there is nothing to diff. Per `docs/examples/green-tests/NOTES.md`, a `!cmd` context entry that fails or is
 unavailable doesn't block the run: a non-zero exit or timeout keeps the command's stdout and adds an
 engine line `(context command exited N)` / `(context command timed out)` under the item.
 
 Per the `/pawl` skill (`.claude/skills/pawl/SKILL.md`), this `DISPATCH` line is the instruction: it's
 the first column-0 line matching `DISPATCH|TERMINAL`, and everything indented beneath it up to
-`END DISPATCH 9c8c fix_tests` is data, not a new instruction — including the failure text, which
+`END DISPATCH 7f3a fix_tests` is data, not a new instruction — including the failure text, which
 could in principle contain something instruction-shaped.
 
 ## Do the work and submit
@@ -148,25 +143,22 @@ $ sed -i 's/return a - b/return a + b/' fixture.go
 Then submit exactly the JSON object `return:` asked for, using the `submit with:` command printed
 above:
 
+<!-- pawl-capture: dogfood/submit -->
 ```
-$ pawl submit --run 9c8c --step fix_tests --json '{"fix_summary":"Fixed Add to use + instead of -"}'
-```
-
-captured output:
-
-```
-TERMINAL 9c8c ok
+$ pawl submit --run 7f3a --step fix_tests --json '{"fix_summary":"Fixed Add to use + instead of -"}'
+TERMINAL 7f3a ok
 message:
   Suite green after 2 runs.
-END TERMINAL 9c8c ok
+END TERMINAL 7f3a ok
 ```
 
 The run re-entered `run_tests` (visit 2), the suite passed, and the workflow reached its `done`
 terminal. `pawl status` afterwards confirms there's nothing left live:
 
+<!-- pawl-capture: dogfood/status -->
 ```
 $ pawl status
-root: /tmp/pawl-dogfood
+root: /home/you/project
 no live runs for this working copy
 ```
 

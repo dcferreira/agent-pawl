@@ -11,13 +11,19 @@ Takes a workflow name (resolved under `.claude/workflows/` exactly as `pawl run`
 with `--path <file>`, a specific file instead — mutually exclusive with a name; scripts and context
 files it references still resolve relative to the workflow file itself either way.
 
+Output for a clean file: the resolved file, a `guards:` line if the workflow declares guards (a
+validate has no run, so it only says they are declared), and the soft census (below). Nothing else
+means the workflow is valid.
+
+<!-- pawl-capture: validate/manage-mr -->
 ```
-› pawl validate manage-mr
-workflow: .claude/workflows/manage-mr.yaml (repo-local)
-soft: 6/23 steps (26.1%): changelog, entry, fix_issues, fix_issues_push, route_reviewers, trigger_coderabbit
+$ pawl validate manage-mr
+workflow: /home/you/project/.claude/workflows/manage-mr.yaml (repo-local)
+guards: 4 declared (enforced only when a run starts with the pawl hooks installed)
+soft: 6/23 steps (26.1%): address_comments, address_comments_push, changelog, collect_reviewers, fix_issues, fix_issues_push
 ```
 
-Every error names the step and what is wrong; most also name the file, line, rule and fix.
+Every error is one line on stderr naming the file, the step and what is wrong; most also name the rule number and the fix, e.g. `hello.yaml: step "greet": rule 1: next: "cuont" names a step or terminal that does not exist; declare step "cuont", add it under terminal:, or fix the typo` (see [quickstart.md](quickstart.md#2-validate-it)). The summary lines are printed even when there are errors.
 
 ## The checks
 
@@ -163,30 +169,19 @@ starting with `_`, or one exporting as `PAWL_ENFORCEMENT`/`PAWL_STATE_DIR`/`PAWL
 
 ## Warnings
 
-Two, printed as `warning:` and exit 0. `--strict` (turning these into errors, for CI) is
-documented as a flag elsewhere but is not implemented in this build: `internal/cli/validate.go`
-has no flag parsing for it at all, so `pawl validate <name> --strict` is a plain usage error
-(exit 2, "unrecognised argument") today, not a silently-ignored no-op.
-
-```
-warning: `blocked_reason` is written by `resolve_conflict` and never read.
-warning: `${round}` is read by `fix_issues_push` on a path where nothing writes it first
-  (preflight → changelog → fix_issues_push). Give it a default: in state:.
-```
-
-Both are usually real bugs, with exceptions — a key read only in a terminal message, or whose writer
-is on a branch the validator can't prove taken.
+`pawl validate` prints no warnings in this build: every finding is an error (exit 2). Two checks were
+planned as `warning:` lines — a state key that is written but never read, and a `${key}` read on a path
+where nothing writes it first — but neither exists yet (`internal/spec/validate.go` defers them). `--strict`
+is likewise not implemented: `pawl validate <name> --strict` is a plain usage error (exit 2,
+"unrecognised argument").
 
 ## The soft census
 
-Printed on every validate, error or not:
+Printed on every validate, error or not, as the last summary line: `soft: <count>/<total> steps
+(<percent>%): <step ids, sorted>`, or `(none)` when no step is `soft: true`. `pawl run` prints the same line in
+its banner (see the captured output above, and [quickstart.md](quickstart.md)).
 
-```
-soft postconditions: 6 of 23 (26%):
-  entry, changelog, fix_issues, fix_issues_push, trigger_coderabbit, route_reviewers
-```
-
-This is the workflow's trust surface — the same number appears at the end of every run. No threshold,
+This is the workflow's trust surface — the same line appears in the banner of every run. No threshold,
 no failure; if the percentage climbs, ask which checks could re-observe reality instead.
 
 Related: [troubleshooting.md](troubleshooting.md).

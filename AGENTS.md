@@ -41,6 +41,9 @@ it by writing the design doc's version of reality into code comments or docs.
   `enforce.go` (`pawl run`'s heartbeat check and refusal).
 - `e2e/` — end-to-end tests that run some of `docs/examples/` and the plugin launcher and hook
   wrapper. An example without an `e2e/` test is an authoring exercise.
+  `e2e/docs_output_test.go` checks every `pawl` output block in `docs/` (each sits under a
+  `<!-- pawl-capture: <id> -->` marker) against a real run; `UPDATE_DOCS=1 go test ./e2e -run
+  TestDocsOutput` rewrites them. Never hand-edit a captured block.
 - `docs/examples/` — workflow YAML + scripts; each has a `NOTES.md` with the author's design rulings.
   Only the ones an `e2e/` test runs are proven to run.
 - `testdata/fixture/` — a tiny Go module (a two-line `Add` that subtracts) used by
