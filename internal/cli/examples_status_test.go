@@ -9,8 +9,8 @@ import (
 )
 
 // authoringExerciseLabel is the exact line an unproven example's NOTES.md
-// must carry. Keep it byte-for-byte in sync with docs/examples/README.md's
-// description of the status column.
+// must carry. Keep it byte-for-byte in sync with the label line in each
+// authoring exercise's NOTES.md.
 const authoringExerciseLabel = "> **Authoring exercise, not run.** This workflow is a design sketch: it validates (`pawl validate`), but no test runs it and its external dependencies are not stubbed. See [../README.md](../README.md)."
 
 // TestExamplesAreProvenOrLabelled makes every docs/examples directory either

@@ -1,5 +1,5 @@
 kind: added
-body: '`docs/examples/README.md` lists which examples are proven in e2e and which are authoring exercises, and a test keeps that true. `wait-for-build`, `human-approval` and `parallel-fanout` now run end to end in `e2e/` (agentic answers canned); `brain-dispatch`, `manage-mr` and `dependency-upgrade` are labelled "Authoring exercise, not run" and ship placeholder scripts for everything they reference. `human-approval/notes.md` is now `NOTES.md`.'
+body: '`docs/examples/README.md` lists which examples are proven in e2e and which are authoring exercises, and a test keeps that true. `wait-for-build`, `human-approval` and `parallel-fanout` now run end to end in `e2e/` (agentic answers canned); `brain-dispatch`, `manage-mr` and `dependency-upgrade` are labelled "Authoring exercise, not run"; `manage-mr` and `dependency-upgrade` ship placeholder scripts for everything they reference, and `brain-dispatch`''s `NOTES.md` lists its unshipped external dependencies. `human-approval/notes.md` is now `NOTES.md`.'
 time: 2026-10-15T14:30:00.000000000+00:00
 custom:
     PR: "67"
