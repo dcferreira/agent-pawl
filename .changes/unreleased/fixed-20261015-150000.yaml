@@ -1,0 +1,5 @@
+kind: fixed
+body: When a resume is refused because the workflow file changed, the refusal now names only the steps that actually changed; it listed unchanged steps too.
+time: 2026-10-15T15:00:00.000000000+02:00
+custom:
+    PR: "72"
