@@ -43,11 +43,10 @@ func checkPluginVersion(stderr io.Writer) bool {
 	}
 	fmt.Fprintf(stderr, "pawl run: refusing to start: this pawl binary%s is %s but the agent-pawl plugin expects %s. "+
 		"The plugin's skill and this binary must be the same version. "+
-		"This happens when the `pawl` on PATH is a different version from the plugin "+
-		"(for example a terminal-installed pawl earlier on PATH, or a plugin without a bundled binary, such as a source checkout or --plugin-dir). "+
+		"This happens when the plugin has no bundled binary, as in a source checkout or --plugin-dir, "+
+		"and its launcher fell back to a `pawl` on PATH of a different version. "+
 		"Fix the binary on PATH: `pawl update --version v%s` (an install.sh install), "+
-		"or `go install github.com/dcferreira/agent-pawl/cmd/pawl@v%s`, or, in a source checkout, `go install ./cmd/pawl`. "+
-		"If you installed the plugin from the marketplace instead, run `claude plugin update agent-pawl@agent-pawl` and restart Claude Code.\n",
+		"or `go install github.com/dcferreira/agent-pawl/cmd/pawl@v%s`, or, in a source checkout, `go install ./cmd/pawl`.\n",
 		where, bin, want, want, want)
 	return false
 }

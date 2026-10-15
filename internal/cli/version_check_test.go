@@ -60,8 +60,7 @@ func TestRunVersionCheck_MismatchRefuses(t *testing.T) {
 		"`pawl update --version v0.7.0`",
 		"`go install github.com/dcferreira/agent-pawl/cmd/pawl@v0.7.0`",
 		"`go install ./cmd/pawl`",
-		"`claude plugin update agent-pawl@agent-pawl`",
-		"restart Claude Code",
+		"no bundled binary",
 	} {
 		if !strings.Contains(stderr, frag) {
 			t.Errorf("stderr missing %q: %q", frag, stderr)
