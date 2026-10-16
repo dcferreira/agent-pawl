@@ -13,7 +13,7 @@ concurrency:
 jobs:
   lint:
     name: Lint (gofmt + vet)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
 
@@ -71,7 +71,7 @@ jobs:
 
   test:
     name: Test (unit + e2e)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Guarantees a missing/failing git in internal/journal's VCS tests is a
     # loud failure (t.Fatalf), not a silent skip: git ships on every runner
     # this workflow uses, so its absence here would mean the runner image is
