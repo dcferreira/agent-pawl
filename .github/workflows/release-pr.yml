@@ -36,7 +36,7 @@ permissions:
 jobs:
   release-pr:
     name: Open release PR
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # workflow_dispatch can be run from any branch in the Actions UI —
     # without this guard, dispatching from a feature branch would batch
     # fragments and open a release PR based on that branch's tip instead of

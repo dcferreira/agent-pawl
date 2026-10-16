@@ -19,7 +19,7 @@ on:
 jobs:
   goreleaser:
     name: goreleaser
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The push trigger above is already scoped to main, but workflow_dispatch
     # can be run from any branch in the Actions UI — without this guard,
     # dispatching from a feature branch would tag and release *that*
