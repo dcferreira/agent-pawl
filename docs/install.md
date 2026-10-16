@@ -194,6 +194,47 @@ with no arguments prints the command list — `run`, `validate`, `status`, `aban
   `--no-enforcement` or set `PAWL_ENFORCEMENT=off` — see [#hooks](#hooks) and
   [dogfood.md](dogfood.md) for what that means in practice.
 
+## Trying a release candidate
+
+A release candidate (`v1.0.0-rc.N`) is a GitHub prerelease, so none of the install paths above picks
+it up by default: `install.sh` and `pawl update` follow the latest stable release, and the
+`dcferreira/agent-pawl` marketplace stays on it too. You opt in by naming the version. Use the
+real tag in place of `vX.Y.Z-rc.N`; how a candidate is cut is in
+[releasing.md](releasing.md#pre-releases-release-candidates).
+
+The standalone binary:
+
+```
+curl -fsSL https://raw.githubusercontent.com/dcferreira/agent-pawl/main/install.sh | PAWL_VERSION=vX.Y.Z-rc.N sh
+pawl update --version vX.Y.Z-rc.N   # an existing install.sh install
+```
+
+The plugin, pinned with the release's own `marketplace.json` asset and its plugin zip. Build a
+directory marketplace from them, then add it and install:
+
+```
+VER=X.Y.Z-rc.N
+BASE=https://github.com/dcferreira/agent-pawl/releases/download/v$VER
+mkdir -p rc/marketplace/.claude-plugin rc/marketplace/plugin && cd rc
+curl -fsSL -o marketplace.json "$BASE/marketplace.json"
+curl -fsSL -o plugin.zip "$BASE/agent-pawl-plugin_$VER.zip"
+jq -r '.plugins[0].source.sha256' marketplace.json   # must equal the next line
+sha256sum plugin.zip                                 # (shasum -a 256 on macOS)
+unzip -q plugin.zip -d marketplace/plugin
+jq '.plugins[0].source = "./plugin"' marketplace.json > marketplace/.claude-plugin/marketplace.json
+claude plugin marketplace add ./marketplace
+claude plugin install agent-pawl@agent-pawl
+```
+
+This pin does not auto-update, and a `#vX.Y.Z-rc.N` git ref is not a substitute (it installs the
+release before the candidate; see [Migrating from an earlier install](#migrating-from-an-earlier-install)).
+Keep the `rc/marketplace` directory where it is: Claude Code reads the plugin from that path, so
+deleting it leaves the plugin failing to load. If you already added `dcferreira/agent-pawl` there is
+nothing to remove first: adding the directory repoints that `agent-pawl` marketplace at it, and the
+installed plugin follows. After 1.0.0, go back to the regular marketplace with
+`claude plugin marketplace remove agent-pawl` (this also uninstalls the plugin), then
+`claude plugin marketplace add dcferreira/agent-pawl` and `claude plugin install agent-pawl@agent-pawl`.
+
 ## Hooks
 
 `pawl run` won't start unless `pawl`'s `PreToolUse` hook has fired for this working copy within the last

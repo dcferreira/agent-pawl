@@ -1,0 +1,5 @@
+kind: changed
+body: The status page now describes the road to 1.0.0 (the 1.x contract is frozen, and only fixes land across the `1.0.0-rc.N` prereleases), and the install guide has a "Trying a release candidate" section with the opt-in commands for the binary and the plugin.
+time: 2026-10-16T10:32:07.102592182+02:00
+custom:
+    PR: "85"

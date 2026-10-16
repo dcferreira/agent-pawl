@@ -11,7 +11,9 @@ instead of restating it. For what this build does not do, see [Not built](#not-b
 `docs/examples/green-tests` runs against `testdata/fixture` — see [docs/dogfood.md](dogfood.md)
 for a real, captured transcript of that run.
 
-`pawl` is a pre-1.0 build:
+`pawl` is on its way to 1.0.0: the 1.x contract ([compatibility.md](compatibility.md)) is frozen, and
+1.0.0 is preceded by `1.0.0-rc.N` prereleases, during which only fixes land. What this build
+implements:
 
 - All five step kinds are implemented: `deterministic`, `agentic`, `wait`, `human`, and `parallel`
   (single-group, all-or-nothing `branches:` join — [design/format-spec.md](../design/format-spec.md)
