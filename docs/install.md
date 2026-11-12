@@ -231,7 +231,7 @@ release before the candidate; see [Migrating from an earlier install](#migrating
 Keep the `rc/marketplace` directory where it is: Claude Code reads the plugin from that path, so
 deleting it leaves the plugin failing to load. If you already added `dcferreira/agent-pawl` there is
 nothing to remove first: adding the directory repoints that `agent-pawl` marketplace at it, and the
-installed plugin follows. After 1.0.0, go back to the regular marketplace with
+installed plugin follows. Once the release the candidate leads up to is out, go back to the regular marketplace with
 `claude plugin marketplace remove agent-pawl` (this also uninstalls the plugin), then
 `claude plugin marketplace add dcferreira/agent-pawl` and `claude plugin install agent-pawl@agent-pawl`.
 

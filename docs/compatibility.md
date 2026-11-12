@@ -189,7 +189,8 @@ Free to change in any 1.x release.
 
 ## Release candidates and the soak
 
-1.0.0 is preceded by `1.0.0-rc.N` pre-releases; see [releasing.md](releasing.md#pre-releases-release-candidates).
+1.0.0 was preceded by `1.0.0-rc.N` pre-releases; see [releasing.md](releasing.md#pre-releases-release-candidates).
+The rules below applied to the 1.0.0 soak.
 
 - During the rc soak, fixes ship as the next rc (`1.0.0-rc.N+1`), never as 0.x patch releases.
   `scripts/release/batch.sh` enforces this: while `.changes/rc/` holds fragments, it refuses to cut
