@@ -259,3 +259,37 @@ func TestPawlHook_JSONDecisionPassesThrough(t *testing.T) {
 		t.Fatalf("code=%d out=%q", code, out)
 	}
 }
+
+// A pawl invoked through a shell variable has no lowercase "pawl" in the
+// payload when the variable is upper-case (`"$PAWL" run wf`), so the
+// wrapper's no-live-run fast path must match case-insensitively or the
+// binary never sees the call and no heartbeat is written (issue #96).
+func TestPawlHook_ShellVariablePawlReachesBinary(t *testing.T) {
+	for _, command := range []string{`\"$PAWL\" run g`, `${PAWL} submit --run r1`, `\"$MY_PAWL_BIN\" status`} {
+		pathDir, logFile := fakePawl(t)
+		stateDir := filepath.Join(t.TempDir(), "runs")
+		payload := `{"cwd":"/x","tool_input":{"command":"` + command + `"}}`
+		code, _ := runHookScript(t, stateDir, pathDir, "pre", payload)
+		if code != 1 {
+			t.Fatalf("%s: a non-zero binary exit must fail open (exit 1); got %d", command, code)
+		}
+		log, _ := os.ReadFile(logFile)
+		if !strings.Contains(string(log), "args:hook pre") || !strings.Contains(string(log), payload) {
+			t.Fatalf("%s: binary not reached; log=%q", command, log)
+		}
+	}
+}
+
+// The case-insensitive match must not defeat the fast path for a payload
+// that mentions no spelling of pawl.
+func TestPawlHook_FastPathStillSkipsUnrelatedCommand(t *testing.T) {
+	pathDir, logFile := fakePawl(t)
+	stateDir := filepath.Join(t.TempDir(), "runs")
+	code, _ := runHookScript(t, stateDir, pathDir, "pre", `{"cwd":"/x","tool_input":{"command":"echo $HOME; ls -la"}}`)
+	if code != 0 {
+		t.Fatalf("code=%d", code)
+	}
+	if _, err := os.Stat(logFile); err == nil {
+		t.Fatal("binary invoked for a payload with no pawl mention")
+	}
+}
