@@ -13,7 +13,7 @@ concurrency:
 jobs:
   lint:
     name: Lint (gofmt + vet)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
@@ -52,7 +52,9 @@ jobs:
 
       # Validates .claude-plugin/plugin.json and marketplace.json. The
       # Claude Code CLI isn't preinstalled on GitHub-hosted runners, so it's
-      # fetched from npm (ubuntu-latest ships Node.js/npm); pinned to a
+      # fetched from npm (the hosted runner image ships Node.js/npm, and
+      # ubuntu-latest is a floating image, so a move can change which
+      # Node.js/npm that is); pinned to a
       # version verified to work offline (no auth/API key needed for
       # `plugin validate`) rather than tracking latest, for reproducibility.
       - name: Install Claude Code CLI
@@ -71,7 +73,7 @@ jobs:
 
   test:
     name: Test (unit + e2e)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     # Guarantees a missing/failing git in internal/journal's VCS tests is a
     # loud failure (t.Fatalf), not a silent skip: git ships on every runner
     # this workflow uses, so its absence here would mean the runner image is
@@ -94,8 +96,9 @@ jobs:
           go-version-file: go.mod
 
       # The green-tests example's run-tests.sh shells out to jq; it is
-      # preinstalled on ubuntu-latest, installed here so a runner image change
-      # fails loudly at setup rather than mid-suite.
+      # preinstalled on the current ubuntu-latest image, installed here so
+      # that the floating image moving to one without it fails loudly at setup
+      # rather than mid-suite.
       - name: Install jq
         run: sudo apt-get install -y jq
 
@@ -142,3 +145,50 @@ jobs:
       # scripts/test-launcher.sh.
       - name: Test plugin launcher
         run: make test-launcher
+
+  # Proves a change to the release machinery before a release depends on it:
+  # runs release.yml's goreleaser-action (same major, distribution and version)
+  # against .goreleaser.yaml with --snapshot, which builds every archive and
+  # checksum and publishes nothing. Pull requests only, and only when the PR
+  # touches .goreleaser.yaml or a workflow, so ordinary PRs skip the build.
+  # The filter is at step level, not a workflow-level `paths:`, so the job
+  # always reports a result instead of staying "expected" and never starting.
+  # Keep `version:` in step with release.yml.
+  goreleaser-snapshot:
+    name: goreleaser snapshot build
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Full history and tags, as in release.yml, so the diff below and
+          # goreleaser's version resolution see what a release would.
+          fetch-depth: 0
+
+      - name: Check whether goreleaser's inputs changed
+        id: changed
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          files="$(git diff --name-only "$BASE_SHA" HEAD)"
+          if grep -Eq '^(\.goreleaser\.yaml|\.github/workflows/)' <<<"$files"; then
+            echo "run=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "run=false" >>"$GITHUB_OUTPUT"
+            echo "No change to .goreleaser.yaml or .github/workflows/; skipping the snapshot build."
+          fi
+
+      - name: Install Go
+        if: steps.changed.outputs.run == 'true'
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: goreleaser snapshot build (publishes nothing)
+        if: steps.changed.outputs.run == 'true'
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: v2.18.2
+          args: release --snapshot --clean

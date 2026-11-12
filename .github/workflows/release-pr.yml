@@ -36,7 +36,7 @@ permissions:
 jobs:
   release-pr:
     name: Open release PR
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     # workflow_dispatch can be run from any branch in the Actions UI —
     # without this guard, dispatching from a feature branch would batch
     # fragments and open a release PR based on that branch's tip instead of
@@ -56,6 +56,20 @@ jobs:
         with:
           client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      # create-pull-request commits as github-actions[bot] unless told
+      # otherwise, so the release commit would not match the App that opens
+      # the PR. A bot's noreply address is "<user id>+<slug>[bot]@users.noreply.github.com",
+      # and the numeric id is looked up from the public users API.
+      - name: Resolve the App bot's commit identity
+        id: bot
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+        run: |
+          set -euo pipefail
+          id="$(gh api "/users/${APP_SLUG}%5Bbot%5D" --jq .id)"
+          echo "committer=${APP_SLUG}[bot] <${id}+${APP_SLUG}[bot]@users.noreply.github.com>" >>"$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v7
         with:
@@ -98,6 +112,7 @@ jobs:
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ steps.app-token.outputs.token }}
+          committer: ${{ steps.bot.outputs.committer }}
           branch: release/${{ env.RELEASE_VERSION }}
           delete-branch: true
           title: "chore(release): ${{ env.RELEASE_VERSION }}"

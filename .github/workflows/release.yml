@@ -19,7 +19,7 @@ on:
 jobs:
   goreleaser:
     name: goreleaser
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     # The push trigger above is already scoped to main, but workflow_dispatch
     # can be run from any branch in the Actions UI — without this guard,
     # dispatching from a feature branch would tag and release *that*
@@ -159,7 +159,7 @@ jobs:
       # staticcheck's version in the Makefile.
       - name: Run goreleaser
         if: env.SKIP != '1' && env.SKIP_GORELEASER != '1'
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: v2.18.2
