@@ -360,9 +360,53 @@ func TestDecidePre_OpaqueRunNormalDenyTextUnchanged(t *testing.T) {
 	runs := []LiveRun{{RunID: "ab12", WorkflowID: "wf", CursorStep: "fix"}}
 	p := bash("git commit -am x")
 	p.AgentID = "agent-1"
-	want := "pawl: a subagent may not mutate VCS while run ab12 is live (step fix); leave commits to the workflow's own steps"
+	want := "pawl: a subagent may not mutate VCS while run ab12 is live (running, step fix); leave commits to the workflow's own steps, or end the run: pawl abandon --run ab12"
 	if d := DecidePre(runs, p); d.Reason != want {
 		t.Fatalf("reason = %q", d.Reason)
+	}
+}
+
+// A blocked run has no active steps, so it is not driving anything: it must
+// not deny a subagent's VCS command (issue #98). Guards are a separate rule
+// and still apply to it (TestDecidePre_BlockedRunDeniesEverywhere).
+func TestDecidePre_BlockedRunDoesNotDenySubagentVCS(t *testing.T) {
+	blocked := LiveRun{RunID: "b1", WorkflowID: "wf", Blocked: true, CursorStep: "fix"}
+	running := LiveRun{RunID: "r1", WorkflowID: "wf", CursorStep: "fix", ActiveSteps: []string{"fix"}}
+	p := bash("git commit -am x")
+	p.AgentID = "agent-1"
+
+	if d := DecidePre([]LiveRun{blocked}, p); !d.Allow {
+		t.Fatalf("only a blocked run is live; got %+v", d)
+	}
+	if d := DecidePre([]LiveRun{blocked, blocked}, p); !d.Allow {
+		t.Fatalf("every live run blocked; got %+v", d)
+	}
+	for name, runs := range map[string][]LiveRun{
+		"blocked first": {blocked, running},
+		"blocked last":  {running, blocked},
+	} {
+		d := DecidePre(runs, p)
+		if d.Allow {
+			t.Fatalf("%s: a running run still denies; got %+v", name, d)
+		}
+		for _, want := range []string{"run r1", "running", "pawl abandon --run r1"} {
+			if !strings.Contains(d.Reason, want) {
+				t.Errorf("%s: reason %q lacks %q", name, d.Reason, want)
+			}
+		}
+		if strings.Contains(d.Reason, "b1") {
+			t.Errorf("%s: reason %q names the blocked run", name, d.Reason)
+		}
+	}
+}
+
+// A blocked run's guards still deny: only the subagent VCS rule skips it.
+func TestDecidePre_BlockedRunStillAppliesGuardsToSubagent(t *testing.T) {
+	blocked := LiveRun{RunID: "b1", Blocked: true, CursorStep: "fix", Guards: table(t, pushOnlyInCommit)}
+	p := bash("git push")
+	p.AgentID = "agent-1"
+	if d := DecidePre([]LiveRun{blocked}, p); d.Allow || !strings.Contains(d.Reason, "push-in-commit") {
+		t.Fatalf("got %+v", d)
 	}
 }
 
