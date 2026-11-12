@@ -40,7 +40,7 @@ implements:
   mode bound at run start. The `Stop` hook refuses to end the driving
   session's turn while its run's cursor is at an `agentic`/`parallel` step awaiting `pawl submit`
   (`wait`/`human` cursors and `BLOCKED` runs are exempt); a subagent may not mutate VCS while any run
-  is live. See [docs/dogfood.md](dogfood.md) for what that means in practice.
+  that is not blocked is live. See [docs/dogfood.md](dogfood.md) for what that means in practice.
 - Top-level `invariants:` IS engine-checked: the engine evaluates every declared invariant, in
   order, after every step completion and after every `pawl submit`/`pawl poll`, stopping at the
   first violated one; a violation blocks the run with the invariant's `message:` as the reason

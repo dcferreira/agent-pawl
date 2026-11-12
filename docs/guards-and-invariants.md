@@ -184,7 +184,7 @@ consequence. Invariants run after every step: keep them to a handful, and fast.
 - **Guards only see Bash** — an Edit-tool write fires no `match:`, and `subagent_args.tools` is
   guidance to the subagent, not an enforced allowlist ([agentic steps](steps/agentic.md)). The one
   subagent rule the `PreToolUse` hook actually keeps is denying VCS-mutating `Bash` from a subagent
-  while any run is live, not only during an agentic step.
+  while any run that is not blocked is live, not only during an agentic step.
 - **A harness that drops a hook mid-run** is outside the engine's reach — the heartbeat check is at start,
   not for the duration.
 - **A script that lies** — printing `CLEAN` without checking is indistinguishable from checking. The

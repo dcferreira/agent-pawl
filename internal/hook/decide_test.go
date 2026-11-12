@@ -356,7 +356,19 @@ func TestDecidePre_OpaqueRunSubagentVCSDenied(t *testing.T) {
 	}
 }
 
-func TestDecidePre_OpaqueRunNormalDenyTextUnchanged(t *testing.T) {
+// An opaque run's state is unknowable, so it is never skipped as blocked,
+// even when a blocked run is listed ahead of it.
+func TestDecidePre_BlockedThenOpaqueNamesOpaque(t *testing.T) {
+	blocked := LiveRun{RunID: "b1", Blocked: true, CursorStep: "fix"}
+	p := bash("git commit -am x")
+	p.AgentID = "agent-1"
+	d := DecidePre([]LiveRun{blocked, opaqueRun()}, p)
+	if d.Allow || !strings.Contains(d.Reason, "pawl abandon --run r99") {
+		t.Fatalf("got %+v", d)
+	}
+}
+
+func TestDecidePre_RunningRunDenyText(t *testing.T) {
 	runs := []LiveRun{{RunID: "ab12", WorkflowID: "wf", CursorStep: "fix"}}
 	p := bash("git commit -am x")
 	p.AgentID = "agent-1"

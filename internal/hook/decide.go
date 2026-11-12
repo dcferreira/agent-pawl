@@ -69,7 +69,9 @@ var allow = Decision{Allow: true}
 
 // DecidePre applies the enforcement design's PreToolUse rules for a Bash
 // call: the fail-closed rule for a run whose guards could not be loaded,
-// the guard union across live runs, and the subagent VCS rule. A
+// the guard union across live runs, and the subagent VCS rule (which skips a
+// blocked run: guards still apply to it, the VCS rule protects a run that is
+// driving). A
 // pawl-and-cd-only command (IsPawlOnlyCommand) is exempt from fail-closed so
 // `pawl abandon` always works even when a run's guards are broken — but only
 // when *every* segment is pawl/cd: `pawl status; rm -rf x` has a pawl
@@ -107,15 +109,28 @@ func DecidePre(runs []LiveRun, p Payload) Decision {
 		}
 	}
 	if p.AgentID != "" && IsVCSMutation(cmd) {
-		r := runs[0]
+		// A blocked run has no active steps: nothing is driving it, so a
+		// subagent's VCS command cannot collide with the workflow's own
+		// steps. Only a run that is not blocked (an opaque run's state is
+		// unknowable, so it counts) denies, and the first such run is named.
+		var r *LiveRun
+		for i := range runs {
+			if !runs[i].Blocked {
+				r = &runs[i]
+				break
+			}
+		}
+		if r == nil {
+			return allow
+		}
 		if r.Opaque {
 			return Decision{Reason: fmt.Sprintf(
 				"pawl: a subagent may not mutate VCS while run %s (%s) is live; that run's journal is %s (written by a newer pawl, or unreadable) so pawl cannot tell what it is doing. Upgrade pawl, or end it: pawl abandon --run %s",
 				r.RunID, r.WorkflowID, r.OpaqueStatus, r.RunID)}
 		}
 		return Decision{Reason: fmt.Sprintf(
-			"pawl: a subagent may not mutate VCS while run %s is live (step %s); leave commits to the workflow's own steps",
-			r.RunID, r.CursorStep)}
+			"pawl: a subagent may not mutate VCS while run %s is live (running, step %s); leave commits to the workflow's own steps, or end the run: pawl abandon --run %s",
+			r.RunID, r.CursorStep, r.RunID)}
 	}
 	return allow
 }

@@ -304,8 +304,9 @@ END TERMINAL 9074 ok
 `blocked`). `ok` means the run is over: report `message:` to the user. There is nothing further
 to submit, and the loop ends here.
 
-`blocked` means the run is **paused, not finished**. It stays live, and its hooks and the
-subagent-VCS rule still apply, until it is resumed or abandoned. The block carries extra fields:
+`blocked` means the run is **paused, not finished**. It stays live, and its guards still
+apply (the subagent-VCS rule does not: a blocked run has nothing driving it), until it is resumed or
+abandoned. The block carries extra fields:
 
 ```
 TERMINAL 9074 blocked

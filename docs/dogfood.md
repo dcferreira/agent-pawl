@@ -27,8 +27,8 @@ hooks.json)` in its start banner. Concretely, that means:
   engine re-runs every declared invariant's `check:` after every step and every `pawl
   submit`/`pawl poll`, and a violation blocks the run — see
   [guards-and-invariants.md](guards-and-invariants.md).
-- A subagent (dispatched via the Agent tool) may not run a VCS-mutating command while any run is
-  live — the `PreToolUse` hook denies it.
+- A subagent (dispatched via the Agent tool) may not run a VCS-mutating command while any run that is
+  not blocked is live — the `PreToolUse` hook denies it.
 - Running with `--no-enforcement` or `PAWL_ENFORCEMENT=off` turns all of the above off for that run;
   the banner says so plainly (`enforcement: off (...)`), and the `/pawl` skill's protocol is the only
   thing keeping such a run honest.
