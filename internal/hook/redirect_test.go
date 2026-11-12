@@ -97,6 +97,19 @@ func TestLex_RedirectWithoutTargetIsUnsure(t *testing.T) {
 			t.Errorf("lex(%q) unsure = true, want false", cmd)
 		}
 	}
+	// A segment of redirections only must not vanish from the segment list:
+	// IsPawlOnlyCommand requires every segment to be pawl or cd.
+	for _, cmd := range []string{"pawl status; >f", "cd x && > ~/file", "pawl status; 2>f", "pawl status; <f"} {
+		if _, _, unsure := lex(cmd); !unsure {
+			t.Errorf("lex(%q) unsure = false, want true", cmd)
+		}
+		if IsPawlOnlyCommand(cmd) {
+			t.Errorf("IsPawlOnlyCommand(%q) = true, want false", cmd)
+		}
+	}
+	if !IsPawlOnlyCommand("pawl status >f") || !IsPawlOnlyCommand(">f pawl status") {
+		t.Error("a redirect on a pawl command must stay pawl-only")
+	}
 	if _, subst, _ := lex("git tag foo >(cat)"); !subst {
 		t.Error("lex: >( must still be a substitution, not a redirect")
 	}

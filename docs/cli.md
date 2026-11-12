@@ -488,7 +488,8 @@ pawl hook subagent-stop
 ```
 
 Bound once at install, called by Claude Code with a JSON payload on stdin. `pre` writes the session's
-heartbeat whenever any simple command in it invokes `pawl`, applies the guard table (union across the
+heartbeat whenever any simple command in it invokes `pawl` (by name or path, or through a shell variable
+named for pawl, such as `"$PAWL" run …`, followed by a pawl subcommand), applies the guard table (union across the
 cwd working copy's live runs plus any live run, in any working copy, whose `driver.json` names the calling session, per guard pattern) on `PreToolUse` for Bash, and denies VCS-mutating Bash from a subagent while any run that is not blocked is live —
 its one subagent rule; `subagent_args:` is not enforced. A command made only of `pawl`/`cd` segments
 is never denied by a guard (its arguments may mention a guarded pattern, but `pawl` never runs it

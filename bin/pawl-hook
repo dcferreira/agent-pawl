@@ -51,8 +51,10 @@ done
 
 if [ "$live" = no ]; then
   if [ "$1" = subagent-stop ]; then exit 0; fi
+  # Case-insensitive: pawl may be called through a variable such as
+  # "$PAWL" run ..., which has no lowercase "pawl" in the payload.
   case "$payload" in
-    *pawl*) ;;
+    *[Pp][Aa][Ww][Ll]*) ;;
     *) exit 0 ;;
   esac
 fi
