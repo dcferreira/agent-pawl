@@ -179,6 +179,17 @@ type Event struct {
 	Target   string `json:"target,omitempty"`
 	Outcome  string `json:"outcome,omitempty"`
 	ViaCatch bool   `json:"via_catch,omitempty"`
+	// ViaFrom marks the TRANSITION `pawl run --from <step>` journals to move
+	// a live run to <step> (engine.ResumeFrom). It is a marker for people and
+	// tools reading the journal; Replay does not read it, and the move
+	// replays as an ordinary ungrouped, non-catch TRANSITION, which is why an
+	// older 1.x binary resumes a moved run at the same step.
+	//
+	// Additive and backward-compatible: an event recorded before this field
+	// existed decodes with ViaFrom false, and an older binary ignores the
+	// key on decode (decodeRecord does not reject unknown fields). A new
+	// field, not a new event kind, so Format is not bumped.
+	ViaFrom bool `json:"via_from,omitempty"`
 
 	// RUN_END. Status "blocked" does not mean the run is over.
 	Status string `json:"status,omitempty"`

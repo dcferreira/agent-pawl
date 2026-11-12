@@ -1,0 +1,9 @@
+{"kind":"RUN_START","run_id":"f00d","seq":0,"time":"2026-11-12T10:00:00Z","format":2,"digest":"redacted-from-digest","hook_self_test":"off (PAWL_ENFORCEMENT=off)"}
+{"kind":"STEP_ENTER","run_id":"f00d","seq":1,"time":"2026-11-12T10:00:01Z","step":"prep","attempt":1}
+{"kind":"TRANSITION","run_id":"f00d","seq":2,"time":"2026-11-12T10:00:02Z","step":"prep","attempt":1,"target":"gate","outcome":"success"}
+{"kind":"STEP_ENTER","run_id":"f00d","seq":3,"time":"2026-11-12T10:00:03Z","step":"gate","attempt":1}
+{"kind":"POSTCONDITION","run_id":"f00d","seq":4,"time":"2026-11-12T10:00:04Z","step":"gate","attempt":1,"attempt_key":"redacted-key"}
+{"kind":"TRANSITION","run_id":"f00d","seq":5,"time":"2026-11-12T10:00:05Z","step":"gate","attempt":1,"target":"blocked","outcome":"failure","via_catch":true}
+{"kind":"RUN_END","run_id":"f00d","seq":6,"time":"2026-11-12T10:00:06Z","step":"gate","status":"blocked","reason":"gate: failure"}
+{"kind":"RESUME","run_id":"f00d","seq":7,"time":"2026-11-12T10:01:00Z","step":"gate","attempt":1,"intervention":true}
+{"kind":"TRANSITION","run_id":"f00d","seq":8,"time":"2026-11-12T10:01:00Z","step":"gate","attempt":1,"target":"prep","via_from":true}
