@@ -492,7 +492,7 @@ new_fixture
 (cd "$FIXTURE_DIR" && cat >.changes/v0.2.0.md <<'EOF'
 ## v0.2.0 - 2026-02-01
 EOF
-  sed -i 's/0.1.0/0.2.0/' .claude-plugin/plugin.json)
+  sed -i.bak 's/0.1.0/0.2.0/' .claude-plugin/plugin.json && rm -f .claude-plugin/plugin.json.bak)
 write_fixture_marketplace "$FIXTURE_DIR" "$(archive_src 0.1.0 $SHA_A)"
 assert_ok "marketplace one release behind plugin.json (release PR window) -> pass" check_version_consistency "$FIXTURE_DIR"
 
@@ -705,7 +705,7 @@ um_release "$UM_TMP/bad3.json" '"./"'
 assert_fails "release file with a non-archive source is rejected" run_um "$UM_TMP/bad3.json" "$UM_TMP/repo5.json"
 um_release "$UM_TMP/bad4.json" "$(archive_src 0.6.0 DEADBEEF)"
 assert_fails "release file with a bad sha256 is rejected" run_um "$UM_TMP/bad4.json" "$UM_TMP/repo5.json"
-um_release "$UM_TMP/bad5.json" "$(archive_src 0.6.0 ${SHA_A^^})"
+um_release "$UM_TMP/bad5.json" "$(archive_src 0.6.0 "$(printf %s "$SHA_A" | tr a-f A-F)")"
 assert_fails "release file with an uppercase sha256 is rejected" run_um "$UM_TMP/bad5.json" "$UM_TMP/repo5.json"
 assert_ok "rejected release leaves the repo file untouched" test "$(jq -c '.plugins[0].source' "$UM_TMP/repo5.json")" = '"./"'
 
