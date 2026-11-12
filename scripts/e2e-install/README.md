@@ -45,5 +45,9 @@ Safety: every scenario gets its own `mktemp -d` root with its own HOME,
 CLAUDE_CONFIG_DIR, GOPATH and PATH; commands run under `env -i`; the real
 `~/.claude` and installed pawl are never touched; cleanup is
 `rm -rf "$ROOT"` of that root only. Needs network (github.com,
-proxy.golang.org), curl, jq, unzip, tar, git, go and claude. See the header of
-`lib.sh` for the helper API used by scenarios.
+proxy.golang.org), curl, jq, unzip, tar, git, go and claude. Without `go`
+the checks that need it (scenario a's green-tests half, scenario b's `go
+install`) are recorded as SKIP with that reason and a warning is printed; a
+run that records no new PASS row exits non-zero. The scripts run under
+macOS's system bash 3.2. See the header of `lib.sh` for the helper API used by
+scenarios.

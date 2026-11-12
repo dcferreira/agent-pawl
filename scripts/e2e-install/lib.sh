@@ -138,6 +138,7 @@ e2e_init() {
     case "$GO_DIR" in /usr/bin | /bin) ;; *) SB_EXTRA_PATH+=("$GO_DIR") ;; esac
   else
     GO_DIR=""
+    echo "WARNING [$SCEN]: go is not on PATH; checks that need go will be SKIPped with that reason" >&2
   fi
 
   {
@@ -176,7 +177,8 @@ sb() {
   done
   _abort_guard
   local p="$SB_BIN" d
-  for d in "${SB_EXTRA_PATH[@]}"; do p="$p:$d"; done
+  # ${a[@]+"${a[@]}"}: an empty array is an unbound variable under `set -u` in bash 3.2 (macOS).
+  for d in ${SB_EXTRA_PATH[@]+"${SB_EXTRA_PATH[@]}"}; do p="$p:$d"; done
   p="$p:/usr/bin:/bin"
   (
     cd "${SB_CWD:-$SB_WORK}" || exit 97
@@ -189,7 +191,7 @@ sb() {
       GOFLAGS=-modcacherw \
       TERM=dumb \
       PATH="$p" \
-      "${extra[@]}" \
+      ${extra[@]+"${extra[@]}"} \
       "$@"
   )
 }
@@ -242,6 +244,14 @@ check() {
   printf '| %s | %s | %s | %s |\n' "$status" "$SCEN" "$name" "$d" >>"$SUMMARY"
   printf '\n**CHECK %s** - %s - %s\n' "$status" "$name" "$detail" >>"$TRANSCRIPT"
   echo "  [$SCEN] $status: $name"
+}
+
+# require_go "check name": return 0 when go is on the caller's PATH; otherwise record a
+# named SKIP (never a silent omission) and return 1 so the caller can skip the step.
+require_go() {
+  [ -n "${GO_DIR:-}" ] && return 0
+  check SKIP "$1" "go is not on PATH, so this check cannot run; install go and re-run"
+  return 1
 }
 
 e2e_finish() {
