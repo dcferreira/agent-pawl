@@ -393,7 +393,9 @@ paused for review before continuing — it is not a dead end.
 - While `BLOCKED`, `PreToolUse` keeps denying guarded commands — the run is still live. The `Stop`
   hook does **not** refuse.
 - `pawl abandon --run <id>` ends a blocked run for good, same as any other live run.
-- `--from <step>`, to resume at an arbitrary earlier step, is Milestone 2 (§I).
+- `pawl run <name> --from <step>` (1.1) moves a live run to its current step or to a top-level step
+  it has already entered, and continues there: state kept, no counter reset. Invariants are not
+  checked on the move itself, only from the target on, as on any run. See docs/cli.md.
 
 `terminal: {status: ok|blocked, …}` (§D) names the *message shown on reaching that outcome*; `done`
 is the one status that is final. The step ids `done` and `blocked` are reserved for the implicit
@@ -939,7 +941,7 @@ crash-safe resume, `human` steps in full, and `pawl validate`.
 
 **Milestone 2.** `pawl graph` (Mermaid from the parsed graph); `pawl validate --walk step=TOKEN,…`, printing
 the step sequence a given outcome assignment produces without executing anything; `pawl status --history`;
-`pawl run <name> --from <step>`; plugin-shipped workflows, "if free".
+`pawl run <name> --from <step>` (built in 1.1); plugin-shipped workflows, "if free".
 
 **Milestone 3.** `foreach:` fan-out over a runtime-discovered list, with per-item postconditions and a
 **partial**-success join. *Shipped for `deterministic` bodies* (sequential in-process execution,

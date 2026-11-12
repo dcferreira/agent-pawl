@@ -131,8 +131,11 @@ func (e *Engine) Poll(runID, stepID string, observe func(PollIteration)) (Instru
 
 	for n := 1; ; n++ {
 		// Re-check every iteration, not only at entry: the run may have been
-		// abandoned, or advanced by another process, while this loop slept.
-		if _, _, err := e.pollPrecheck(dir, runID, stepID); err != nil {
+		// abandoned, or advanced by another process, while this loop slept —
+		// or the step entered afresh (`pawl run --from` the same wait step,
+		// or a loop back to it), so this loop's deadline belongs to a visit
+		// that is over and the new visit's own poller takes it from here.
+		if err := e.pollSameVisit(dir, runID, stepID, parkedAt); err != nil {
 			return nil, err
 		}
 
@@ -140,7 +143,7 @@ func (e *Engine) Poll(runID, stepID string, observe func(PollIteration)) (Instru
 			if observe != nil {
 				observe(PollIteration{N: n, Elapsed: e.now().Sub(parkedAt), Token: "timeout", Routed: true, TimedOut: true})
 			}
-			return e.completeWait(dir, runID, stepID, "timeout", nil, "")
+			return e.completeWait(dir, runID, stepID, parkedAt, "timeout", nil, "")
 		}
 
 		it := PollIteration{N: n, Elapsed: e.now().Sub(parkedAt)}
@@ -181,7 +184,7 @@ func (e *Engine) Poll(runID, stepID string, observe func(PollIteration)) (Instru
 			if observe != nil {
 				observe(it)
 			}
-			return e.completeWait(dir, runID, stepID, "failure", nil, firstNonEmpty(stderr, stdout))
+			return e.completeWait(dir, runID, stepID, parkedAt, "failure", nil, firstNonEmpty(stderr, stdout))
 		}
 
 		var failureText string
@@ -199,7 +202,7 @@ func (e *Engine) Poll(runID, stepID string, observe func(PollIteration)) (Instru
 				if observe != nil {
 					observe(it)
 				}
-				return e.completeWait(dir, runID, stepID, result.Outcome, result.Writes, "")
+				return e.completeWait(dir, runID, stepID, parkedAt, result.Outcome, result.Writes, "")
 			}
 		}
 
@@ -228,7 +231,7 @@ func (e *Engine) Poll(runID, stepID string, observe func(PollIteration)) (Instru
 		if observe != nil {
 			observe(it)
 		}
-		return e.completeWait(dir, runID, stepID, "failure", nil, failureText)
+		return e.completeWait(dir, runID, stepID, parkedAt, "failure", nil, failureText)
 	}
 }
 
@@ -315,6 +318,22 @@ func (e *Engine) execPoll(step *spec.Step, dir, runID string, n int) (stdout, st
 	return stdout, stderr, exitCode, err
 }
 
+// pollSameVisit is pollPrecheck plus one more check: the step's current visit
+// is still the one parked at visit. A wait step entered afresh since (by
+// `pawl run --from` the same step, or a loop back to it) is a new visit with
+// its own deadline and its own poller, so the old loop stops with
+// ErrPollNotCurrent instead of carrying the old deadline into it.
+func (e *Engine) pollSameVisit(dir, runID, stepID string, visit time.Time) error {
+	_, parkedAt, err := e.pollPrecheck(dir, runID, stepID)
+	if err != nil {
+		return err
+	}
+	if !parkedAt.Equal(visit) {
+		return fmt.Errorf("%w: step %q was entered again since this poll started; the new visit has its own poll", ErrPollNotCurrent, stepID)
+	}
+	return nil
+}
+
 // completeWait is pawl poll "doing what pawl submit would do internally"
 // (DESIGN.md §3): under the run lock, and only after re-confirming the run is
 // still parked here, it journals the routed line's writes, evaluates the
@@ -330,7 +349,11 @@ func (e *Engine) execPoll(step *spec.Step, dir, runID string, n int) (stdout, st
 // POSTCONDITION-kind diagnostic first so the run's last_error pseudo-key is
 // populated for the blocked terminal that follows — the same reason
 // advanceDeterministic journals one (finding I1).
-func (e *Engine) completeWait(dir, runID, stepID, outcome string, writes map[string]any, failureText string) (Instruction, error) {
+//
+// visit is the parked-at time of the visit this poll loop started on (see
+// pollSameVisit): a routed result for a visit that is over is never applied
+// to a newer one.
+func (e *Engine) completeWait(dir, runID, stepID string, visit time.Time, outcome string, writes map[string]any, failureText string) (Instruction, error) {
 	lock, err := journal.AcquireLock(dir, false)
 	if err != nil {
 		return nil, err
@@ -339,10 +362,10 @@ func (e *Engine) completeWait(dir, runID, stepID, outcome string, writes map[str
 
 	// The loop held no lock, so re-confirm under it: another process may have
 	// advanced this run between the routed iteration and this moment.
-	step, _, err := e.pollPrecheck(dir, runID, stepID)
-	if err != nil {
+	if err := e.pollSameVisit(dir, runID, stepID, visit); err != nil {
 		return nil, err
 	}
+	step := e.Workflow.StepByID(stepID)
 
 	log, err := journal.OpenLog(dir)
 	if err != nil {

@@ -79,8 +79,8 @@ func instructionExitCode(instr engine.Instruction) int {
 }
 
 // exitForEngineErr classifies an error returned by Engine.Start, .Resume,
-// .Submit, .SubmitHuman or .Poll into the refusal (exitRefused) vs
-// engine-error (5) exit-code class — the two codes that only make sense
+// .ResumeFrom, .Submit, .SubmitHuman or .Poll into the refusal (exitRefused)
+// vs engine-error (5) exit-code class — the two codes that only make sense
 // once a command is past every check it performs itself before ever
 // constructing an Engine (the workflow resolved, spec.Validate clean, the
 // run found by journal.Live/FindRun). Everything reaching this point is
@@ -103,6 +103,12 @@ func instructionExitCode(instr engine.Instruction) int {
 //     "internal error: …" invariant spec.Validate should already have
 //     ruled out. Nothing here is fixable by retyping the command, which is
 //     exactly the distinction exit 5 exists to draw from exit 4.
+//
+// The one exception is engine.ErrFromTarget: `pawl run --from` naming a
+// step that is not a legal target for the run. Only the run's journal can
+// say which steps are legal, so the engine finds it, but it is the caller's
+// input that is wrong, and retyping the command with a listed step fixes
+// it: a usage error, exit 2.
 //
 // exitForLoadErr classifies an error spec.Load (via loadAndValidate)
 // returned into the frozen exit-code table (exitcode.go): a YAML syntax error or an
@@ -141,6 +147,11 @@ func exitForEngineErr(err error) int {
 		errors.Is(err, engine.ErrAlreadyTerminal),
 		errors.Is(err, engine.ErrRefused):
 		return exitRefused
+	case errors.Is(err, engine.ErrFromTarget):
+		// `pawl run --from <step>` naming a step that is not a legal target
+		// for this run: the caller's input is wrong (usage), like an
+		// unknown flag value.
+		return exitUsage
 	default:
 		return exitInternal
 	}

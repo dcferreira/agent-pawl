@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dcferreira/agent-pawl/internal/journal"
 )
@@ -379,6 +380,46 @@ func TestResumeFrom_WaitCursorFreshVisit(t *testing.T) {
 	dir := journal.RunDir(e.Root, e.Workflow.Workflow, "run1")
 	if n := countKind(mustEvents(t, dir), journal.KindStepEnter, "w"); n != 2 {
 		t.Errorf("STEP_ENTER for w = %d, want 2", n)
+	}
+}
+
+// TestResumeFrom_RunningPollerStopsOnReentry: a poller already running on a
+// wait step stops (ErrPollNotCurrent) once --from re-enters that step, rather
+// than carrying its old visit's deadline into the new visit; nothing it saw
+// is journaled against the new visit.
+func TestResumeFrom_RunningPollerStopsOnReentry(t *testing.T) {
+	yaml := strings.Replace(fromHumanWaitWorkflow, `poll: "echo build_status=PASSED"`, `poll: "echo not-yet"`, 1)
+	e := newTestEngine(t, yaml)
+	e.Sleep = func(time.Duration) {}
+	instr, err := e.Start("run1", nil)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	a := instr.(Ask)
+	if _, err := e.SubmitHuman("run1", "ask", a.Attempt, []byte(`{"selected":["go"]}`)); err != nil {
+		t.Fatalf("SubmitHuman: %v", err)
+	}
+	dir := journal.RunDir(e.Root, e.Workflow.Workflow, "run1")
+
+	moved := false
+	_, err = e.Poll("run1", "w", func(it PollIteration) {
+		if moved {
+			return
+		}
+		moved = true
+		if _, err := e.ResumeFrom("run1", "w", false); err != nil {
+			t.Errorf("ResumeFrom during poll: %v", err)
+		}
+	})
+	if !moved {
+		t.Fatal("the poll loop never ran an iteration")
+	}
+	if !errors.Is(err, ErrPollNotCurrent) || !strings.Contains(err.Error(), "entered again") {
+		t.Fatalf("old poller err = %v, want ErrPollNotCurrent naming the re-entry", err)
+	}
+	rs := mustReplay(t, dir)
+	if rs.Cursor.Step != "w" || rs.Status() != "running" || rs.Visits["w"] != 2 {
+		t.Errorf("cursor %+v status %s visits %v, want parked at w on its second visit", rs.Cursor, rs.Status(), rs.Visits)
 	}
 }
 
