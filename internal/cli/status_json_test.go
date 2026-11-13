@@ -84,7 +84,7 @@ func TestStatusJSON_SchemaAndKeyOrder(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &top); err != nil || len(top.Runs) != 1 {
 		t.Fatalf("runs: %v %d", err, len(top.Runs))
 	}
-	wantKeys := []string{"run_id", "workflow", "workflow_path", "warning", "status", "step", "attempt", "visits", "state_keys", "reason", "soft"}
+	wantKeys := []string{"run_id", "workflow", "workflow_path", "warning", "status", "step", "attempt", "visits", "state_keys", "reason", "soft", "last_event_time"}
 	if got := objectKeys(t, string(top.Runs[0])); !reflect.DeepEqual(got, wantKeys) {
 		t.Errorf("run keys = %v, want %v", got, wantKeys)
 	}

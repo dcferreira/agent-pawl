@@ -3,6 +3,7 @@ package journal
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // AttemptRef identifies one attempt budget: a step id plus the attempt key
@@ -80,6 +81,11 @@ type RunState struct {
 
 	// Cursor is where a resumed run continues, per DESIGN.md §4 step 4.
 	Cursor Cursor
+
+	// LastEventTime is the Time of the last replayed event; zero for an
+	// empty journal. It is how long a run has sat idle, measured against a
+	// clock the caller holds: Replay itself reads no clock.
+	LastEventTime time.Time
 
 	// ResumedInFlight names the step a crash RESUME (not an intervention
 	// one) re-entered while that step was already in flight — entered, not
