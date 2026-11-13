@@ -115,10 +115,12 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 	live = appendDrivenRuns(live, p.SessionID)
 	runs := buildLiveRuns(live)
 	var d hook.Decision
+	var markers []hook.StopMarker
 	switch event {
 	case "pre":
 		d = hook.DecidePre(runs, p)
 	case "subagent-stop":
+		markerWritten := false
 		for _, r := range runs {
 			// Only a run awaiting this session's `pawl submit` earns credit:
 			// a blocked run, or one at a wait/human cursor, never blocks a Stop.
@@ -126,14 +128,18 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 				(r.CursorKind == "agentic" || r.CursorKind == "parallel") {
 				if err := journal.WriteSubagentStop(p.SessionID, p.AgentID, nowFunc(), hook.SubagentStopCreditTTL); err != nil {
 					printLine(stderr, "pawl hook subagent-stop: recording marker:", err.Error())
+				} else {
+					markerWritten = true
 				}
 				break
 			}
 		}
+		hookLog(stderr, event, data, p, runs, nil, markerWritten, hook.Decision{Allow: true})
 		return hookExitOK
 	default:
-		d = stopDecision(runs, p, stderr)
+		d, markers = stopDecision(runs, p, stderr)
 	}
+	hookLog(stderr, event, data, p, runs, markers, false, d)
 	if d.Allow {
 		return hookExitOK
 	}
@@ -148,7 +154,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 // the decision) and prunes expired ones. Marker
 // I/O is best-effort: a read error means no markers (so no credit), and a
 // delete or prune failure never changes the decision.
-func stopDecision(runs []hook.LiveRun, p hook.Payload, stderr io.Writer) hook.Decision {
+func stopDecision(runs []hook.LiveRun, p hook.Payload, stderr io.Writer) (hook.Decision, []hook.StopMarker) {
 	now := nowFunc()
 	var markers []hook.StopMarker
 	stored, err := journal.ListSubagentStops(p.SessionID, now, hook.SubagentStopCreditTTL)
@@ -165,7 +171,7 @@ func stopDecision(runs []hook.LiveRun, p hook.Payload, stderr io.Writer) hook.De
 		}
 	}
 	_ = journal.PruneSubagentStops(now, hook.SubagentStopCreditTTL)
-	return d
+	return d, markers
 }
 
 // writeHookDecision writes Claude Code's JSON decision for a deny (pre) or
