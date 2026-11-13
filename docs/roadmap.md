@@ -1,10 +1,9 @@
 # Roadmap to v1
 
-`pawl` is pre-1.0. This page is the to-do list for v1: everything the design documents still mark
-as not built, plus known gaps in the docs and examples. It is the starting point for deciding
-v1's scope, not a commitment. When something is deferred past v1, move it to
-[After v1](#after-v1) rather than deleting it. For exactly what runs today, see
-[status.md](status.md).
+`pawl` 1.0.0 is released. This page was the to-do list for v1: everything the design documents
+marked as not built, plus known gaps in the docs and examples. What remains is under
+[After v1](#after-v1); when something is deferred, move it there rather than deleting it. For
+exactly what runs today, see [status.md](status.md).
 
 Tick an item off in the same PR that ships it.
 

@@ -11,8 +11,8 @@ instead of restating it. For what this build does not do, see [Not built](#not-b
 `docs/examples/green-tests` runs against `testdata/fixture` — see [docs/dogfood.md](dogfood.md)
 for a real, captured transcript of that run.
 
-`pawl` is on its way to 1.0.0: the 1.x contract ([compatibility.md](compatibility.md)) is frozen, and
-1.0.0 is preceded by `1.0.0-rc.N` prereleases, during which only fixes land. What this build
+`pawl` 1.0.0 is released, and the 1.x contract ([compatibility.md](compatibility.md)) is frozen: a
+break of it means 2.0. What this build
 implements:
 
 - All five step kinds are implemented: `deterministic`, `agentic`, `wait`, `human`, and `parallel`
