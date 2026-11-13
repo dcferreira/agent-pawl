@@ -70,6 +70,11 @@ else
 fi
 
 # --- green-tests through the installed bin/pawl, no model ---
+# The fixture's run-tests.sh runs `go test`, so without go this half cannot run.
+if ! require_go "green-tests through the installed bin/pawl"; then
+  e2e_finish
+  exit $?
+fi
 src="$ROOT/src"
 fetch_source_tree "$TO" "$src" || { check FAIL "fetch v$TO source tree" "see transcript"; e2e_finish; exit $?; }
 gt="$SB_WORK/green"

@@ -28,8 +28,16 @@ else
   done
 fi
 
+# Number of PASS rows in the summary so far (0 when there is no summary yet). A caller-supplied
+# REPORT_DIR may already hold rows from an earlier run, so the guard below compares counts.
+pass_rows() {
+  [ -f "$REPORT_DIR/summary.md" ] || { echo 0; return; }
+  awk '/^\| PASS \|/ { n++ } END { print n + 0 }' "$REPORT_DIR/summary.md"
+}
+
 failed=0
-for s in "${scenarios[@]}"; do
+pass_before="$(pass_rows)"
+for s in ${scenarios[@]+"${scenarios[@]}"}; do
   f="$HERE/scenario-$s.sh"
   if [ ! -f "$f" ]; then
     echo "no such scenario: $s" >&2
@@ -46,4 +54,10 @@ done
 echo
 echo "== summary ($REPORT_DIR/summary.md) =="
 cat "$REPORT_DIR/summary.md" 2>/dev/null || echo "(no checks recorded)"
+
+# A run that recorded no new passing check is not a pass, whatever the scenarios' exit codes said.
+if [ "$(pass_rows)" -le "$pass_before" ]; then
+  echo "error: this run recorded no PASS row; it verified nothing" >&2
+  failed=1
+fi
 exit "$failed"

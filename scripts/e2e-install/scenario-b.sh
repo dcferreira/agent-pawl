@@ -63,12 +63,14 @@ verify_install "install.sh pinned $FROM" "$ROOT/inst-from" "$FROM"
 check SKIP "tampered checksum is rejected" "not testable without a base-URL override (install.sh hard-codes the GitHub release URL)"
 
 # 4. go install
-step "go install github.com/$REPO_SLUG/cmd/pawl@v$TO" sb go install "github.com/$REPO_SLUG/cmd/pawl@v$TO"
-if [ "$STEP_RC" -eq 0 ] && [ -x "$SB_GOPATH/bin/pawl" ]; then
-  step "go-installed pawl version" sb "$SB_GOPATH/bin/pawl" version
-  check "$([ "$STEP_RC" -eq 0 ] && echo PASS || echo FAIL)" "go install pawl@v$TO runs" "observed: $STEP_OUT"
-else
-  check FAIL "go install pawl@v$TO runs" "exit $STEP_RC: $STEP_ERR"
+if require_go "go install pawl@v$TO runs"; then
+  step "go install github.com/$REPO_SLUG/cmd/pawl@v$TO" sb go install "github.com/$REPO_SLUG/cmd/pawl@v$TO"
+  if [ "$STEP_RC" -eq 0 ] && [ -x "$SB_GOPATH/bin/pawl" ]; then
+    step "go-installed pawl version" sb "$SB_GOPATH/bin/pawl" version
+    check "$([ "$STEP_RC" -eq 0 ] && echo PASS || echo FAIL)" "go install pawl@v$TO runs" "observed: $STEP_OUT"
+  else
+    check FAIL "go install pawl@v$TO runs" "exit $STEP_RC: $STEP_ERR"
+  fi
 fi
 
 # 5. pawl update FROM -> TO on the install.sh FROM binary
