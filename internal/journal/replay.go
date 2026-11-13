@@ -263,6 +263,7 @@ func Replay(events []Event) (*RunState, error) {
 		}
 		prevSeq = e.Seq
 		haveSeq = true
+		rs.LastEventTime = e.Time
 
 		switch e.Kind {
 		case KindRunStart:

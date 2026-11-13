@@ -68,10 +68,14 @@ func cmdStatus(args []string, cwd string, stdout, stderr io.Writer) int {
 			return exitOK
 		case len(live) > 1 && !asJSON:
 			ids := make([]string, len(live))
+			now := nowFunc()
 			for i, r := range live {
 				ids[i] = r.RunID
 				if r.Opaque != nil {
 					ids[i] += " (" + r.StatusText() + ")"
+				} else if age := idleAge(r.State, now); age != "" {
+					// This list is where parked runs pile up unnoticed.
+					ids[i] += " (idle " + age + ")"
 				}
 			}
 			printLine(stderr, fmt.Sprintf("pawl status: multiple runs are live for this working copy; disambiguate with --run <id>: %s", strings.Join(ids, ", ")))
@@ -131,16 +135,22 @@ func cmdStatus(args []string, cwd string, stdout, stderr io.Writer) int {
 			reason = ref.State.EndReason
 		}
 		if asJSON {
-			jsonRuns = append(jsonRuns, newStatusRunJSON(
+			entry := newStatusRunJSON(
 				resumeName(pinned.Workflow.Path, cwd), pinned.Workflow.Path, warning,
 				ref.RunID, status, ref.State.Cursor.Step, ref.State.Cursor.Attempt,
 				ref.State.Visits, ref.State.State, reason,
 				report,
-			))
+			)
+			entry.LastEventTime = lastEventTimeJSON(ref.State)
+			jsonRuns = append(jsonRuns, entry)
 		} else {
-			fmt.Fprint(stdout, formatStatus(
+			idle := ""
+			if age := idleAge(ref.State, nowFunc()); age != "" {
+				idle = idleLine(age, ref.RunID)
+			}
+			fmt.Fprint(stdout, formatStatusIdle(
 				root, pinned.Workflow.Path, warning,
-				ref.RunID, status, ref.State.Cursor.Step, ref.State.Cursor.Attempt,
+				ref.RunID, status, idle, ref.State.Cursor.Step, ref.State.Cursor.Attempt,
 				formatVisits(ref.State.Visits), formatKeySet(ref.State.State), reason,
 				report,
 			))

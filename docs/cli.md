@@ -244,7 +244,7 @@ does not exist — every run for the machine isn't listable by this command).
 <!-- pawl-capture: cli/status-json -->
 ```
 $ pawl status --json
-{"schema_version":1,"root":"/home/you/project","runs":[{"run_id":"7f3a","workflow":"sample","workflow_path":"/home/you/project/.claude/workflows/sample.yaml","warning":"","status":"running","step":"greet","attempt":1,"visits":{"greet":1},"state_keys":[],"reason":"","soft":{"count":0,"total":1,"percent":0,"step_ids":[]}}]}
+{"schema_version":1,"root":"/home/you/project","runs":[{"run_id":"7f3a","workflow":"sample","workflow_path":"/home/you/project/.claude/workflows/sample.yaml","warning":"","status":"running","step":"greet","attempt":1,"visits":{"greet":1},"state_keys":[],"reason":"","soft":{"count":0,"total":1,"percent":0,"step_ids":[]},"last_event_time":"2026-01-01T00:00:00Z"}]}
 ```
 
 The JSON contract:
@@ -276,6 +276,14 @@ The JSON contract:
   added; treat an unknown value as not running.
 - `warning` and `reason` are empty strings, not omitted, when there is nothing to say. `warning` is set
   when the workflow file has changed since a still-live run started.
+- `last_event_time` is the time of the run's last journal event, as an RFC3339 string in UTC, or `""`
+  for a run pawl cannot replay or load. It is a plain fact from the journal: compute how long a run
+  has been idle, and decide what counts as stale, from it.
+
+A live run (`running` or `blocked`) whose last journal event is 7 days old or older gets an `idle:`
+line after `status:` in the text output, naming `pawl abandon --run <id>`; in the multi-run exit 1
+listing on stderr, each such id is followed by `(idle 22d)`. The age is in whole days, or whole hours
+under a day. This text is not frozen, and the 7 days is not configurable.
 
 `pawl status` is deliberately exempt from the exit-code table's row 3 (`BLOCKED` → exit 3): it exits 0
 on every successful lookup (`BLOCKED`, `abandoned`, a changed workflow file flagged in `warning`, or otherwise), because it's a reporting command —

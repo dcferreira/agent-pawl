@@ -758,6 +758,13 @@ func formatTerminal(t engine.Terminal, detail string, hint resumeHint) string {
 // property test drives pawl status as part of what it checks — so it is held
 // to the same guarantee for the same reason formatBanner is.
 func formatStatus(root, workflowPath, warning, runID, status, step string, attempt int, visits, state, reason string, report *spec.Report) string {
+	return formatStatusIdle(root, workflowPath, warning, runID, status, "", step, attempt, visits, state, reason, report)
+}
+
+// formatStatusIdle is formatStatus plus the optional idle: line for a run
+// that has had no journal event for journal.StaleAfter (idle is the full
+// line value, already built by idleLine; "" omits the line).
+func formatStatusIdle(root, workflowPath, warning, runID, status, idle, step string, attempt int, visits, state, reason string, report *spec.Report) string {
 	w := &blockWriter{}
 	w.line(0, "root:", root)
 	w.line(0, "workflow:", workflowPath)
@@ -766,6 +773,9 @@ func formatStatus(root, workflowPath, warning, runID, status, step string, attem
 	}
 	w.line(0, "run:", runID)
 	w.line(0, "status:", status)
+	if idle != "" {
+		w.line(0, "idle:", idle)
+	}
 	w.line(0, "step:", step)
 	w.line(0, "attempt:", strconv.Itoa(attempt))
 	w.line(0, "visits:", visits)
@@ -813,6 +823,11 @@ type statusRunJSON struct {
 	StateKeys []string       `json:"state_keys"`
 	Reason    string         `json:"reason"`
 	Soft      statusSoftJSON `json:"soft"`
+	// LastEventTime is the Time of the run's last journal event, RFC3339
+	// UTC; "" when it cannot be known (a run this build cannot replay). A
+	// pure fact from the journal: a consumer derives idle time and any
+	// staleness policy of its own from it.
+	LastEventTime string `json:"last_event_time"`
 }
 
 type statusSoftJSON struct {
