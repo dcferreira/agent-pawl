@@ -12,7 +12,7 @@ A human typing `pawl run` for an agentic workflow in a plain terminal gets one `
 the process exits with nothing driving it — deterministic-only workflows, or inspection, only.
 
 ```
-pawl run <name> [key=value …] [--run <id>] [--fresh] [--force] [--no-enforcement]
+pawl run <name> [key=value …] [--run <id>] [--fresh] [--force] [--from <step>] [--no-enforcement]
 pawl validate <workflow-name> | --path <file>
 pawl status [--run <id>] [--json]
 pawl list
@@ -50,9 +50,9 @@ points fail open and never exit 2 (see [`pawl hook`](#pawl-hook--hook)).
 |---|---|
 | 0 | fine — incl. stopped at `DISPATCH`/`ASK`/`WAIT`, or ended `ok` |
 | 1 | not found, or ambiguous: unknown workflow, a run id that does not exist or matches several runs, or another non-flag problem hit while resolving one |
-| 2 | your input is wrong: a usage error (bad, unrecognised or repeated flag, missing or empty flag value, missing required arg), or a workflow that fails to parse or validate |
+| 2 | your input is wrong: a usage error (bad, unrecognised or repeated flag, missing or empty flag value, missing required arg, a `pawl run --from` step that is not a legal target for the run), or a workflow that fails to parse or validate |
 | 3 | run is `BLOCKED` — paused, resumable, not an error (`pawl run`/`pawl submit`/`pawl poll` only) |
-| 4 | refused: `pawl run` with a binary whose version does not match the plugin's (see [`pawl version`](#pawl-version--human)), `pawl run` with no fresh `PreToolUse` heartbeat and enforcement not opted out, lock held, file changed, submit for a non-current step or kind, a poll of a current step that is not `kind: wait`, or a run that has already finished (the last one is `pawl submit`/`pawl abandon` only — `pawl poll` exits 0 quietly instead for the same case, see below), or `pawl abandon` of a non-blocked run in another working copy that another active session is driving, or `pawl run`/`submit`/`poll` of a run written by a newer pawl (format newer than this binary reads; upgrade or abandon it); separately, `pawl update` refusing to overwrite a source/`go install` build without `--force`, and refusing outright (even with `--force`) when the running binary is the one shipped by the agent-pawl Claude Code plugin |
+| 4 | refused: `pawl run` with a binary whose version does not match the plugin's (see [`pawl version`](#pawl-version--human)), `pawl run` with no fresh `PreToolUse` heartbeat and enforcement not opted out, lock held, file changed, submit for a non-current step or kind, a poll of a current step that is not `kind: wait`, `pawl run --from` off a `parallel` step with branches or items still pending, or a run that has already finished (the last one is `pawl submit`/`pawl abandon` only — `pawl poll` exits 0 quietly instead for the same case, see below), or `pawl abandon` of a non-blocked run in another working copy that another active session is driving, or `pawl run`/`submit`/`poll` of a run written by a newer pawl (format newer than this binary reads; upgrade or abandon it); separately, `pawl update` refusing to overwrite a source/`go install` build without `--force`, and refusing outright (even with `--force`) when the running binary is the one shipped by the agent-pawl Claude Code plugin |
 | 5 | internal or environment error — a bug (a recovered panic prints `pawl: internal error: …` and a stack to stderr and exits 5, not Go's default 2), a failed working-directory lookup, or a broken/unreadable run directory or journal (including `pawl run`/`submit`/`poll` of a run whose journal cannot be replayed in a known format; repair `events.jsonl` or abandon it; `pawl status` instead lists such a run as `unreadable` and exits 0, reserving 5 for an I/O error that stops enumeration); for `pawl update`, any failure resolving, downloading, verifying or installing the release |
 
 ---
@@ -60,7 +60,7 @@ points fail open and never exit 2 (see [`pawl hook`](#pawl-hook--hook)).
 ## `pawl run` — human, model
 
 ```
-pawl run <name> [key=value …] [--run <id>] [--fresh] [--force] [--no-enforcement]
+pawl run <name> [key=value …] [--run <id>] [--fresh] [--force] [--from <step>] [--no-enforcement]
 ```
 
 Starts a run, or resumes the one for this working copy that is not `done` — `BLOCKED` included (see
@@ -73,10 +73,40 @@ consecutive `deterministic` steps itself, then prints exactly one of `DISPATCH`/
 | `--run <id>` | disambiguate which run to resume, when more than one resolves |
 | `--fresh` | start a new run, resetting every counter, even if one is live |
 | `--force` | steal a lock held by a dead process; refuses a live one regardless |
+| `--from <step>` | new in 1.1: move the live run to `<step>` before continuing (see below) |
 | `--no-enforcement` | skip the `PreToolUse` heartbeat check and opt this run out of the hooks for its lifetime (same effect as `PAWL_ENFORCEMENT=off`) |
 
-Resuming at an arbitrary step (`--from <step>`) isn't yet available — see
-[README.md#not-yet](README.md#not-yet).
+### Moving a run (`--from`)
+
+New public surface in 1.1. `pawl run <name> --from <step>` moves the live run, blocked or parked at
+any step, to `<step>` and continues from there. It is resolved like a resume: `--run <id>` picks the
+run when several are live. It never starts a run.
+
+- **Targets.** `<step>` must be the run's current step, or a top-level step the run has already
+  entered. Moving to the current step makes it a fresh visit: a `human` step asks again, a `wait` step
+  gets a new deadline (a `pawl poll` still running for the old visit stops; poll the new one) and an
+  `agentic` step is dispatched again. A step the run has never entered,
+  a terminal, or a branch or `foreach:` body of a `parallel` step is a usage error (exit 2). The
+  message lists the legal targets.
+- **Nothing is reset or rolled back.** State is kept as it is. Entering `<step>` counts one visit,
+  and `max_visits:`/`max_steps:` are checked as on any arrival, so a step that has used up its
+  visits blocks again right away. The step the run leaves has its `attempts:` budget reset, as a
+  blocked resume does.
+- **What is skipped.** The left step's postcondition is not evaluated and no outcome is routed (so
+  no `catch:`). Invariants are not checked on the move itself. From the target on they are checked as
+  on any run, so an invariant that still fails blocks the run again at the target's transition.
+- **Refusals.**
+  - No live run, or a finished one: exit 1.
+  - `--from` with `--fresh`, or with `key=value` args on a live run: exit 2.
+  - Moving off a `parallel` step with branches or items still pending: exit 4. Let the group finish
+    first.
+- **After a move.** A late `pawl submit` for a step the run has left is refused (exit 4), like any
+  stale submit. A late `pawl poll` for a `wait` step the run has left, or has entered again, stops
+  with nothing to do (exit 0), as for any run that moved on. A move to the current `agentic` or
+  `human` step re-dispatches it at attempt 1, as a blocked resume does, so a reply still outstanding
+  from before the move is accepted as that step's result.
+- A run moved with `--from` resumes on any later 1.x, and on 1.0.0 itself
+  ([compatibility.md](compatibility.md#5-resume-across-1x)).
 
 **Enforcement check.** Unless `--no-enforcement` or `PAWL_ENFORCEMENT=off` is set, `pawl run` refuses
 to start (exit 4) unless `pawl hook pre` has written a heartbeat (keyed by the Claude Code session, found through

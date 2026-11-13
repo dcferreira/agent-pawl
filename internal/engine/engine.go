@@ -176,47 +176,12 @@ func (e *Engine) Start(runID string, args map[string]any) (Instruction, error) {
 // step's attempt counter to 1 in that same append, exactly as DESIGN.md §4
 // step 4 describes and Replay (deliberately) does not synthesise itself.
 func (e *Engine) Resume(runID string, force bool) (Instruction, error) {
-	dir := journal.RunDir(e.Root, e.Workflow.Workflow, runID)
-	lock, err := journal.AcquireLock(dir, force)
+	dir, release, log, rs, err := e.openForResume(runID, force)
 	if err != nil {
 		return nil, err
 	}
-	defer lock.Release()
-
-	plan, err := journal.ReadPlan(dir)
-	if err != nil {
-		return nil, err
-	}
-	// Compare two digests both computed by THIS build: the current workflow
-	// against the pinned plan.Workflow. plan.Digest (and RUN_START.digest)
-	// are records of what the writing build computed; comparing against them
-	// would make every change to the digest's serialisation a spurious
-	// "workflow changed" refusal for a mid-flight run.
-	digest, err := journal.Digest(e.Workflow)
-	if err != nil {
-		return nil, err
-	}
-	pinned, err := journal.Digest(plan.Workflow)
-	if err != nil {
-		return nil, err
-	}
-	if digest != pinned {
-		return nil, fmt.Errorf("%w", ErrDigestMismatch)
-	}
-
-	log, err := journal.OpenLog(dir)
-	if err != nil {
-		return nil, err
-	}
+	defer release()
 	defer log.Close()
-
-	rs, err := replayDir(dir)
-	if err != nil {
-		return nil, err
-	}
-	if rs.Terminal() {
-		return nil, fmt.Errorf("%w: run %q ended %s", ErrAlreadyTerminal, runID, rs.EndStatus)
-	}
 
 	resumeEvent := journal.Event{
 		Kind:       journal.KindResume,
@@ -317,6 +282,62 @@ func (e *Engine) Resume(runID string, force bool) (Instruction, error) {
 	default:
 		return nil, fmt.Errorf("engine: step %q: kind %q is not a recognised step kind (internal error: the validator should have rejected this workflow)", step.ID, step.Kind)
 	}
+}
+
+// openForResume is the shared opening of Resume and ResumeFrom: it takes the
+// run lock (refusing a held one unless force), refuses a changed workflow
+// file (ErrDigestMismatch), opens the log and replays the journal, refusing
+// a run that has already finished (ErrAlreadyTerminal). On success the
+// caller must call release and close log; on error nothing is left open.
+func (e *Engine) openForResume(runID string, force bool) (dir string, release func(), log *journal.Log, rs *journal.RunState, err error) {
+	dir = journal.RunDir(e.Root, e.Workflow.Workflow, runID)
+	lock, err := journal.AcquireLock(dir, force)
+	if err != nil {
+		return "", nil, nil, nil, err
+	}
+	fail := func(err error) (string, func(), *journal.Log, *journal.RunState, error) {
+		if log != nil {
+			log.Close()
+		}
+		lock.Release()
+		return "", nil, nil, nil, err
+	}
+
+	plan, err := journal.ReadPlan(dir)
+	if err != nil {
+		return fail(err)
+	}
+	// Compare two digests both computed by THIS build: the current workflow
+	// against the pinned plan.Workflow. plan.Digest (and RUN_START.digest)
+	// are records of what the writing build computed; comparing against them
+	// would make every change to the digest's serialisation a spurious
+	// "workflow changed" refusal for a mid-flight run.
+	digest, err := journal.Digest(e.Workflow)
+	if err != nil {
+		return fail(err)
+	}
+	pinned, err := journal.Digest(plan.Workflow)
+	if err != nil {
+		return fail(err)
+	}
+	if digest != pinned {
+		return fail(fmt.Errorf("%w", ErrDigestMismatch))
+	}
+
+	log, err = journal.OpenLog(dir)
+	if err != nil {
+		log = nil
+		return fail(err)
+	}
+
+	rs, err = replayDir(dir)
+	if err != nil {
+		return fail(err)
+	}
+	if rs.Terminal() {
+		return fail(fmt.Errorf("%w: run %q ended %s", ErrAlreadyTerminal, runID, rs.EndStatus))
+	}
+	return dir, func() { lock.Release() }, log, rs, nil
 }
 
 // resolveArgs applies args: defaults and checks required: (design/format-spec.md

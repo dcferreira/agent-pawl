@@ -14,10 +14,11 @@ import (
 )
 
 // cmdRun implements pawl run <name> [key=value …] [--fresh] [--force]
-// [--run <id>] [--no-enforcement] (design/format-spec.md §I): resolve the
-// workflow, gate on spec.Validate, resume a live run when exactly one
-// resolves (--run only disambiguates), or bind args and start a fresh one,
-// then print the start banner and the first instruction line.
+// [--run <id>] [--from <step>] [--no-enforcement] (design/format-spec.md
+// §I): resolve the workflow, gate on spec.Validate, resume a live run when
+// exactly one resolves (--run only disambiguates; --from moves it to a
+// named step first, see engine.ResumeFrom), or bind args and start a fresh
+// one, then print the start banner and the first instruction line.
 var runCmd = &command{
 	name:   "run",
 	usage:  cmdUsage(usageRun),
@@ -27,6 +28,7 @@ var runCmd = &command{
 		{name: "force", isBool: true},
 		{name: "no-enforcement", isBool: true},
 		{name: "run"},
+		{name: "from"},
 	},
 }
 
@@ -55,6 +57,11 @@ func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 	}
 	if flags.Fresh && flags.RunID != "" {
 		fmt.Fprintln(stderr, "pawl run: --run is only used to disambiguate a resume; it does not name a fresh run's id — drop --run or drop --fresh")
+		return exitUsage
+	}
+	fromStep := pf.value("from")
+	if flags.Fresh && fromStep != "" {
+		fmt.Fprintln(stderr, "pawl run: --from moves a live run; a fresh run always begins at the workflow's start: step — drop --from or drop --fresh")
 		return exitUsage
 	}
 
@@ -118,6 +125,13 @@ func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 			// run is classed the same as an unknown one); only a genuine
 			// journal.ErrIO underneath journal.Live is an engine error (5).
 			return exitForLookupErr(rerr)
+		}
+		if ref == nil && fromStep != "" {
+			// --from never starts a run: a fresh run's state is empty, so no
+			// step but start: can be entered coherently. Not found, like an
+			// unknown --run id (exit 1).
+			printLine(stderr, fmt.Sprintf("pawl run: --from moves a live run, and workflow %q has none; start one with `pawl run %s`", w.Workflow, name))
+			return exitNotFound
 		}
 	}
 
@@ -188,7 +202,13 @@ func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 			printLine(stderr, fmt.Sprintf("pawl run: args are bound at run start; run %s was started with %s — use --fresh to rebind", ref.RunID, formatArgsKV(ref.State.Args)))
 			return exitUsage
 		}
-		instr, ierr := e.Resume(ref.RunID, flags.Force)
+		var instr engine.Instruction
+		var ierr error
+		if fromStep != "" {
+			instr, ierr = e.ResumeFrom(ref.RunID, fromStep, flags.Force)
+		} else {
+			instr, ierr = e.Resume(ref.RunID, flags.Force)
+		}
 		if ierr != nil {
 			// The resume line is only printed once Resume has
 			// actually succeeded — printing it first made a
@@ -201,7 +221,11 @@ func cmdRun(args []string, cwd string, stdout, stderr io.Writer) int {
 		if mode.On {
 			stampDriverAs(root, w.Workflow, ref.RunID, mode.SessionID)
 		}
-		fmt.Fprint(stdout, formatResumeLine(ref.RunID, ref.State.Cursor.Step, ref.State.Cursor.Attempt, ref.State.State))
+		if fromStep != "" {
+			fmt.Fprint(stdout, formatMoveLine(ref.RunID, ref.State.Cursor.Step, fromStep, ref.State.State))
+		} else {
+			fmt.Fprint(stdout, formatResumeLine(ref.RunID, ref.State.Cursor.Step, ref.State.Cursor.Attempt, ref.State.State))
+		}
 		fmt.Fprint(stdout, formatInstruction(instr, w, root, cwd))
 		return instructionExitCode(instr)
 	}

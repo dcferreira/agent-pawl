@@ -109,6 +109,7 @@ format 1.
 
 - A later binary resumes runs written by every earlier format. Downgrade is not promised.
 - Adding an event kind bumps the format.
+- A run moved with `pawl run --from` (new in 1.1) resumes on any later 1.x, and on 1.0.0 itself.
 - A run written by a newer format stays visible: `pawl status` lists it. `pawl run`, `pawl submit`
   and `pawl poll` refuse it (exit 4) and name the format. `pawl abandon --run` still works on it.
 - A run whose journal cannot be replayed at a known format also stays visible: `pawl status` lists

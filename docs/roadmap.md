@@ -29,7 +29,9 @@ From format-spec §I's Milestone 2:
   produces, without executing anything.
 - [ ] `pawl status --history`: the full journal, not just the current position.
 - [ ] dry-run/simulate mode: drive a workflow's routes with canned outcomes, no agent (1.x, additive).
-- [ ] `pawl run <name> --from <step>`: resume a run at any step, not only the one it blocked at.
+- [x] `pawl run <name> --from <step>` (1.1): move a live run to its current step or a step it has
+  already entered. Moving to a step the run has never entered is refused; allowing it later would be
+  additive.
 
 ## Workflow format
 

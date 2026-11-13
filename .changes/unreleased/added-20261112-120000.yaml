@@ -1,0 +1,3 @@
+kind: added
+body: '`pawl run <name> --from <step>` moves a live run (blocked, or parked at any step) to its current step or to a step it has already entered, and continues from there. State is kept and no counter is reset. A run moved this way resumes on any later 1.x, and on 1.0.0 itself.'
+time: 2026-11-12T12:00:00.000000000+01:00

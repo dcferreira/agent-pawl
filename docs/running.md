@@ -251,5 +251,7 @@ It releases `Stop` — the session is yours again; guards still deny, the run is
 **What to do:** read the reason (`pawl status`), fix the world by hand, then run the printed `resume:`
 command (`pawl run <name> --run <id>`; from a plain terminal is fine) to resume at the blocked step
 (`attempts:` reset to 1) — or the printed `abandon:` command to end it for good. You can also ask the model to investigate and propose a fix first — resuming is still
-your call. Resuming elsewhere (`--from <step>`) isn't yet available — see
-[README.md#not-yet](README.md#not-yet).
+your call. To continue somewhere else instead, run `pawl run <name> --run <id> --from <step>` (new in
+1.1). It moves the run to the blocked step itself or to any step the run has already entered, with
+state kept and no counter reset. Invariants are still checked from the target on, as on any run. See
+[cli.md#moving-a-run---from](cli.md#moving-a-run---from).

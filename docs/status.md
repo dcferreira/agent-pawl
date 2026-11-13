@@ -63,6 +63,9 @@ implements:
   batched into `CHANGELOG.md` and a `.claude-plugin/plugin.json` version bump, then a merge to
   `main` tags and publishes via goreleaser in the same run — see
   [docs/releasing.md](releasing.md).
+- `pawl run <name> --from <step>` (new in 1.1) moves a live run, blocked or parked, to its current
+  step or a step it has already entered, and continues from there. State is kept and no counter is
+  reset. See [cli.md](cli.md#moving-a-run---from).
 - `pawl poll --run … --step …` drives a `wait` step; `pawl hook pre|stop|subagent-stop` is the
   `PreToolUse`/`Stop`/`SubagentStop` hook entry point (see the enforcement bullet above).
 - **The CLI contract is frozen for 1.0.** Every command parses flags the same way (`--f v` and
@@ -85,7 +88,6 @@ The docs or design describe these, and this build does not do them. Plans live i
 - `pawl graph`: not built. See [roadmap](roadmap.md#cli).
 - `pawl validate --walk`: not built. See [roadmap](roadmap.md#cli).
 - `pawl status --history`: not built. See [roadmap](roadmap.md#cli).
-- `pawl run <name> --from <step>`: not built. See [roadmap](roadmap.md#cli).
 - `foreach:` `concurrency:`: not built. See [roadmap](roadmap.md#workflow-format).
 - An `outcome:` enum member of the agentic return schema: not built. See
   [roadmap](roadmap.md#workflow-format).

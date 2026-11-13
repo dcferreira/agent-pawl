@@ -271,6 +271,15 @@ func formatResumeLine(runID, step string, attempt int, state map[string]any) str
 	return w.String()
 }
 
+// formatMoveLine is formatResumeLine's counterpart for `pawl run --from`:
+// the run moved from step from to step to, with state kept (restored keys)
+// and no counter reset. Guarded through blockWriter for the same reason.
+func formatMoveLine(runID, from, to string, state map[string]any) string {
+	w := &blockWriter{}
+	w.line(0, "resume:", "run", runID, "moved", "from", "step", from, "to", "step", to, "(state", "kept,", "counters", "not", "reset)", "restored", "keys:", formatKeySet(state))
+	return w.String()
+}
+
 // formatKeySet joins m's keys, sorted, for a human-readable list. Its
 // result is never printed except through a blockWriter line (see
 // formatResumeLine, formatStatus): this function itself performs no

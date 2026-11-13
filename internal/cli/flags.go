@@ -139,8 +139,9 @@ func (c *command) parseOrExit(args []string, stdout, stderr io.Writer) (p *parse
 // Per-command usage blocks: the one source for both `pawl <cmd> --help` and
 // the top-level usage text.
 const (
-	usageRun = `  pawl run <name> [key=value …] [--fresh] [--force] [--run <id>] [--no-enforcement]
-        start, or resume a non-terminal run
+	usageRun = `  pawl run <name> [key=value …] [--fresh] [--force] [--run <id>] [--from <step>] [--no-enforcement]
+        start, or resume a non-terminal run (--from: move it to the current
+        step or a step it has already entered, then continue)
 `
 	usageValidate = `  pawl validate <name> | --path <file>
         run the static checks against a workflow file (--path validates a
