@@ -43,9 +43,10 @@ From `.changie.yaml`, in the order they render in `CHANGELOG.md`:
 | `Fixed` | A bug fix. |
 | `Security` | A security-relevant fix. |
 
-Pre-1.0.0, every kind except `Fixed`/`Security` bumps the minor version on release (semver's
-major-stays-0 escape hatch); `Fixed`/`Security` bump the patch version. This applies to `Breaking`
-too, until the project reaches 1.0.0 — see the comment in `.changie.yaml`.
+Since 1.0.0, `Breaking` bumps the major version, `Added`/`Changed`/`Deprecated`/`Removed` bump the
+minor version, and `Fixed`/`Security` bump the patch version (the `auto:` setting per kind in
+`.changie.yaml`). Before 1.0.0 `Breaking` only bumped the minor version (semver's major-stays-0
+escape hatch).
 
 ### No fragment needed
 
@@ -166,9 +167,9 @@ line targets (the base of the latest `v*-rc.*.md`), for both a new rc and the fi
 
 ### Checklist for 1.0.0
 
-- Right after 1.0.0 ships, open a one-line PR flipping `.changie.yaml`'s `breaking` kind to
-  `auto: major` (post-1.0.0 a breaking change must bump the major; see the comment there). It must
-  not land earlier, or it would change what `auto` computes for the pre-1.0.0 cuts.
+- [x] Right after 1.0.0 shipped, `.changie.yaml`'s `breaking` kind was flipped to `auto: major`
+  (post-1.0.0 a breaking change must bump the major). It could not land earlier, or it would have
+  changed what `auto` computes for the pre-1.0.0 cuts.
 
 Before cutting rc.1, and again on every release that reaches the marketplace (for example the
 0.8.0 → 0.9.0 re-check), run the install/update harness: `FROM=<previous> TO=<new> bash scripts/e2e-install/run.sh`, or for an
