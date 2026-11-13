@@ -50,15 +50,38 @@ func lex(cmd string) (segs [][]string, subst, unsure bool) {
 	inWord := false
 	var quote byte // 0, '\'', or '"'
 	var prev byte  // previous unquoted character of the current word, 0 if none
+	// quoted: the current word used a quote or backslash. redir: it is a
+	// redirection (an operator, and its target when attached), dropped from
+	// the segment rather than kept as an argument. dropNext: the previous
+	// word was a redirection operator with no attached target, so the next
+	// word is its target and is dropped too.
+	var quoted, redir, dropNext, segRedir bool
 	endWord := func() {
 		if inWord {
-			seg = append(seg, word.String())
+			w := word.String()
+			if dropNext || redir {
+				segRedir = true
+				dropNext = redir && !quoted && strings.TrimLeft(w, "<>&|") == ""
+			} else {
+				seg = append(seg, w)
+			}
 		}
 		word.Reset()
-		inWord, prev = false, 0
+		inWord, prev, quoted, redir = false, 0, false, false
 	}
 	endSeg := func() {
 		endWord()
+		if dropNext {
+			unsure = true // a redirect with no target: not modelled
+			dropNext = false
+		}
+		if len(seg) == 0 && segRedir {
+			// Only redirections: dropping them would make the segment vanish
+			// from the list, and with it from IsPawlOnlyCommand's "every
+			// segment is pawl or cd" rule.
+			unsure = true
+		}
+		segRedir = false
 		if len(seg) > 0 {
 			segs = append(segs, seg)
 		}
@@ -105,7 +128,7 @@ func lex(cmd string) (segs [][]string, subst, unsure bool) {
 			word.WriteByte(c)
 			inWord, prev = true, c
 		case c == '\'' || c == '"':
-			quote, inWord, prev = c, true, 0
+			quote, inWord, prev, quoted = c, true, 0, true
 		case c == '\\':
 			if next == '\n' {
 				i++ // line continuation: neither character is part of a word
@@ -115,7 +138,31 @@ func lex(cmd string) (segs [][]string, subst, unsure bool) {
 				word.WriteByte(next)
 				i++
 			}
-			inWord, prev = true, 0
+			inWord, prev, quoted = true, 0, true
+		case (c == '<' || c == '>') && !redir && next != '(' && !(c == '<' && (next == '<' || prev == '<')):
+			// An unquoted redirection operator (>, >>, <, <>, >&, <&, >|,
+			// &>, &>>; here-docs and process substitution are handled
+			// elsewhere). It ends the word before it, except that digits
+			// directly attached to it are a file descriptor (2>x) and a
+			// quoted or escaped digit is an argument; the operator and its
+			// target are then dropped from the segment (see endWord).
+			w := word.String()
+			switch {
+			case inWord && !quoted && prev == '&' && strings.HasSuffix(w, "&"):
+				// foo&>x: the & belongs to the operator, not to foo
+				rest := w[:len(w)-1]
+				word.Reset()
+				word.WriteString(rest)
+				inWord = rest != ""
+				endWord()
+				word.WriteByte('&')
+			case inWord && !quoted && isDigits(w):
+				word.Reset() // the file descriptor of N>x
+			default:
+				endWord()
+			}
+			word.WriteByte(c)
+			inWord, redir, prev = true, true, c
 		case c == ' ' || c == '\t':
 			endWord()
 		case c == '\n' || c == ';':
@@ -202,6 +249,19 @@ func analyze(cmd string) (segs [][]string, subst, unsure bool) {
 	return segs, subst, unsure
 }
 
+// isDigits reports whether s is a non-empty run of ASCII digits.
+func isDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 // isAssignment reports whether tok looks like a leading shell variable
 // assignment (FOO=1 cmd ...), so it can be skipped when finding the command.
 func isAssignment(tok string) bool {
@@ -210,15 +270,57 @@ func isAssignment(tok string) bool {
 }
 
 // IsPawlCommand reports whether any segment of cmd invokes pawl: the first
-// token of the segment has basename "pawl". It is deliberately permissive
-// (it ignores unsure): a false positive only writes a heartbeat.
+// token of the segment has basename "pawl", or is a shell variable naming
+// pawl followed by a pawl subcommand (isPawlVariableCall). It is
+// deliberately permissive (it ignores unsure): a false positive only writes
+// a heartbeat.
 func IsPawlCommand(cmd string) bool {
 	for _, f := range segments(cmd) {
-		if filepath.Base(f[0]) == "pawl" {
+		if filepath.Base(f[0]) == "pawl" || isPawlVariableCall(f) {
 			return true
 		}
 	}
 	return false
+}
+
+// pawlSubcommands are the subcommands that follow a shell-variable pawl
+// (isPawlVariableCall); requiring one keeps `echo`-like uses of the
+// variable and arbitrary tools from counting.
+var pawlSubcommands = map[string]bool{
+	"run": true, "submit": true, "poll": true, "abandon": true, "status": true,
+	"list": true, "validate": true, "version": true, "update": true, "help": true,
+}
+
+// isPawlVariableCall reports whether the segment f runs pawl through a shell
+// variable: its first word is exactly $NAME or ${NAME} (letters, digits and
+// underscores) with "pawl" in NAME, case-insensitively, and the next word is
+// a pawl subcommand. `"$PAWL" run wf` qualifies; `$BIN run`, `$(which pawl)
+// run`, `${PAWL:-pawl} run`, `env "$PAWL" run` and `echo "$PAWL"` do not. A
+// false positive would fabricate the heartbeat enforcement trusts, so this
+// stays narrow. IsPawlOnlyCommand deliberately ignores it: a variable could
+// hold anything.
+func isPawlVariableCall(f []string) bool {
+	if len(f) < 2 || !pawlSubcommands[f[1]] || !strings.HasPrefix(f[0], "$") {
+		return false
+	}
+	name := f[0][1:]
+	if strings.HasPrefix(name, "{") {
+		if !strings.HasSuffix(name, "}") {
+			return false
+		}
+		name = name[1 : len(name)-1]
+	}
+	if !strings.Contains(strings.ToLower(name), "pawl") {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		switch c := name[i]; {
+		case c == '_', c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // IsPawlOnlyCommand reports whether cmd invokes only pawl (and, since

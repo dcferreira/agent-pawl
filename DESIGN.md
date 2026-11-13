@@ -226,7 +226,8 @@ removed on every terminal transition and on `pawl abandon` — a fast-path cache
 can skip invoking the real binary when nothing is live; identity always comes from
 `journal.ResolveRoot` + `journal.Live`, never from the symlink itself. `heartbeat/<slug>.json` is
 `{"session_id", "time"}`, written by `pawl hook pre` whenever any simple command in the Bash call
-invokes `pawl` (e.g. `cd x && pawl submit …` counts), and read by `pawl run` (§5) to decide whether to refuse to start.
+invokes `pawl` (e.g. `cd x && pawl submit …` counts, as does `"$PAWL" run …` through a variable with
+"pawl" in its name followed by a pawl subcommand; other variables, `$(…)` and wrappers like `env` do not), and read by `pawl run` (§5) to decide whether to refuse to start.
 
 `slug` is the **working-copy root** — a git worktree or a jj workspace is its own root — with `/`
 replaced by `-`, followed by `-` and a short hex digest of the full root path (e.g.
