@@ -299,6 +299,11 @@ func TestReplay_ExpectedStateTable(t *testing.T) {
 				if err != nil {
 					t.Fatalf("Replay(prefix %d): %v", n, err)
 				}
+				// The table predates LastEventTime; it is always the Time of
+				// the prefix's last event (zero for the empty prefix).
+				if n > 0 {
+					want.LastEventTime = tc.fixture[n-1].Time
+				}
 				if !reflect.DeepEqual(got, want) {
 					t.Errorf("prefix %d:\n got  %+v\n want %+v", n, got, want)
 				}
@@ -329,6 +334,9 @@ func naiveReplay(events []Event) (*RunState, error) {
 		Args: map[string]any{}, State: map[string]any{},
 		Attempts: map[AttemptRef]int{}, Visits: map[string]int{},
 		PendingBranches: map[string]map[string]bool{}, BranchOutcome: map[string]string{},
+	}
+	if len(events) > 0 {
+		rs.LastEventTime = events[len(events)-1].Time
 	}
 
 	for _, e := range events {
