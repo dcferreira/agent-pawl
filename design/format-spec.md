@@ -262,7 +262,7 @@ The engine passes `subagent_args:` through to the `DISPATCH` block **verbatim an
 extra arguments for the subagent launch, no engine opinion on harness vocabulary. In Claude Code
 these are typically `model`, `tools`, `effort`; other harnesses use whatever they need. Every
 agentic step runs as a subagent. The one rule the `PreToolUse` hook keeps on a subagent is the
-VCS-mutation deny, which applies whenever any run is live for the working copy, not only while an
+VCS-mutation deny, which applies whenever any run that is not blocked is live for the working copy, not only while an
 agentic step is live (DESIGN.md §5); nothing in `subagent_args:` is engine- or hook-enforced.
 
 **A `!cmd` context entry's failure is shown, not hidden.** The command's stdout is always the context

@@ -18,7 +18,7 @@ the five kinds compare.
 - **`subagent_args:`** — extra arguments passed through verbatim for the subagent launch; the engine
   does not interpret or enforce any of it. In Claude Code these are typically `model`, `tools`,
   `effort:`; other harnesses use whatever they need. The one subagent rule the `PreToolUse` hook
-  keeps is denying VCS-mutating `Bash` from a subagent while any run is live for this working copy,
+  keeps is denying VCS-mutating `Bash` from a subagent while any run that is not blocked is live for this working copy,
   not only while an agentic step is live — that applies regardless of what `subagent_args:` says.
 - **`writes:`** — required, a typed map: the subagent's return shape. Missing key, wrong type or a
   `string` over its `max_length:` (code points) fails the step; prose outside the schema is discarded.

@@ -442,8 +442,9 @@ applies to it — fail closed, though its enforcement mode cannot be read — wi
 run and `pawl abandon --run <id>`.
 
 `PreToolUse` also denies VCS-mutating `Bash` from a subagent (`agent_id` present in the payload)
-whenever any run is live for this working copy, not only while an agentic step is live — the one
-subagent rule the hook keeps. The classifier (`internal/hook.IsVCSMutation`, `gitMutates`,
+whenever any run that is not blocked is live for this working copy, not only while an agentic step
+is live — the one subagent rule the hook keeps. A blocked run has no active steps, so it is skipped
+(its guards still apply); the deny names the run, its state and `pawl abandon --run <id>`. The classifier (`internal/hook.IsVCSMutation`, `gitMutates`,
 `jjMutates`) is default-deny for both VCSs: every `git` subcommand is mutating except a read-only
 allowlist (e.g. `status log diff show rev-parse ls-files ls-tree ls-remote blame grep describe
 cat-file for-each-ref merge-base shortlog name-rev count-objects help version`, plus the read-only
