@@ -186,6 +186,8 @@ Free to change in any 1.x release.
 - Enforcement mechanics a script cannot depend on, with their current values: the enforcement
   heartbeat TTL (5 minutes), the `SubagentStop` marker lifetime (60 seconds), and the 2 second wait
   for a killed command's output pipes.
+- The opt-in hook payload capture: the `PAWL_HOOK_LOG` environment variable and the shape of the
+  lines it writes. It is a diagnostic and may change or be removed in any 1.x release.
 - The attempt-key hashing algorithm.
 
 ## Release candidates and the soak

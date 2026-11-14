@@ -177,6 +177,46 @@ wired up at all, nothing stops a session from ending mid-run. If the session was
 nothing is lost: `pawl run <name>` resumes from the journal. `pawl abandon --run <id>` always releases
 a run's `Stop` block if you're genuinely done with it.
 
+## Capturing hook payloads
+
+When a `Stop` blocks, or a command is denied, and you cannot tell why, capture what Claude Code sent
+the hook. Claude Code's transcripts record the decision but not the payload (`background_tasks`,
+`stop_hook_active`, `agent_id`), so a cause worked out from them is a guess. Start Claude Code with
+an absolute directory in `PAWL_HOOK_LOG`:
+
+```
+PAWL_HOOK_LOG="$HOME/pawl-hook-log" claude
+```
+
+Every `pawl hook pre|stop|subagent-stop` call then appends one JSON line to
+`<dir>/<session_id>.jsonl`. It is off when the variable is unset or empty; a relative path prints one
+line on stderr and captures nothing. A line holds:
+
+- **From the payload:** `payload_keys` (the names of every top-level field, so a field pawl does not
+  read still shows up), `hook_event_name`, `agent_id`, `cwd`, `stop_hook_active`, the
+  `background_tasks` count (and each entry's `id`, `type` and `status`) and the `session_crons` count.
+- **From pawl:** the live runs it looked at (`run_id`, `workflow`, `cursor_step`, `cursor_kind`,
+  `blocked`, `driver_match`), the SubagentStop markers it found and the ones it consumed
+  (`markers`, `consumed`), whether a `subagent-stop` recorded a marker (`marker_written`), and the
+  `decision` (`allow`, `deny`, `block`, or `none` for `subagent-stop`) with its `reason` and
+  `guard_id` (empty unless a guard denied).
+
+What it never records: the Bash command (a `pre` line carries only `pawl_command`, `pawl_only`,
+`vcs_mutation` and `command_bytes`), `tool_input`, `last_assistant_message`, `transcript_path`, a
+prompt, or any `background_tasks` field other than the three above.
+
+The log cannot change a hook call: it is written after the decision is made, and any error in
+writing it is ignored (at most one line on stderr). The directory is created with mode `0700` and
+its files `0600`. A file that reaches 1 MiB is renamed to `<session_id>.jsonl.1`, replacing an older
+one, so a session takes at most about 2 MiB, and a line over 4 KiB loses its optional fields. Nothing
+is ever deleted for you: delete the directory when you are done.
+
+`bin/pawl-hook` exits before it starts `pawl` when no run is live and the payload does not mention
+`pawl`, so such a call is not logged. A Stop that matters to a run always has a live run.
+
+This is a diagnostic. The variable and the line shape may change or go away in any 1.x release
+([compatibility.md](compatibility.md#internal)).
+
 ## Enforcement looks off
 
 Compare `root` in `pawl status` against the tree you think you're in — guards, the subagent VCS rule

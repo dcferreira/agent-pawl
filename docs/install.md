@@ -308,6 +308,10 @@ that finishes just before the turn ends is already gone from the Stop payload's 
 its completion notification is still queued, so `Stop` refuses a turn Claude Code was about to wake
 anyway. `subagent-stop` records a short-lived (60s), single-use marker that lets that one Stop through.
 
+To see exactly what Claude Code sent a hook when a `Stop` or a deny surprises you, set
+`PAWL_HOOK_LOG` to an absolute directory (off by default; see
+[troubleshooting.md](troubleshooting.md#capturing-hook-payloads)).
+
 **Opting out**: pass `--no-enforcement` to `pawl run`, or set `PAWL_ENFORCEMENT=off` — the banner
 says so (`enforcement: off (--no-enforcement)` / `enforcement: off (PAWL_ENFORCEMENT=off)`), and any
 `guards:` the workflow declares are reported as declared but not enforced. This is a real, visible

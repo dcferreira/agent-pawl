@@ -78,6 +78,10 @@ func sessionHeartbeatPath(sessionID string) (string, bool) {
 	return filepath.Join(PawlHome(), "heartbeat", "session", sessionID+".json"), true
 }
 
+// SafeFileName is safeFileName for callers outside this package that name a
+// file after an id taken from a hook payload (the payload capture's log).
+func SafeFileName(s string) bool { return safeFileName(s) }
+
 // safeFileName reports whether s may be used as a single path element:
 // only [A-Za-z0-9._-], 1 to 128 bytes, and not "." or "..".
 func safeFileName(s string) bool {

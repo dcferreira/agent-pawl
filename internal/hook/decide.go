@@ -58,6 +58,10 @@ func CompileGuards(decls []spec.GuardDecl) ([]Guard, error) {
 type Decision struct {
 	Allow  bool
 	Reason string
+	// GuardID is the id of the guard that denied, when a guard did ("" for an
+	// allow and for every other deny). It exists for the opt-in payload
+	// capture; it never changes what is decided.
+	GuardID string
 	// Consumed are the SubagentStop markers a Stop evaluation used up: every
 	// marker for the payload's session that DecideStop was given, whatever
 	// the decision. The caller must delete them all, so that a marker never
@@ -177,7 +181,7 @@ func decideGuards(runs []LiveRun, cmd string) Decision {
 		if len(dn.g.OnlyIn) > 0 {
 			allowed = "may only run in step " + strings.Join(dn.g.OnlyIn, ", ")
 		}
-		return Decision{Reason: fmt.Sprintf("pawl: denied by guard `%s` (run %s, %s): %s",
+		return Decision{GuardID: dn.g.ID, Reason: fmt.Sprintf("pawl: denied by guard `%s` (run %s, %s): %s",
 			dn.g.ID, dn.run.RunID, where, allowed)}
 	}
 	return allow
