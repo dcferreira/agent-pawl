@@ -1,5 +1,0 @@
-kind: fixed
-body: A blocked run no longer denies its session's subagents' VCS commands (its guards still apply), and the deny for a running run now names the run's state and `pawl abandon --run <id>`.
-time: 2026-11-12T12:49:00.000000000+01:00
-custom:
-    PR: "103"

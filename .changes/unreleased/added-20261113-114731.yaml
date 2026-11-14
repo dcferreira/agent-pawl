@@ -1,3 +1,0 @@
-kind: added
-body: '`pawl status` now flags a live run that has had no journal event for 7 days or more: a single run gets an `idle:` line that names `pawl abandon --run <id>`, and each such id in the "multiple runs are live" list gets an `(idle 22d)` suffix. `pawl status --json` gains one key per run, `last_event_time` (RFC3339 UTC, `""` when unknown), so scripts can apply their own threshold.'
-time: 2026-11-13T11:47:31.000000000+01:00
