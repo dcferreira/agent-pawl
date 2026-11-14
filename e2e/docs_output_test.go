@@ -478,6 +478,9 @@ func normalize(text, project, home string, runIDs []string) string {
 	}
 	text = regexp.MustCompile(`\b\d+\.\d+s\b`).ReplaceAllString(text, "0.00s")
 	text = regexp.MustCompile(`\((?:\d+[hms])+ parked\)`).ReplaceAllString(text, "(0s parked)")
+	// status --json's last_event_time is the wall-clock time of the run's last
+	// journal event; an empty value (a run pawl cannot replay) is kept as is.
+	text = regexp.MustCompile(`"last_event_time":"\d{4}-\d{2}-\d{2}T[^"]*"`).ReplaceAllString(text, `"last_event_time":"2026-01-01T00:00:00Z"`)
 	return regexp.MustCompile(`locked by pid \d+`).ReplaceAllString(text, "locked by pid 48122")
 }
 
