@@ -1,3 +1,0 @@
-kind: added
-body: 'Set `PAWL_HOOK_LOG` to an absolute directory to capture what Claude Code sends the hooks: `pawl hook pre|stop|subagent-stop` then append one JSON line per call (payload fields, the live runs and markers pawl saw, the decision and its reason) to `<dir>/<session>.jsonl`. It is off by default, never records a command, `tool_input`, `last_assistant_message`, `transcript_path` or a prompt, and cannot change a hook decision. A diagnostic: the variable and the line shape may change in any 1.x. See docs/troubleshooting.md.'
-time: 2026-11-13T12:00:00.000000000+01:00

@@ -1,5 +1,0 @@
-kind: fixed
-body: The hooks no longer treat a redirect as an argument (`git tag --contains HEAD 2>/dev/null` is a listing, not a tag creation), and a pawl called through a shell variable named for it (`"$PAWL" run …`) now writes the heartbeat `pawl run` needs.
-time: 2026-11-12T13:15:00.000000000+01:00
-custom:
-    PR: "105"
